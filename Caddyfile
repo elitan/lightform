@@ -1,0 +1,17 @@
+{
+    # Global Caddy options
+    admin off
+}
+
+# Replace with your actual domain
+example.com {
+    # Reverse proxy to the Luma service running on host
+    reverse_proxy host.docker.internal:8080
+
+    # Log settings
+    log {
+        output file /data/access.log
+    }
+}
+
+# You can add more domain blocks as needed for different services
