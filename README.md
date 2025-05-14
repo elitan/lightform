@@ -1,15 +1,16 @@
 # Luma
-Open Source Google Cloud Run Alternative
+## Open Source Google Cloud Run Alternative
 
-A serverless container management system that starts containers on-demand and automatically shuts them down after a period of inactivity.
+Luma is a lightweight, self-hosted platform that brings Google Cloud Run-like functionality to your own infrastructure. It automatically starts containers on-demand when requests arrive and shuts them down after a period of inactivity, saving resources and reducing costs.
 
 ## Features
 
-- On-demand container deployment and scaling
-- Auto-scale based on request load
-- Inactivity timeout for idle containers (default: 10 minutes)
-- Reverse proxy to route requests to containers
-- Simple HTTP API to manage services
+- **Zero Cold Starts**: Containers start automatically when requests arrive
+- **Pay Only for What You Use**: Containers shut down after inactivity (default: 10 minutes)
+- **Auto-scaling**: Automatically scales based on concurrent request load
+- **Simple Deployment**: Run on your own hardware, VM, or any cloud provider
+- **Developer Friendly**: Simple HTTP API for service management
+- **Open Source**: 100% open source, run it anywhere
 
 ## Getting Started
 
@@ -84,7 +85,7 @@ Access a service directly through the proxy:
 curl http://localhost:8080/nextjs-app/
 ```
 
-If the service is not running, it will be started automatically. If there are a high number of concurrent requests, additional instances will be started automatically.
+If the service is not running, it will be started automatically - just like Google Cloud Run. The first request might take a few seconds to process while the container starts, but subsequent requests will be handled instantly. If concurrent request count exceeds your configured threshold, additional instances will be started automatically to handle the load.
 
 ## Architecture
 
@@ -120,6 +121,15 @@ Luma consists of two main components:
     │                 │                     │                 │
     └─────────────────┘                     └─────────────────┘
 ```
+
+## Why Luma?
+
+Google Cloud Run provides a fantastic serverless container platform, but running it requires using Google Cloud. Luma brings the same powerful concept to your own infrastructure:
+
+- **Cost Efficiency**: Only run containers when needed, save resources when traffic is low
+- **Infrastructure Control**: Run on your own servers, VMs, or any cloud provider
+- **No Vendor Lock-in**: Open source and portable
+- **Simplified Operations**: Automatic scaling without complex Kubernetes configurations
 
 ## License
 
