@@ -1,4 +1,4 @@
-# Luma - Simple Cloud Run Alternative (v1)
+# Luma - Open Source Google Cloud Run Alternative
 
 Luma is a lightweight, open-source alternative to Google Cloud Run, designed to demonstrate core "scale-to-zero" functionality. It starts and stops user-provided Docker containers based on incoming HTTP requests. This initial version focuses on simplicity and local execution.
 
