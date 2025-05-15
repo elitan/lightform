@@ -1,0 +1,37 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Luma Project Overview
+
+Luma is an open-source alternative to Google Cloud Run that manages Docker containers on-demand. It follows the "scale-to-zero" paradigm by automatically starting containers when requests arrive and stopping them after a period of inactivity.
+
+## Core Components
+
+- **Main Application**: [main.go](mdc:main.go) - Entry point that initializes and coordinates all components
+- **Types**: 
+  - [types/project.go](mdc:types/project.go) - Project configuration model
+  - [types/types.go](mdc:types/types.go) - Common types and interfaces
+
+## Key Services
+
+- **Container Management**:
+  - [manager/container_manager.go](mdc:manager/container_manager.go) - Handles Docker container lifecycle (create, start, stop)
+  - [manager/state_manager.go](mdc:manager/state_manager.go) - Manages project configurations and container status
+
+- **Request Handling**:
+  - [proxy/reverse_proxy.go](mdc:proxy/reverse_proxy.go) - Routes incoming HTTP requests based on hostname
+  - [api/project_handler.go](mdc:api/project_handler.go) - API for project registration and management
+
+## Architecture
+
+Luma runs two server components:
+1. Proxy Server (Port 8080) - Handles incoming requests to registered projects
+2. API Server (Port 8081) - Admin API for managing project registrations
+
+When a request arrives for a project hostname:
+1. The reverse proxy identifies the target project
+2. If the container isn't running, it's started on-demand
+3. The request is proxied to the running container
+4. After 1 minute of inactivity, the container is stopped

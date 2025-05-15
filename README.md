@@ -1,24 +1,28 @@
-# Luma - Open Source Google Cloud Run Alternative
+# Luma - Open Source Cloud Run Alternative
 
-Luma is a lightweight, open-source alternative to Google Cloud Run, designed to demonstrate core "scale-to-zero" functionality. It starts and stops user-provided Docker containers based on incoming HTTP requests. This initial version focuses on simplicity and local execution.
-
-## Goals (Version 1)
-
-- Register a project with a Docker image and basic configuration.
-- Listen for incoming HTTP requests and route them based on hostname.
-- Automatically start a project's Docker container on the first request for that project.
-- Forward the HTTP request to the running container.
-- Automatically stop a project's Docker container if it's inactive for 1 minute.
-- Provide a Go service that runs locally, suitable for use behind a reverse proxy like Caddy.
+Luma is a lightweight, open-source alternative to [Google Cloud Run](https://cloud.google.com/run), designed to demonstrate core "scale-to-zero" functionality. It automatically starts and stops Docker containers based on incoming HTTP requests, providing an efficient way to run your applications.
 
 ## Features
 
-- **Project Registration API**: `POST /projects` endpoint to register new projects.
-- **Request Handler**: Dynamically starts containers and proxies requests.
-- **Container Manager**: Uses the Docker Go SDK to manage container lifecycle (run, stop).
-- **State Manager**: In-memory storage for project configurations and container status.
-- **Inactivity Monitor**: Background goroutine to stop idle containers.
-- **Hostname-based Routing**: Uses the `Host` header to route requests.
+- **On-Demand Container Scaling**: Starts containers when traffic arrives and automatically stops them after a period of inactivity
+- **Hostname-Based Routing**: Routes requests to the appropriate container based on the hostname
+- **Docker Integration**: Seamlessly manages container lifecycle using the Docker SDK
+- **Simple API**: Register projects with a straightforward API endpoint
+- **Zero Configuration**: Minimal setup required to get started
+
+## How it Works
+
+Luma runs two server components:
+
+1. **Proxy Server** (Port 8080) - Handles incoming requests to registered projects
+2. **API Server** (Port 8081) - Admin API for managing project registrations
+
+When a request arrives:
+
+1. The reverse proxy identifies the target project based on the hostname
+2. If the container isn't running, it's started on-demand
+3. The request is proxied to the running container
+4. After a period of inactivity (default 20 seconds), the container is stopped
 
 ## Prerequisites
 
@@ -27,53 +31,35 @@ Luma is a lightweight, open-source alternative to Google Cloud Run, designed to 
 
 ## Building and Running
 
-1.  **Clone the repository (if you haven't already):**
+1. **Clone the repository:**
 
-    ```bash
-    # git clone <repository-url>
-    # cd luma
-    ```
+   ```bash
+   git clone <repository-url>
+   cd luma
+   ```
 
-2.  **Ensure dependencies are downloaded:**
+2. **Ensure dependencies are downloaded:**
 
-    ```bash
-    go mod tidy
-    ```
+   ```bash
+   go mod tidy
+   ```
 
-3.  **Build the executable (for a production-like build):**
+3. **Run for local development:**
 
-    ```bash
-    go build -o luma .
-    ```
+   ```bash
+   go run main.go
+   ```
 
-    Then run:
+   The service will start:
 
-    ```bash
-    ./luma
-    ```
-
-4.  **Run for local development:**
-
-    A simpler way to run the service during development (compiles and runs in one step):
-
-    ```bash
-    go run main.go
-    ```
-
-    The service will start by default:
-
-    - The **reverse proxy** on port `:8080`.
-    - The **Luma API server** on port `:8081`.
+   - Proxy server on port `:8080`
+   - API server on port `:8081`
 
 ## Usage
 
-### 1. Registering a Project
+### Registering a Project
 
-To register a project, send a `POST` request to the `/projects` endpoint on the **Luma API server (port 8081)**.
-
-**Example using `curl`:**
-
-Let's say you have a simple Docker image `nginxdemos/hello` (a simple Nginx server that listens on port 80) and you want to make it accessible via `myapp.localhost` through the proxy on port `8080`.
+To register a project, send a `POST` request to the `/projects` endpoint on the API server (port 8081):
 
 ```bash
 curl -X POST http://localhost:8081/projects -H "Content-Type: application/json" -d '{
@@ -89,62 +75,56 @@ curl -X POST http://localhost:8081/projects -H "Content-Type: application/json" 
 
 **Parameters:**
 
-- `name`: A unique name for your project.
-- `docker_image`: The Docker image to run (e.g., `nginx:latest`, `your-custom-image`).
-- `env_vars`: A map of environment variables (key-value pairs) to set in the container.
-- `container_port`: The port your application inside the Docker container listens on.
-- `hostname`: The hostname that Luma will use to route requests to this project.
+- `name`: A unique name for your project
+- `docker_image`: The Docker image to run
+- `env_vars`: Environment variables to set in the container
+- `container_port`: The port your application listens on inside the container
+- `hostname`: The hostname that Luma will use to route requests to this project
 
-### 2. Accessing Your Service
+### Accessing Your Service
 
-Once a project is registered, Luma's **proxy server (port 8080)** will listen for requests matching the specified `hostname`.
-
-- **First Request (Container Startup):**
-  When the first request comes in for `http://myapp.localhost:8080` (or just `http://myapp.localhost` if you have a reverse proxy like Caddy set up to forward to `localhost:8080` based on the hostname), Luma will:
-
-  1.  Recognize the `myapp.localhost` hostname.
-  2.  See that the container for `my-nginx-app` is not running.
-  3.  Pull the `nginxdemos/hello` image (if not already present).
-  4.  Start a new container from this image, mapping its internal port `80` to a dynamic host port.
-  5.  Forward the request to the newly started container.
-
-- **Subsequent Requests:**
-  As long as requests keep coming for `myapp.localhost` within the 1-minute inactivity window, they will be proxied directly to the already running container.
-
-- **Scale-to-Zero (Inactivity Shutdown):**
-  If no requests are made to `http://myapp.localhost:8080` for 1 minute, the inactivity monitor will automatically stop and remove the Docker container for `my-nginx-app` to save resources. The next request will trigger a new startup.
-
-**Example using `curl` to access the service (via the proxy on port 8080):**
+Once registered, the proxy server will route requests to your container based on the hostname:
 
 ```bash
 curl -H "Host: myapp.localhost" http://localhost:8080
 ```
 
-Or, if you have configured your `/etc/hosts` file to point `myapp.localhost` to `127.0.0.1` (or using a reverse proxy that handles this):
+Or if you've configured your hosts file:
 
 ```bash
 curl http://myapp.localhost:8080
 ```
 
-You should see the Nginx welcome page from the `nginxdemos/hello` container.
+## Project Structure
 
-## Architecture Overview
+- `main.go` - Application entry point, initializes components and servers
+- `api/` - API handlers for project registration
+- `manager/` - Core business logic:
+  - `container_manager.go` - Manages Docker container lifecycle
+  - `state_manager.go` - Tracks project configurations and container states
+- `proxy/` - HTTP reverse proxy that routes requests to containers
+- `types/` - Core data models and interfaces
 
-Luma consists of a single Go service that includes:
+## Technical Details
 
-- An API endpoint on a dedicated port (`:8081`) for project registration.
-- An HTTP listener on a separate port (`:8080`) that uses hostname-based routing for proxying.
-- A state manager for in-memory project and container status.
-- A container manager that interacts with the Docker daemon via the Go SDK.
-- A reverse proxy to forward requests to running containers.
-- A background goroutine for monitoring and shutting down inactive containers.
+- **Container Lifecycle**:
+
+  - Containers are only started when needed and assigned dynamic host ports
+  - A background process monitors for inactive containers
+  - The system gracefully handles concurrent requests to start the same container
+  - Containers are safely stopped during application shutdown
+
+- **State Management**:
+  - Project configurations are stored in memory
+  - Container states include: idle, starting, running, stopping, stopped
+  - Synchronization is handled with appropriate mutex locking
 
 ## Future Considerations
 
-- Persistence for project registrations (e.g., Redis, file-based).
-- Resource limits for containers.
-- Basic health checks.
-- Support for multiple container replicas per project.
+- Persistence for project registrations
+- Resource limits for containers
+- Health checks
+- Support for multiple container replicas per project
 
 ## Contributing
 
