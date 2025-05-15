@@ -74,10 +74,29 @@ func main() {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 
-	// TODO: Consider stopping all running containers on shutdown
-	// This might involve iterating through stateManager.GetAllProjects()
-	// and calling containerManager.StopContainer() for each running one.
-	// For v1, keeping it simple: containers might keep running if not timed out.
+	// Stop all running containers managed by this service
+	log.Println("Cleaning up running containers...")
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second) // Give cleanup some time
+	defer cleanupCancel()
+
+	allProjects := stateManager.GetAllProjects() // Assuming StateManager has a method to get all states
+	stoppedCount := 0
+	for _, pState := range allProjects {
+		if pState.IsRunning && pState.ContainerID != "" {
+			log.Printf("Attempting to stop container '%s' for project '%s' as part of shutdown...", pState.ContainerID, pState.ProjectConfig.Name)
+			if err := containerManager.StopContainer(cleanupCtx, pState.ContainerID); err != nil {
+				log.Printf("Error stopping container '%s' for project '%s' during shutdown: %v", pState.ContainerID, pState.ProjectConfig.Name, err)
+			} else {
+				log.Printf("Successfully stopped container '%s' for project '%s' during shutdown.", pState.ContainerID, pState.ProjectConfig.Name)
+				stoppedCount++
+			}
+		}
+	}
+	if stoppedCount > 0 {
+		log.Printf("Successfully stopped %d container(s) during shutdown.", stoppedCount)
+	} else {
+		log.Println("No running containers needed to be stopped during shutdown.")
+	}
 
 	log.Println("Server exited gracefully")
 }
