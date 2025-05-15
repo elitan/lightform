@@ -101,18 +101,26 @@ func (h *ReverseProxyHandler) InactivityMonitor(ctx context.Context, checkInterv
 			projects := h.stateManager.GetAllProjects()
 			foundIdle := false
 			for _, pState := range projects {
-				if pState.IsRunning && time.Since(pState.LastRequest) > inactivityTimeout {
-					foundIdle = true
-					log.Printf("Inactivity monitor: Project '%s' (hostname: %s, container: %s) inactive for over %v. Attempting to stop...",
-						pState.ProjectConfig.Name, pState.ProjectConfig.Hostname, pState.ContainerID, inactivityTimeout)
+				if pState.IsRunning {
+					timeSinceLastRequest := time.Since(pState.LastRequest)
+					if timeSinceLastRequest > inactivityTimeout {
+						foundIdle = true
+						log.Printf("Inactivity monitor: Project '%s' (hostname: %s, container: %s) inactive for over %v. Attempting to stop...",
+							pState.ProjectConfig.Name, pState.ProjectConfig.Hostname, pState.ContainerID, inactivityTimeout)
 
-					err := h.containerManager.StopContainer(ctx, pState.ContainerID)
-					if err != nil {
-						log.Printf("Inactivity monitor: Error stopping container %s for project '%s': %v", pState.ContainerID, pState.ProjectConfig.Name, err)
-						// Decide if we need to do more here, e.g. retry or mark as problematic
+						err := h.containerManager.StopContainer(ctx, pState.ContainerID)
+						if err != nil {
+							log.Printf("Inactivity monitor: Error stopping container %s for project '%s': %v", pState.ContainerID, pState.ProjectConfig.Name, err)
+							// Decide if we need to do more here, e.g. retry or mark as problematic
+						} else {
+							h.stateManager.UpdateContainerStatus(pState.ProjectConfig.Hostname, "", 0, false)
+							log.Printf("Inactivity monitor: Successfully stopped container %s for project '%s'.", pState.ContainerID, pState.ProjectConfig.Name)
+						}
 					} else {
-						h.stateManager.UpdateContainerStatus(pState.ProjectConfig.Hostname, "", 0, false)
-						log.Printf("Inactivity monitor: Successfully stopped container %s for project '%s'.", pState.ContainerID, pState.ProjectConfig.Name)
+						// Container is running and not yet idle
+						remainingTime := inactivityTimeout - timeSinceLastRequest
+						log.Printf("Inactivity monitor: Project '%s' (hostname: %s, container: %s) is active. Time until idle check: %.0f seconds.",
+							pState.ProjectConfig.Name, pState.ProjectConfig.Hostname, pState.ContainerID, remainingTime.Seconds())
 					}
 				}
 			}

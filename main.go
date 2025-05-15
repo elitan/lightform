@@ -16,8 +16,8 @@ import (
 
 const (
 	serverPort        = ":8080"
-	inactivityTimeout = 1 * time.Minute
-	checkInterval     = 10 * time.Second // How often to check for inactive containers
+	inactivityTimeout = 20 * time.Second
+	checkInterval     = 3 * time.Second // How often to check for inactive containers
 )
 
 func main() {
