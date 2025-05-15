@@ -60,20 +60,23 @@ Luma is a lightweight, open-source alternative to Google Cloud Run, designed to 
     go run main.go
     ```
 
-    The service will start by default on port `8080`.
+    The service will start by default:
+
+    - The **reverse proxy** on port `:8080`.
+    - The **Luma API server** on port `:8081`.
 
 ## Usage
 
 ### 1. Registering a Project
 
-To register a project, send a `POST` request to the `/projects` endpoint.
+To register a project, send a `POST` request to the `/projects` endpoint on the **Luma API server (port 8081)**.
 
 **Example using `curl`:**
 
-Let's say you have a simple Docker image `nginxdemos/hello` (a simple Nginx server that listens on port 80) and you want to make it accessible via `myapp.localhost`.
+Let's say you have a simple Docker image `nginxdemos/hello` (a simple Nginx server that listens on port 80) and you want to make it accessible via `myapp.localhost` through the proxy on port `8080`.
 
 ```bash
-curl -X POST http://localhost:8080/projects -H "Content-Type: application/json" -d '{
+curl -X POST http://localhost:8081/projects -H "Content-Type: application/json" -d '{
   "name": "my-nginx-app",
   "docker_image": "nginxdemos/hello",
   "env_vars": {
@@ -94,7 +97,7 @@ curl -X POST http://localhost:8080/projects -H "Content-Type: application/json" 
 
 ### 2. Accessing Your Service
 
-Once a project is registered, Luma will listen for requests matching the specified `hostname`.
+Once a project is registered, Luma's **proxy server (port 8080)** will listen for requests matching the specified `hostname`.
 
 - **First Request (Container Startup):**
   When the first request comes in for `http://myapp.localhost:8080` (or just `http://myapp.localhost` if you have a reverse proxy like Caddy set up to forward to `localhost:8080` based on the hostname), Luma will:
@@ -111,7 +114,7 @@ Once a project is registered, Luma will listen for requests matching the specifi
 - **Scale-to-Zero (Inactivity Shutdown):**
   If no requests are made to `http://myapp.localhost:8080` for 1 minute, the inactivity monitor will automatically stop and remove the Docker container for `my-nginx-app` to save resources. The next request will trigger a new startup.
 
-**Example using `curl` to access the service:**
+**Example using `curl` to access the service (via the proxy on port 8080):**
 
 ```bash
 curl -H "Host: myapp.localhost" http://localhost:8080
@@ -129,8 +132,8 @@ You should see the Nginx welcome page from the `nginxdemos/hello` container.
 
 Luma consists of a single Go service that includes:
 
-- An API endpoint for project registration.
-- An HTTP listener that uses hostname-based routing.
+- An API endpoint on a dedicated port (`:8081`) for project registration.
+- An HTTP listener on a separate port (`:8080`) that uses hostname-based routing for proxying.
 - A state manager for in-memory project and container status.
 - A container manager that interacts with the Docker daemon via the Go SDK.
 - A reverse proxy to forward requests to running containers.

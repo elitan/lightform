@@ -18,19 +18,28 @@ import (
 // ContainerManager interacts with the Docker daemon to manage containers.
 type ContainerManager struct {
 	dockerClient *client.Client
+	stateManager *StateManager // Reference to the StateManager
 }
 
 // NewContainerManager creates a new ContainerManager.
-func NewContainerManager() (*ContainerManager, error) {
+func NewContainerManager(stateManager *StateManager) (*ContainerManager, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)
 	}
-	return &ContainerManager{dockerClient: cli}, nil
+	return &ContainerManager{
+		dockerClient: cli,
+		stateManager: stateManager,
+	}, nil
 }
 
 // StartContainer starts a new Docker container based on the project configuration.
 func (cm *ContainerManager) StartContainer(ctx context.Context, project types.Project) (string, int, error) {
+	// First check if we're allowed to start (not in stopping state)
+	if !cm.stateManager.CanStartContainer(project.Hostname) {
+		return "", 0, fmt.Errorf("cannot start container for project %s: container is in stopping state", project.Hostname)
+	}
+
 	imageName := project.DockerImage
 	log.Printf("ContainerManager: Attempting to pull image '%s' for project '%s'...", imageName, project.Name)
 
@@ -182,7 +191,7 @@ func (cm *ContainerManager) StartContainer(ctx context.Context, project types.Pr
 	log.Printf("ContainerManager: Successfully obtained host port '%s' for container '%s'.", hostPortStr, resp.ID)
 	hostPort, err := nat.ParsePort(hostPortStr)
 	if err != nil {
-		log.Printf("ContainerManager: Failed to parse host port '%s' for container '%s' (project '%s'). Stopping container.", hostPortStr, resp.ID, project.Name, err)
+		log.Printf("ContainerManager: Failed to parse host port '%s' for container '%s' (project '%s'). Stopping container. Error: %v", hostPortStr, resp.ID, project.Name, err)
 		cm.StopContainer(ctx, resp.ID) // Best effort stop
 		return "", 0, fmt.Errorf("failed to parse host port %s: %w", hostPortStr, err)
 	}
@@ -224,5 +233,40 @@ func (cm *ContainerManager) StopContainer(ctx context.Context, containerID strin
 	}
 
 	log.Printf("ContainerManager: Container '%s' successfully stopped and removed.", containerID)
+	return nil
+}
+
+// SafelyStopProjectContainer safely stops a container for a project, handling state transitions.
+// This should be used instead of StopContainer directly when stopping a project's container.
+func (cm *ContainerManager) SafelyStopProjectContainer(ctx context.Context, hostname string) error {
+	// First mark the container as stopping to prevent new requests from starting it
+	wasMarkedStopping := cm.stateManager.MarkContainerStopping(hostname)
+	if !wasMarkedStopping {
+		// Container wasn't running, no need to stop it
+		log.Printf("ContainerManager: SafelyStopProjectContainer - Project '%s' container was not running, no need to stop", hostname)
+		return nil
+	}
+
+	// Get container details
+	projectState, exists := cm.stateManager.GetProjectByHostname(hostname)
+	if !exists || projectState.ContainerID == "" {
+		// Project doesn't exist or has no container, mark as stopped
+		cm.stateManager.MarkContainerStopped(hostname)
+		return nil
+	}
+
+	containerID := projectState.ContainerID
+	log.Printf("ContainerManager: SafelyStopProjectContainer - Stopping container '%s' for project '%s'", containerID, hostname)
+
+	// Perform the actual container stop
+	err := cm.StopContainer(ctx, containerID)
+
+	// Update the state regardless of whether the stop succeeded
+	cm.stateManager.MarkContainerStopped(hostname)
+
+	if err != nil {
+		return fmt.Errorf("failed to safely stop container for project %s: %w", hostname, err)
+	}
+
 	return nil
 }

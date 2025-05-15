@@ -14,8 +14,9 @@ type Project struct {
 // ProjectState holds the runtime state of a project.
 type ProjectState struct {
 	ProjectConfig Project
-	ContainerID   string    // ID of the running container, empty if not running
-	HostPort      int       // Dynamically assigned port on the host
-	LastRequest   time.Time // Timestamp of the last request processed for this project
-	IsRunning     bool
+	ContainerID   string         // ID of the running container, empty if not running
+	HostPort      int            // Dynamically assigned port on the host
+	LastRequest   time.Time      // Timestamp of the last request processed for this project
+	IsRunning     bool           // Whether the container is running
+	State         ContainerState // Current state of the container
 }

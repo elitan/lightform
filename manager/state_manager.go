@@ -4,9 +4,21 @@ import (
 	"sync"
 	"time"
 
-	// "log" // Uncomment if needed for debugging
+	"log" // Uncomment for debugging
 
 	"luma/types"
+)
+
+// ContainerState is an alias for types.ContainerState to avoid having to qualify it every time
+type ContainerState = types.ContainerState
+
+// Aliases for the container state constants to avoid having to qualify them
+const (
+	StateIdle     = types.StateIdle
+	StateStarting = types.StateStarting
+	StateRunning  = types.StateRunning
+	StateStopping = types.StateStopping
+	StateStopped  = types.StateStopped
 )
 
 // startAttempt holds information about an ongoing or recently completed container start attempt.
@@ -43,6 +55,7 @@ func (sm *StateManager) RegisterProject(project types.Project) error {
 	sm.projects[project.Hostname] = &types.ProjectState{
 		ProjectConfig: project,
 		IsRunning:     false,
+		State:         StateIdle,
 	}
 	return nil
 }
@@ -63,8 +76,15 @@ func (sm *StateManager) UpdateContainerStatus(hostname string, containerID strin
 		projectState.ContainerID = containerID
 		projectState.HostPort = hostPort
 		projectState.IsRunning = isRunning
+
+		// Update the container state based on isRunning
 		if isRunning {
+			projectState.State = StateRunning
 			projectState.LastRequest = time.Now()
+		} else if containerID == "" {
+			projectState.State = StateIdle
+		} else {
+			projectState.State = StateStopped
 		}
 		// If a project is now definitively running or not running,
 		// any "active" start attempt might be considered complete or superseded.
@@ -76,7 +96,7 @@ func (sm *StateManager) UpdateContainerStatus(hostname string, containerID strin
 func (sm *StateManager) UpdateLastRequestTime(hostname string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	if projectState, exists := sm.projects[hostname]; exists && projectState.IsRunning {
+	if projectState, exists := sm.projects[hostname]; exists && projectState.State == StateRunning {
 		projectState.LastRequest = time.Now()
 	}
 }
@@ -99,6 +119,22 @@ func (sm *StateManager) GetAllProjects() []*types.ProjectState {
 	return states
 }
 
+// getContainerState returns the current state of a container (thread-safe, internal use).
+func (sm *StateManager) getContainerState(hostname string) ContainerState {
+	projectState, exists := sm.projects[hostname]
+	if !exists {
+		return StateIdle
+	}
+	return projectState.State
+}
+
+// GetContainerState returns the current state of a container (thread-safe).
+func (sm *StateManager) GetContainerState(hostname string) ContainerState {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.getContainerState(hostname)
+}
+
 // EnsureProjectStarting manages the process of initiating a container start.
 // It returns a channel that will be closed when the start attempt is complete,
 // and a boolean indicating if the caller is the one responsible for initiating the start.
@@ -106,17 +142,45 @@ func (sm *StateManager) EnsureProjectStarting(hostname string) (waitChan <-chan 
 	sm.muStarting.Lock()
 	defer sm.muStarting.Unlock()
 
+	// First check if the project is already running or in stopping state
+	sm.mu.RLock()
+	currentState := sm.getContainerState(hostname)
+	sm.mu.RUnlock()
+
+	if currentState == StateRunning {
+		// Create a dummy, already closed channel to indicate no waiting is needed
+		done := make(chan struct{})
+		close(done)
+		return done, false
+	} else if currentState == StateStopping {
+		// If container is currently stopping, we need to wait for it to complete before starting
+		// Set state to handle the transition
+		sm.mu.Lock()
+		if projectState, exists := sm.projects[hostname]; exists {
+			projectState.State = StateStarting
+		}
+		sm.mu.Unlock()
+	}
+
 	sa, exists := sm.startingLocks[hostname]
 	if !exists || !sa.active { // If no lock, or lock exists but is from a completed/failed previous attempt
-		// log.Printf("StateManager: EnsureProjectStarting - No active start for '%s'. Creating new lock. Initiator=true", hostname)
+		log.Printf("StateManager: EnsureProjectStarting - No active start for '%s'. Creating new lock. Initiator=true", hostname)
 		sa = &startAttempt{
 			done:   make(chan struct{}),
 			active: true, // Mark as actively starting
 		}
 		sm.startingLocks[hostname] = sa
+
+		// Update project state to "starting"
+		sm.mu.Lock()
+		if projectState, exists := sm.projects[hostname]; exists {
+			projectState.State = StateStarting
+		}
+		sm.mu.Unlock()
+
 		isInitiator = true
 	} else {
-		// log.Printf("StateManager: EnsureProjectStarting - Active start found for '%s'. Initiator=false", hostname)
+		log.Printf("StateManager: EnsureProjectStarting - Active start found for '%s'. Initiator=false", hostname)
 		isInitiator = false // Another goroutine is already handling the start
 	}
 	return sa.done, isInitiator
@@ -130,7 +194,7 @@ func (sm *StateManager) SignalStartAttemptComplete(hostname string) {
 
 	sa, exists := sm.startingLocks[hostname]
 	if exists && sa.active {
-		// log.Printf("StateManager: SignalStartAttemptComplete - Signaling completion for '%s'", hostname)
+		log.Printf("StateManager: SignalStartAttemptComplete - Signaling completion for '%s'", hostname)
 		sa.once.Do(func() {
 			close(sa.done)
 		})
@@ -139,6 +203,38 @@ func (sm *StateManager) SignalStartAttemptComplete(hostname string) {
 		// This allows a new attempt if this one failed and the project is still not running.
 		delete(sm.startingLocks, hostname)
 	} else {
-		// log.Printf("StateManager: SignalStartAttemptComplete - No active lock to complete for '%s' or already signaled.", hostname)
+		log.Printf("StateManager: SignalStartAttemptComplete - No active lock to complete for '%s' or already signaled.", hostname)
 	}
+}
+
+// MarkContainerStopping updates the project state to indicate the container is being stopped.
+func (sm *StateManager) MarkContainerStopping(hostname string) bool {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	// Only transition to stopping if it was previously running
+	if projectState, exists := sm.projects[hostname]; exists && projectState.State == StateRunning {
+		projectState.State = StateStopping
+		return true
+	}
+	return false
+}
+
+// MarkContainerStopped updates the project state to indicate the container is fully stopped.
+func (sm *StateManager) MarkContainerStopped(hostname string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if projectState, exists := sm.projects[hostname]; exists {
+		projectState.State = StateStopped
+		projectState.IsRunning = false
+	}
+}
+
+// CanStartContainer checks if a container can be started (not in stopping state).
+func (sm *StateManager) CanStartContainer(hostname string) bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+
+	return sm.getContainerState(hostname) != StateStopping
 }
