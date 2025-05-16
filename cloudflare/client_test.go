@@ -33,7 +33,8 @@ func TestNewClient(t *testing.T) {
 		BaseDomain: "",
 	}
 
-	client, err = NewClient(config, "test-server.com")
+	// We don't care about the returned client here, just that it doesn't error
+	_, err = NewClient(config, "test-server.com")
 	if err != nil {
 		t.Fatalf("Failed to create client with disabled Cloudflare and invalid config: %v", err)
 	}

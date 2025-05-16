@@ -114,7 +114,9 @@ func (cm *ContainerManager) StartContainer(ctx context.Context, project types.Pr
 	if err := cm.dockerClient.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
 		log.Printf("ContainerManager: Failed to start container '%s' for project '%s': %v", resp.ID, project.Name, err)
 		// Attempt to remove the created container if start fails
-		cm.dockerClient.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true}) // Best effort removal
+		if err := cm.dockerClient.ContainerRemove(context.Background(), resp.ID, container.RemoveOptions{Force: true}); err != nil {
+			log.Printf("ContainerManager: Failed to remove container '%s' after failed start: %v", resp.ID, err)
+		} // Best effort removal
 		return "", 0, fmt.Errorf("failed to start container %s for project %s: %w", resp.ID, project.Name, err)
 	}
 
@@ -136,7 +138,9 @@ func (cm *ContainerManager) StartContainer(ctx context.Context, project types.Pr
 			log.Printf("ContainerManager: Failed to inspect container '%s' on attempt %d/%d: %v", resp.ID, i+1, maxRetries, inspectErr)
 			// If inspect fails catastrophically, stopping might be wise, or we can let retries continue
 			if i == maxRetries-1 { // Last attempt failed
-				cm.StopContainer(ctx, resp.ID) // Best effort stop
+				if err := cm.StopContainer(ctx, resp.ID); err != nil {
+					log.Printf("ContainerManager: Failed to stop container '%s' after inspect failure: %v", resp.ID, err)
+				} // Best effort stop
 				return "", 0, fmt.Errorf("failed to inspect container %s after %d attempts: %w", resp.ID, maxRetries, inspectErr)
 			}
 			time.Sleep(retryDelay)
@@ -184,7 +188,9 @@ func (cm *ContainerManager) StartContainer(ctx context.Context, project types.Pr
 			log.Printf("ContainerManager: Container '%s' State: inspectData.State is nil.", resp.ID)
 		}
 
-		cm.StopContainer(ctx, resp.ID) // Best effort stop
+		if err := cm.StopContainer(ctx, resp.ID); err != nil {
+			log.Printf("ContainerManager: Failed to stop container '%s' after port binding issue: %v", resp.ID, err)
+		} // Best effort stop
 		return "", 0, fmt.Errorf("could not find valid host port binding for container %s (project %s, target port %s) after %d retries, container state: %+v", resp.ID, project.Name, containerNatPort, maxRetries, inspectData.State)
 	}
 
@@ -192,7 +198,9 @@ func (cm *ContainerManager) StartContainer(ctx context.Context, project types.Pr
 	hostPort, err := nat.ParsePort(hostPortStr)
 	if err != nil {
 		log.Printf("ContainerManager: Failed to parse host port '%s' for container '%s' (project '%s'). Stopping container. Error: %v", hostPortStr, resp.ID, project.Name, err)
-		cm.StopContainer(ctx, resp.ID) // Best effort stop
+		if err := cm.StopContainer(ctx, resp.ID); err != nil {
+			log.Printf("ContainerManager: Failed to stop container '%s' after port binding issue: %v", resp.ID, err)
+		} // Best effort stop
 		return "", 0, fmt.Errorf("failed to parse host port %s: %w", hostPortStr, err)
 	}
 

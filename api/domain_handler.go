@@ -64,7 +64,11 @@ func (h *DomainHandler) GetDomainForProject(w http.ResponseWriter, r *http.Reque
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(domain)
+	if err := json.NewEncoder(w).Encode(domain); err != nil {
+		log.Printf("Failed to encode domain response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // ListAllDomains godoc
@@ -85,7 +89,11 @@ func (h *DomainHandler) ListAllDomains(w http.ResponseWriter, r *http.Request) {
 	domains := h.cloudflareManager.GetAllDomains()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(domains)
+	if err := json.NewEncoder(w).Encode(domains); err != nil {
+		log.Printf("Failed to encode domains response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // CreateDomainForProject godoc
@@ -138,13 +146,21 @@ func (h *DomainHandler) CreateDomainForProject(w http.ResponseWriter, r *http.Re
 		// Domain creation was skipped (Cloudflare integration disabled)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Domain creation skipped (Cloudflare integration disabled)"})
+		if err := json.NewEncoder(w).Encode(map[string]string{"message": "Domain creation skipped (Cloudflare integration disabled)"}); err != nil {
+			log.Printf("Failed to encode domain creation skipped response: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(domain)
+	if err := json.NewEncoder(w).Encode(domain); err != nil {
+		log.Printf("Failed to encode created domain response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // DeleteDomainForProject godoc
@@ -186,7 +202,11 @@ func (h *DomainHandler) DeleteDomainForProject(w http.ResponseWriter, r *http.Re
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"message": "Domain deleted successfully"})
+	if err := json.NewEncoder(w).Encode(map[string]string{"message": "Domain deleted successfully"}); err != nil {
+		log.Printf("Failed to encode domain deletion response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 // RegisterDomainHandlers registers the domain handlers with the given mux
