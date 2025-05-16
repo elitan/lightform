@@ -107,42 +107,67 @@ curl http://myapp.localhost:8080
 
 ## System Architecture Diagram
 
-```mermaid
-graph TD
-    subgraph User Interaction
-        A[User sends HTTP request to myapp.localhost:8080]
-        B["User sends API request to localhost:8081/projects (e.g., POST to register project)"]
-    end
-
-    subgraph Luma System
-        C[Proxy Server :8080]
-        D[API Server :8081]
-        E["Reverse Proxy (proxy/reverse_proxy.go)"]
-        F["State Manager (manager/state_manager.go)"]
-        G["Container Manager (manager/container_manager.go)"]
-        H[Docker]
-        I["Running Container (e.g., my-nginx-app)"]
-        J[Project Configurations (In-memory)]
-    end
-
-    A -- Request with Host header --> C
-    C -- Identifies project via hostname --> E
-    E -- Checks container status --> F
-    F -- Reads project config --> J
-    F -- If container not running --> G
-    G -- Starts/Stops container --> H
-    H -- Runs/Stops --> I
-    E -- Proxies request --> I
-    I -- Response --> E
-    E -- Response --> C
-    C -- Response --> A
-
-    B -- Manages project --> D
-    D -- Updates project config --> F
-    F -- Stores/Retrieves --> J
-
-    F -- Monitors container activity --> G
 ```
+                               +-----------------------------+
+                               |        User Interaction     |
+                               +-----------------------------+
+                                            |
+                  +-------------------------+-------------------------+
+                  |                                                 |
+  [User sends HTTP request to myapp.localhost:8080]   [User sends API request to localhost:8081/projects]
+                  |                                                 |
+                  v                                                 v
++----------------------------------Luma System------------------------------------------+
+|                                                                                         |
+|   +-----------------+       +-----------------+      +-------------------------------+  |
+|   | Proxy Server    |------>| Reverse Proxy   |<---->| State Manager                 |  |
+|   | (Port 8080)     |       | (proxy/         |      | (manager/state_manager.go)    |  |
+|   +-----------------+       |  reverse_proxy.go)|      |  - Manages Project Configs    |  |
+|           ^                 +-----------------+      |  - Manages Container Status   |  |
+|           |                         | ^              +-------------------------------+  |
+|           |                         | |                         |         ^             |
+|   (Response to User)                | | (Proxies Req/Resp)      |         | (Reads/Writes)
+|           |                         | |                         v         |             |
+|           |   +---------------------+ |              +-------------------------------+  |
+|           |   | Running Container     |              | Container Manager             |  |
+|           +---| (e.g., my-nginx-app)  |<-------------| (manager/container_manager.go)|  |
+|               +---------------------+       Docker   |  - Starts/Stops Containers    |  |
+|                       ^       |           <------> +-------------------------------+  |
+|                       |       +------------------> H[Docker Engine]                    |
+|                       +------------------------------+                                |
+|                                                                                         |
+|                                     +-----------------+                                 |
+|                                     | API Server      |<--------------------------------+
+|                                     | (Port 8081)     | (Updates Project Config)
+|                                     +-----------------+                                 |
+|                                                                                         |
++-----------------------------------------------------------------------------------------+
+
+Legend:
+--> : Data/Request Flow
+<-->: Interaction/Query
+
+Flow Breakdown:
+
+1. User Request (HTTP to :8080 for a service like myapp.localhost):
+   - Hits `Proxy Server`.
+   - `Reverse Proxy` identifies the project by hostname.
+   - `Reverse Proxy` checks with `State Manager`:
+     - `State Manager` reads `Project Configurations` (in-memory).
+     - If container is NOT running:
+       - `State Manager` tells `Container Manager`.
+       - `Container Manager` interacts with `Docker Engine` to start the container.
+       - `State Manager` updates container status.
+   - `Reverse Proxy` forwards request to the now `Running Container`.
+   - `Running Container` sends response back through `Reverse Proxy` -> `Proxy Server` -> User.
+
+2. User Request (API to :8081 for project management):
+   - Hits `API Server`.
+   - `API Server` interacts with `State Manager` to Create/Read/Update/Delete `Project Configurations`.
+
+3. Background Monitoring (by State Manager):
+   - `State Manager` monitors activity of `Running Container`s.
+   - If inactive, `State Manager` tells `Container Manager` to stop the container via `Docker Engine`.
 
 ## Technical Details
 
@@ -168,3 +193,4 @@ graph TD
 ## Contributing
 
 This project is primarily for demonstration purposes. Contributions and suggestions are welcome!
+```
