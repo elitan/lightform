@@ -111,7 +111,7 @@ curl http://myapp.localhost:8080
 graph TD
     subgraph User Interaction
         A[User sends HTTP request to myapp.localhost:8080]
-        B[User sends API request to localhost:8081/projects (e.g., POST to register project)]
+        B["User sends API request to localhost:8081/projects (e.g., POST to register project)"]
     end
 
     subgraph Luma System
