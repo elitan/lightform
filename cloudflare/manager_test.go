@@ -161,7 +161,7 @@ func TestGetAllDomains_Empty(t *testing.T) {
 	}
 }
 
-func TestGetAllDomains(t *testing.T) {
+func TestGetAllDomains_Manager(t *testing.T) {
 	config := types.CloudflareConfig{
 		Enabled:    false,
 		BaseDomain: "example.com",

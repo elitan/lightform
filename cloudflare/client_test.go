@@ -149,7 +149,41 @@ func TestDeleteDomain_Disabled(t *testing.T) {
 	}
 }
 
-func TestGetAllDomains(t *testing.T) {
+func TestGetDomain(t *testing.T) {
+	config := types.CloudflareConfig{
+		Enabled:    false,
+		BaseDomain: "example.com",
+	}
+
+	client, _ := NewClient(config, "test-server.com")
+	
+	// First create a domain
+	project := types.Project{
+		Name:        "test-project",
+		DockerImage: "nginx",
+		Hostname:    "test.localhost",
+	}
+	
+	_, _ = client.CreateDomain(context.Background(), project)
+	
+	// Get domain
+	domain, exists := client.GetDomain("test.localhost")
+	if !exists {
+		t.Error("Domain should exist")
+	}
+	
+	if domain.Domain != "test-project.example.com" {
+		t.Errorf("Expected domain to be 'test-project.example.com', got %q", domain.Domain)
+	}
+	
+	// Try to get a non-existent domain
+	_, exists = client.GetDomain("non-existent")
+	if exists {
+		t.Error("Non-existent domain should not exist")
+	}
+}
+
+func TestGetAllDomains_Client(t *testing.T) {
 	config := types.CloudflareConfig{
 		Enabled:    false,
 		BaseDomain: "example.com",

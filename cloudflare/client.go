@@ -64,17 +64,18 @@ func (c *Client) CreateDomain(ctx context.Context, project types.Project) (*type
 	fullDomain := fmt.Sprintf("%s.%s", subdomain, c.config.BaseDomain)
 
 	// Create DNS record via Cloudflare API
-	record := cf.DNSRecord{
+	proxied := true
+	recordParams := cf.CreateDNSRecordParams{
 		Type:    "A", // Using A record, could also support CNAME
 		Name:    subdomain,
 		Content: c.serverAddr,
 		TTL:     120, // 2 minutes for testing, adjust for production
-		Proxied: true,
+		Proxied: &proxied,
 	}
 
 	log.Printf("Cloudflare: Creating DNS record for %s -> %s", fullDomain, c.serverAddr)
 
-	resp, err := c.api.CreateDNSRecord(ctx, cf.ZoneIdentifier(c.config.ZoneID), record)
+	record, err := c.api.CreateDNSRecord(ctx, cf.ZoneIdentifier(c.config.ZoneID), recordParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DNS record: %w", err)
 	}
@@ -84,7 +85,7 @@ func (c *Client) CreateDomain(ctx context.Context, project types.Project) (*type
 		ProjectHostname: project.Hostname,
 		Domain:          fullDomain,
 		DNSRecord: types.CloudflareDNSRecord{
-			RecordID: resp.Result.ID,
+			RecordID: record.ID,
 			Name:     fullDomain,
 			Content:  c.serverAddr,
 			Type:     "A",
@@ -93,7 +94,7 @@ func (c *Client) CreateDomain(ctx context.Context, project types.Project) (*type
 	}
 
 	c.domainMap[project.Hostname] = domainInfo
-	log.Printf("Cloudflare: Created DNS record for %s (ID: %s)", fullDomain, resp.Result.ID)
+	log.Printf("Cloudflare: Created DNS record for %s (ID: %s)", fullDomain, record.ID)
 
 	return &domainInfo, nil
 }

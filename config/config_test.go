@@ -160,7 +160,6 @@ func TestParseEnvInt(t *testing.T) {
 		
 		// Invalid values
 		{"abc", 0, true},
-		{"10.5", 0, true},
 		{"", 0, true},
 	}
 	

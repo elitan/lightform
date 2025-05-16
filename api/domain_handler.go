@@ -8,22 +8,17 @@ import (
 	"net/http"
 
 	"luma/cloudflare"
-	"luma/types"
+	"luma/manager"
 )
 
 // DomainHandler handles API requests related to domains.
 type DomainHandler struct {
 	cloudflareManager *cloudflare.Manager
-	stateManager      *StateManagerInterface
-}
-
-// StateManagerInterface is an interface for the state manager to avoid import cycles
-type StateManagerInterface interface {
-	GetProjectByHostname(hostname string) (*types.ProjectState, bool)
+	stateManager      *manager.StateManager // Changed interface to concrete type
 }
 
 // NewDomainHandler creates a new DomainHandler.
-func NewDomainHandler(cm *cloudflare.Manager, sm StateManagerInterface) *DomainHandler {
+func NewDomainHandler(cm *cloudflare.Manager, sm *manager.StateManager) *DomainHandler {
 	return &DomainHandler{
 		cloudflareManager: cm,
 		stateManager:      sm,
