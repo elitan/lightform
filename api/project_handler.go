@@ -1,23 +1,39 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 
+	"luma/cloudflare"
 	"luma/manager"
 	"luma/types"
 )
 
 // ProjectHandler handles API requests related to projects.
 type ProjectHandler struct {
-	stateManager *manager.StateManager
+	stateManager     *manager.StateManager
+	cloudflareManager *cloudflare.Manager
 }
 
 // NewProjectHandler creates a new ProjectHandler.
 func NewProjectHandler(sm *manager.StateManager) *ProjectHandler {
 	return &ProjectHandler{stateManager: sm}
+}
+
+// WithCloudflareManager adds Cloudflare integration to the ProjectHandler.
+func (h *ProjectHandler) WithCloudflareManager(cm *cloudflare.Manager) *ProjectHandler {
+	h.cloudflareManager = cm
+	return h
+}
+
+// RegisterProjectResponse is the response format for project registration
+type RegisterProjectResponse struct {
+	Message string                 `json:"message"`
+	Project types.Project          `json:"project"`
+	Domain  *types.ProjectDomain   `json:"domain,omitempty"`
 }
 
 // RegisterProject godoc
@@ -27,7 +43,7 @@ func NewProjectHandler(sm *manager.StateManager) *ProjectHandler {
 // @Accept json
 // @Produce json
 // @Param project body types.Project true "Project Registration Details"
-// @Success 201 {object} map[string]string "message: Project registered successfully"
+// @Success 201 {object} RegisterProjectResponse "Project registered successfully with optional domain information"
 // @Failure 400 {object} map[string]string "error: Invalid request payload or project details"
 // @Failure 500 {object} map[string]string "error: Failed to register project"
 // @Router /projects [post]
@@ -63,7 +79,26 @@ func (h *ProjectHandler) RegisterProject(w http.ResponseWriter, r *http.Request)
 
 	log.Printf("Successfully registered project: Name=%s, Hostname=%s", project.Name, project.Hostname)
 
+	// Prepare response
+	response := RegisterProjectResponse{
+		Message: "Project registered successfully: " + project.Name,
+		Project: project,
+	}
+
+	// If Cloudflare integration is enabled, create a domain for the project
+	if h.cloudflareManager != nil && h.cloudflareManager.IsEnabled() {
+		log.Printf("Attempting to create domain for project: %s", project.Name)
+		domain, err := h.cloudflareManager.RegisterProjectDomain(context.Background(), project)
+		if err != nil {
+			log.Printf("Warning: Failed to create domain for project %s: %v", project.Name, err)
+			// Continue with project registration, just log the domain creation failure
+		} else if domain != nil {
+			log.Printf("Successfully created domain for project %s: %s", project.Name, domain.Domain)
+			response.Domain = domain
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Project registered successfully: " + project.Name})
+	json.NewEncoder(w).Encode(response)
 }
