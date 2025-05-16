@@ -117,11 +117,11 @@ graph TD
     subgraph Luma System
         C[Proxy Server :8080]
         D[API Server :8081]
-        E[Reverse Proxy (proxy/reverse_proxy.go)]
-        F[State Manager (manager/state_manager.go)]
-        G[Container Manager (manager/container_manager.go)]
+        E["Reverse Proxy (proxy/reverse_proxy.go)"]
+        F["State Manager (manager/state_manager.go)"]
+        G["Container Manager (manager/container_manager.go)"]
         H[Docker]
-        I[Running Container (e.g., my-nginx-app)]
+        I["Running Container (e.g., my-nginx-app)"]
         J[Project Configurations (In-memory)]
     end
 
