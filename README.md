@@ -113,6 +113,12 @@ Or if you've configured your hosts file:
 curl http://myapp.localhost:8080
 ```
 
+How the host file would have to be configured:
+
+```bash
+127.0.0.1 myapp.localhost
+```
+
 ## Project Structure
 
 - `main.go` - Application entry point, initializes components and servers
