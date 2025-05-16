@@ -156,9 +156,8 @@ func (h *ReverseProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 		}
-	} else {
-		// log.Printf("Container for project '%s' (hostname: %s) is already running. ID: %s, HostPort: %d. Forwarding request...", projectState.ProjectConfig.Name, hostname, projectState.ContainerID, projectState.HostPort)
 	}
+	// Container is already running, proceeding to forward the request
 
 	// Update last request time (do this for both newly started and already running containers)
 	h.stateManager.UpdateLastRequestTime(hostname)

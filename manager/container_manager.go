@@ -51,7 +51,9 @@ func (cm *ContainerManager) StartContainer(ctx context.Context, project types.Pr
 	}
 	// Suppressing ImagePull output for cleaner logs, but it can be useful for debugging.
 	// io.Copy(os.Stdout, reader)
-	io.Copy(io.Discard, reader) // Discard the output to prevent cluttering logs
+	if _, err := io.Copy(io.Discard, reader); err != nil {
+			log.Printf("ContainerManager: Warning: Failed to discard output from image pull: %v", err)
+		} // Discard the output to prevent cluttering logs
 	reader.Close()
 	log.Printf("ContainerManager: Image '%s' pulled successfully (or was already present).", imageName)
 
