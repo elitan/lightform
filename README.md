@@ -105,6 +105,45 @@ curl http://myapp.localhost:8080
 - `proxy/` - HTTP reverse proxy that routes requests to containers
 - `types/` - Core data models and interfaces
 
+## System Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph User Interaction
+        A[User sends HTTP request to myapp.localhost:8080]
+        B[User sends API request to localhost:8081/projects (e.g., POST to register project)]
+    end
+
+    subgraph Luma System
+        C[Proxy Server :8080]
+        D[API Server :8081]
+        E[Reverse Proxy (proxy/reverse_proxy.go)]
+        F[State Manager (manager/state_manager.go)]
+        G[Container Manager (manager/container_manager.go)]
+        H[Docker]
+        I[Running Container (e.g., my-nginx-app)]
+        J[Project Configurations (In-memory)]
+    end
+
+    A -- Request with Host header --> C
+    C -- Identifies project via hostname --> E
+    E -- Checks container status --> F
+    F -- Reads project config --> J
+    F -- If container not running --> G
+    G -- Starts/Stops container --> H
+    H -- Runs/Stops --> I
+    E -- Proxies request --> I
+    I -- Response --> E
+    E -- Response --> C
+    C -- Response --> A
+
+    B -- Manages project --> D
+    D -- Updates project config --> F
+    F -- Stores/Retrieves --> J
+
+    F -- Monitors container activity --> G
+```
+
 ## Technical Details
 
 - **Container Lifecycle**:
