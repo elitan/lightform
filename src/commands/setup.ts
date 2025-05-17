@@ -1,6 +1,7 @@
 import { loadConfig, loadSecrets } from "../config";
 import { LumaConfig, LumaSecrets, LumaService } from "../config/types";
 import { SSHClient } from "../ssh";
+import { DockerClient } from "../docker";
 
 async function getSSHCredentials(
   serverHostname: string,
@@ -165,46 +166,18 @@ async function setupServer(
   try {
     await sshClient.connect();
 
+    // Create Docker client
+    const dockerClient = new DockerClient(sshClient, serverHostname);
+
     // 1. Check if Docker is installed
     console.log(`[${serverHostname}] Checking Docker installation...`);
-    let dockerInstalled = false;
-    try {
-      await sshClient.exec("docker info");
-      console.log(`[${serverHostname}] Docker is installed and accessible.`);
-      dockerInstalled = true;
-    } catch (error) {
-      console.warn(
-        `[${serverHostname}] Docker not found or 'docker info' failed: ${error}.`
-      );
-      console.log(`[${serverHostname}] Will attempt to install Docker...`);
-    }
+    const dockerInstalled = await dockerClient.checkInstallation();
 
-    // Install Docker, curl, git if not installed
+    // Install Docker if not installed
     if (!dockerInstalled) {
-      console.log(`[${serverHostname}] Installing Docker, curl, and git...`);
-      try {
-        console.log(`[${serverHostname}] Running apt update...`);
-        await sshClient.exec("sudo apt update");
-
-        console.log(`[${serverHostname}] Running apt upgrade...`);
-        await sshClient.exec("sudo apt upgrade -y");
-
-        console.log(`[${serverHostname}] Installing docker.io, curl, git...`);
-        await sshClient.exec("sudo apt install -y docker.io curl git");
-
-        console.log(`[${serverHostname}] Adding user to docker group...`);
-        await sshClient.exec(
-          `sudo usermod -a -G docker ${sshCredentials.username}`
-        );
-
-        console.log(
-          `[${serverHostname}] Successfully installed required packages.`
-        );
-        dockerInstalled = true;
-      } catch (installError) {
-        console.error(
-          `[${serverHostname}] Failed to install Docker and dependencies: ${installError}`
-        );
+      console.log(`[${serverHostname}] Will attempt to install Docker...`);
+      const installSuccess = await dockerClient.install();
+      if (!installSuccess) {
         console.log(
           `[${serverHostname}] Please install Docker manually. See https://github.com/elitan/luma for server setup instructions.`
         );
@@ -222,26 +195,7 @@ async function setupServer(
     );
 
     if (dockerUsername && dockerPassword) {
-      console.log(
-        `[${serverHostname}] Logging into Docker registry: ${dockerRegistry}...`
-      );
-      try {
-        // Important: Escape special characters in password for shell command
-        const escapedPassword = dockerPassword.replace(
-          /[\$"`\\\n]/g,
-          (match) => `\\${match}`
-        );
-        const loginCommand = `echo "${escapedPassword}" | docker login ${dockerRegistry} -u "${dockerUsername}" --password-stdin`;
-        await sshClient.exec(loginCommand);
-        console.log(
-          `[${serverHostname}] Successfully logged into Docker registry: ${dockerRegistry}.`
-        );
-      } catch (error) {
-        console.error(
-          `[${serverHostname}] Failed to log into Docker registry ${dockerRegistry}: ${error}`
-        );
-        // Decide if this is a fatal error for the setup
-      }
+      await dockerClient.login(dockerRegistry, dockerUsername, dockerPassword);
     } else {
       console.warn(
         `[${serverHostname}] Docker registry username or password not configured/found in secrets. Skipping Docker login.`
@@ -270,7 +224,6 @@ async function setupServer(
         `[${serverHostname}] Found ${servicesOnThisServer.length} services to start.`
       );
 
-      // Create a dedicated Docker network for all Luma containers
       // Require a project name for network creation
       if (!config.name) {
         console.error(
@@ -284,37 +237,9 @@ async function setupServer(
         );
       }
 
+      // Create a dedicated Docker network for all Luma containers
       const networkName = `${config.name}-network`;
-      let useCustomNetwork = true;
-      console.log(
-        `[${serverHostname}] Creating Docker network: ${networkName}...`
-      );
-      try {
-        // Check if network already exists
-        const networkExists = await sshClient.exec(
-          `docker network ls --filter name=${networkName} --format "{{.Name}}"`
-        );
-
-        if (networkExists.trim() === networkName) {
-          console.log(
-            `[${serverHostname}] Docker network ${networkName} already exists.`
-          );
-        } else {
-          // Create the network
-          await sshClient.exec(`docker network create ${networkName}`);
-          console.log(
-            `[${serverHostname}] Created Docker network: ${networkName}`
-          );
-        }
-      } catch (networkError) {
-        console.error(
-          `[${serverHostname}] Failed to create Docker network: ${networkError}`
-        );
-        console.error(
-          `[${serverHostname}] Will attempt to continue without custom network.`
-        );
-        useCustomNetwork = false;
-      }
+      await dockerClient.createNetwork({ name: networkName });
 
       // Handle service-specific registry logins
       const serviceRegistryMap = new Map<
@@ -363,156 +288,60 @@ async function setupServer(
 
       // Login to all service-specific registries
       for (const [registry, credentials] of serviceRegistryMap.entries()) {
-        console.log(
-          `[${serverHostname}] Logging into service-specific Docker registry: ${registry}...`
+        await dockerClient.login(
+          registry,
+          credentials.username,
+          credentials.password
         );
-        try {
-          const escapedPassword = credentials.password.replace(
-            /[\$"`\\\n]/g,
-            (match) => `\\${match}`
-          );
-          const loginCommand = `echo "${escapedPassword}" | docker login ${registry} -u "${credentials.username}" --password-stdin`;
-          await sshClient.exec(loginCommand);
-          console.log(
-            `[${serverHostname}] Successfully logged into Docker registry: ${registry}.`
-          );
-        } catch (error) {
-          console.error(
-            `[${serverHostname}] Failed to log into Docker registry ${registry}: ${error}`
-          );
-        }
       }
 
+      // Start services
       for (const service of servicesOnThisServer) {
-        console.log(`[${serverHostname}] Starting service: ${service.name}...`);
+        console.log(
+          `[${serverHostname}] Setting up service: ${service.name}...`
+        );
 
         try {
           // Pull the latest image
-          console.log(`[${serverHostname}] Pulling image ${service.image}...`);
+          await dockerClient.pullImage(service.image);
 
-          // Always do a fresh pull to ensure we have the latest version
-          try {
-            await sshClient.exec(`docker pull ${service.image}`);
-            console.log(
-              `[${serverHostname}] Successfully pulled image ${service.image}.`
-            );
-          } catch (pullError) {
-            console.warn(
-              `[${serverHostname}] Warning: Failed to pull image ${service.image}: ${pullError}`
-            );
-            console.warn(
-              `[${serverHostname}] Will attempt to continue with locally available image, if any.`
-            );
-          }
-
-          // Check if container with this name already exists
-          const containerName = `luma-${config.name}-${service.name}`;
-
-          // Check if container already exists (running or not)
-          const containerExists = await sshClient.exec(
-            `docker ps -a --filter "name=${containerName}" --format "{{.Names}}"`
+          // Create container options from the service definition
+          const containerOptions = DockerClient.serviceToContainerOptions(
+            service,
+            config.name,
+            secrets
           );
 
-          if (containerExists.trim()) {
+          // Check if container already exists (running or not)
+          const containerExists = await dockerClient.containerExists(
+            containerOptions.name
+          );
+
+          if (containerExists) {
             // Container exists, check if it's running
-            const containerRunning = await sshClient.exec(
-              `docker ps --filter "name=${containerName}" --format "{{.Names}}"`
+            const containerRunning = await dockerClient.containerIsRunning(
+              containerOptions.name
             );
 
-            if (containerRunning.trim()) {
+            if (containerRunning) {
               console.log(
-                `[${serverHostname}] Container ${containerName} is already running. Setup command does not restart existing containers.`
+                `[${serverHostname}] Container ${containerOptions.name} is already running. Setup command does not restart existing containers.`
               );
               continue; // Skip to the next service
             } else {
               console.log(
-                `[${serverHostname}] Container ${containerName} exists but is not running. Starting it...`
+                `[${serverHostname}] Container ${containerOptions.name} exists but is not running. Starting it...`
               );
-              await sshClient.exec(`docker start ${containerName}`);
-              console.log(
-                `[${serverHostname}] Started container ${containerName}.`
-              );
+              await dockerClient.startContainer(containerOptions.name);
               continue; // Skip to the next service
             }
           }
 
+          // Create new container
           console.log(
-            `[${serverHostname}] No existing container named ${containerName}. Creating new container.`
+            `[${serverHostname}] Creating new container: ${containerOptions.name}`
           );
-
-          // Prepare the docker run command
-          let runCommand = `docker run -d --name ${containerName}`;
-
-          // Add network if available
-          if (useCustomNetwork) {
-            runCommand += ` --network ${networkName}`;
-          }
-
-          // Add restart policy
-          runCommand += ` --restart unless-stopped`;
-
-          // Add ports
-          if (service.ports && service.ports.length > 0) {
-            service.ports.forEach((port) => {
-              runCommand += ` -p ${port}`;
-            });
-          }
-
-          // Add volumes
-          if (service.volumes && service.volumes.length > 0) {
-            service.volumes.forEach((volume: string) => {
-              runCommand += ` -v ${volume}`;
-            });
-          }
-
-          // Add environment variables
-          const envVars: string[] = [];
-
-          // Add plain environment variables
-          if (
-            service.environment?.plain &&
-            service.environment.plain.length > 0
-          ) {
-            service.environment.plain.forEach((envVar) => {
-              envVars.push(`-e ${envVar}`);
-            });
-          }
-
-          // Add secret environment variables
-          if (
-            service.environment?.secret &&
-            service.environment.secret.length > 0
-          ) {
-            service.environment.secret.forEach((secretName) => {
-              const secretValue = secrets[secretName];
-              if (secretValue) {
-                // Escape special characters in secret value
-                const escapedValue = secretValue.replace(/[\$"`\\]/g, "\\$&");
-                envVars.push(`-e ${secretName}="${escapedValue}"`);
-              } else {
-                console.warn(
-                  `[${serverHostname}] Secret ${secretName} not found in .luma/secrets. Skipping.`
-                );
-              }
-            });
-          }
-
-          if (envVars.length > 0) {
-            runCommand += ` ${envVars.join(" ")}`;
-          }
-
-          // Finally add the image name
-          runCommand += ` ${service.image}`;
-
-          // Run the container
-          console.log(
-            `[${serverHostname}] Starting container ${containerName}...`
-          );
-          await sshClient.exec(runCommand);
-
-          console.log(
-            `[${serverHostname}] Service ${service.name} started successfully.`
-          );
+          await dockerClient.createContainer(containerOptions);
         } catch (error) {
           console.error(
             `[${serverHostname}] Failed to start service ${service.name}: ${error}`

@@ -2,7 +2,8 @@
   "name": "luma",
   "version": "0.1.0",
   "scripts": {
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
