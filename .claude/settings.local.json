@@ -17,7 +17,11 @@
       "Bash(LUMA_CLOUDFLARE_ENABLED=false LUMA_CLOUDFLARE_BASE_DOMAIN=example.com go build)",
       "Bash(git push:*)",
       "Bash(go build:*)",
-      "Bash(docker build:*)"
+      "Bash(docker build:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(go install:*)",
+      "Bash(~/go/bin/golangci-lint run)",
+      "Bash(go vet:*)"
     ],
     "deny": []
   }
