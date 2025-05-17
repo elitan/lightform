@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -10,18 +11,37 @@ import (
 	"time"
 
 	"luma/api"
+	"luma/cloudflare"
+	"luma/config"
 	"luma/manager"
 	"luma/proxy"
 )
 
-const (
-	proxyServerPort   = ":8080" // Port for the reverse proxy
-	apiServerPort     = ":8081" // Port for the Luma API
-	inactivityTimeout = 20 * time.Second
-	checkInterval     = 3 * time.Second // How often to check for inactive containers
-)
-
 func main() {
+	// Parse command line flags
+	configPath := flag.String("config", "", "Path to configuration file")
+	flag.Parse()
+
+	// Load configuration
+	cfg, err := config.LoadConfig(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Log startup information
+	log.Printf("Starting Luma with configuration:")
+	log.Printf("  Proxy Server Port: %s", cfg.ProxyServerPort)
+	log.Printf("  API Server Port: %s", cfg.APIServerPort)
+	log.Printf("  Inactivity Timeout: %d seconds", cfg.InactivityTimeout)
+	log.Printf("  Check Interval: %d seconds", cfg.CheckInterval)
+	log.Printf("  Server Address: %s", cfg.ServerAddress)
+	log.Printf("  Cloudflare Integration: %v", cfg.Cloudflare.Enabled)
+	if cfg.Cloudflare.Enabled {
+		log.Printf("  Cloudflare Base Domain: %s", cfg.Cloudflare.BaseDomain)
+		log.Printf("  Cloudflare Auto Generate Domains: %v", cfg.Cloudflare.AutoGenerate)
+	}
+
+	// Create a cancellable context for all operations
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -32,9 +52,37 @@ func main() {
 		log.Fatalf("Failed to initialize ContainerManager: %v", err)
 	}
 
+	// Initialize Cloudflare client and manager if enabled
+	var cfManager *cloudflare.Manager
+	if cfg.Cloudflare.Enabled {
+		log.Println("Initializing Cloudflare integration...")
+		cfClient, err := cloudflare.NewClient(cfg.Cloudflare, cfg.ServerAddress)
+		if err != nil {
+			log.Fatalf("Failed to initialize Cloudflare client: %v", err)
+		}
+		cfManager = cloudflare.NewManager(cfClient, cfg.Cloudflare.AutoGenerate)
+		log.Println("Cloudflare integration initialized successfully")
+	} else {
+		log.Println("Cloudflare integration is disabled")
+		// Create a disabled manager
+		cfManager = cloudflare.NewManager(nil, false)
+	}
+
 	// Initialize handlers
 	projectAPIHandler := api.NewProjectHandler(stateManager)
+	
+	// Connect Cloudflare manager to the project handler
+	if cfManager != nil {
+		projectAPIHandler = projectAPIHandler.WithCloudflareManager(cfManager)
+		log.Println("Cloudflare integration added to project handler")
+	}
+	
 	reverseProxyHandler := proxy.NewReverseProxyHandler(stateManager, containerManager)
+	domainAPIHandler := api.NewDomainHandler(cfManager, stateManager)
+
+	// Setup inactivity timeout and check interval
+	inactivityTimeout := time.Duration(cfg.InactivityTimeout) * time.Second
+	checkInterval := time.Duration(cfg.CheckInterval) * time.Second
 
 	// Start inactivity monitor in a goroutine
 	go reverseProxyHandler.InactivityMonitor(ctx, checkInterval, inactivityTimeout)
@@ -42,9 +90,15 @@ func main() {
 	// Setup API server
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("/projects", projectAPIHandler.RegisterProject) // API endpoint for project registration
+	
+	// Register domain handlers if Cloudflare integration is available
+	if cfManager != nil {
+		domainAPIHandler.RegisterDomainHandlers(apiMux)
+		log.Println("Domain management API endpoints registered")
+	}
 
 	apiServer := &http.Server{
-		Addr:    apiServerPort,
+		Addr:    cfg.APIServerPort,
 		Handler: apiMux,
 	}
 
@@ -53,12 +107,12 @@ func main() {
 	proxyMux.Handle("/", reverseProxyHandler) // Main reverse proxy for all other requests
 
 	proxyServer := &http.Server{
-		Addr:    proxyServerPort,
+		Addr:    cfg.ProxyServerPort,
 		Handler: proxyMux,
 	}
 
-	log.Printf("Luma API server starting on port %s", apiServerPort)
-	log.Printf("Luma Proxy server starting on port %s", proxyServerPort)
+	log.Printf("Luma API server starting on port %s", cfg.APIServerPort)
+	log.Printf("Luma Proxy server starting on port %s", cfg.ProxyServerPort)
 
 	// Start API server
 	go func() {
