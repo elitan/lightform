@@ -13,13 +13,20 @@ export const LumaServiceSchema = z.object({
     })
     .optional(),
   ports: z.array(z.string()).optional(),
+  volumes: z.array(z.string()).optional(),
   environment: z
     .object({
       plain: z.array(z.string()).optional(),
       secret: z.array(z.string()).optional(),
     })
     .optional(),
-  registry: z.string().optional(), // Optional: specific registry for this service
+  registry: z
+    .object({
+      url: z.string().optional(),
+      username: z.string(),
+      password: z.array(z.string()),
+    })
+    .optional(),
 });
 
 // Infer TypeScript type for LumaService
@@ -27,6 +34,7 @@ export type LumaService = z.infer<typeof LumaServiceSchema>;
 
 // Zod schema for LumaConfig
 export const LumaConfigSchema = z.object({
+  name: z.string().optional(), // Project name, used for network naming
   services: z.record(LumaServiceSchema),
   docker: z
     .object({

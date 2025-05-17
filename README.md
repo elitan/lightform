@@ -72,43 +72,156 @@ docker:
   registry: my.private-registry.com
   username: my_registry_user # Password for this user should be in .luma/secrets
 
-services:
-  my-web-app:
-    image: nginx:latest # Docker image to use (e.g., from Docker Hub or your private registry)
-    servers:
-      - 192.168.1.100 # IP address or hostname of the server
-      - server2.example.com
-    # Optional: Build settings if Luma should build the image
-    build:
-      context: ./my-web-app-src # Path to the build context
-      dockerfile: Dockerfile # Path to the Dockerfile within the context
-    # Optional: Port mappings (host:container)
-    ports:
-      - "80:80"
-      - "443:443"
-    # Optional: Environment variables
-    environment:
-      plain: # Plain text variables
-        - NODE_ENV=production
-        - API_URL=https://api.example.com
-      secret: # Names of secrets to source from .luma/secrets
-        - DATABASE_URL_SECRET # Will look for DATABASE_URL_SECRET in .luma/secrets
-        - API_KEY_SECRET
-    # Optional: Override global Docker registry for this service
-    registry: another.registry.com
+# Define your primary applications under 'apps'.
+# These are typically built by Luma and benefit from zero-downtime deployment.
+apps:
+  # Example App: A simple web application
+  my-webapp:
+    # Required: Docker image name.
+    # If you are building the image, this is the target image name.
+    # If you are using a pre-built image, this is the image to pull.
+    image: your_registry.example.com/my-webapp
 
-  my-worker:
-    image: my-custom-worker
+    # Required: List of servers to deploy this app to (IPs or hostnames).
+    # Luma will connect to these servers via SSH.
     servers:
       - 192.168.1.101
+      - my-server-2.example.com
+
+    # Optional: App-specific registry override.
+    # Uncomment and configure if this app uses a different registry than the default.
+    # registry:
+    #   username: app_specific_username
+    #   password:
+    #     - APP_REGISTRY_PASSWORD_VAR
+
+    # Optional: Configuration for building the Docker image.
+    # Required if you are building your own image from a Dockerfile.
+    # If omitted, Luma assumes the 'image' already exists in the registry.
     build:
-      context: ./my-worker-src
-      dockerfile: Dockerfile.worker
+      # Path to the build context (e.g., '.' for monorepo root, 'apps/my-webapp' for a specific app dir).
+      context: .
+      # Path to the Dockerfile relative to the context.
+      dockerfile: Dockerfile
+      # Optional: Build arguments passed to docker build --build-arg.
+      # args:
+      #   - NODE_VERSION=18
+      #   - BUILD_ENV=production
+
+    # Optional: Environment variables for the container.
     environment:
-      plain:
-        - QUEUE_NAME=important_jobs
+      # Values sourced from the secrets file (.luma/secrets).
+      # Luma will inject these as environment variables into the container.
       secret:
-        - AMQP_CONNECTION_STRING_SECRET
+        - DATABASE_URL
+        - API_KEY
+
+      # Values defined directly in this config file.
+      plain:
+        - PORT=8080
+        - NODE_ENV=production
+
+    # Optional: Port mapping from host to container (HOST_PORT:CONTAINER_PORT).
+    # Luma will use the host port for health checks if configured.
+    ports:
+      - "80:8080" # Map host port 80 to container port 8080
+      - "443:8443" # Example for HTTPS
+
+    # Optional: Volumes to mount (HOST_PATH:CONTAINER_PATH or named_volume:CONTAINER_PATH).
+    volumes:
+      - app_data:/var/lib/my-webapp # Example named volume
+      - /etc/nginx/conf.d:/etc/nginx/conf.d:ro # Example bind mount (read-only)
+
+    # Optional: Health check configuration.
+    # Luma will wait for this endpoint to return a 2xx status code before considering the new container healthy.
+    # Primarily used for apps to enable basic zero-downtime updates.
+    healthcheck:
+      # HTTP path to check (e.g., /healthz, /status).
+      path: /healthz
+      # Check interval (e.g., 5s, 1m).
+      interval: 10s
+      # Check timeout (e.g., 3s, 30s).
+      timeout: 5s
+      # Number of retries before failure.
+      retries: 3
+      # Initial delay before health checks start (e.g., 30s).
+      start_period: 15s
+
+  # Example App: A background worker
+  my-worker:
+    image: your_registry.example.com/my-worker
+    servers:
+      - 192.168.1.102
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    environment:
+      secret:
+        - QUEUE_CONNECTION_STRING
+      plain:
+        - WORKER_CONCURRENCY=5
+    # Workers might not expose ports or need health checks in the same way as web apps.
+    # ports: [] # No exposed ports
+    # healthcheck: # No HTTP health check needed
+    #   ...
+
+# Define supporting services (like databases, caches) under 'services'.
+# Luma manages these with a simpler stop-and-start deployment.
+# Note: In Luma, 'services' refers to supporting infrastructure like databases or caches,
+# distinct from the 'apps' that Luma builds and deploys with zero-downtime features.
+services:
+  # Example Service: A database
+  my-database:
+    # Required: Docker image name (usually from a public registry like Docker Hub).
+    image: postgres:14
+
+    # Required: List of servers to deploy this service to.
+    # Often deployed to a dedicated database server.
+    servers:
+      - 192.168.1.201
+
+    # Optional: Service-specific registry (e.g., if using a private Postgres image).
+    # registry:
+    #   ...
+
+    # Optional: Environment variables (e.g., for database initialization).
+    environment:
+      secret:
+        - POSTGRES_PASSWORD
+        - POSTGRES_USER
+        - POSTGRES_DB
+      # plain:
+      #   - PGDATA=/var/lib/postgresql/data
+
+    # Optional: Port mapping (often internal or to a specific host interface for security).
+    ports:
+      - "127.0.0.1:5432:5432" # Bind to localhost for internal access only
+
+    # Optional: Volumes for persistent data. Crucial for databases!
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Example named volume
+
+    # Health check can be defined but is NOT used for zero-downtime switching on services in MVP.
+    # healthcheck:
+    #   ...
+
+  # Example Service: A cache
+  my-cache:
+    image: redis:7
+    servers:
+      - 192.168.1.202
+    # No build needed for standard Redis image
+    # No registry override needed for Docker Hub
+    environment:
+      secret:
+        - REDIS_PASSWORD
+    ports:
+      - "6379:6379" # Default Redis port
+    volumes:
+      - redis_data:/data # Volume for persistence (optional for cache)
+    # No health check needed for zero-downtime in MVP
+    # healthcheck:
+    #   ...
 ```
 
 ### `.luma/secrets`
