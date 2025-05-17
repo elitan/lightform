@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { initCommand } from "./commands/init";
+import { setupCommand } from "./commands/setup";
 
 async function main() {
   const args = Bun.argv.slice(2); // Remove 'bun' and 'src/index.ts' from args
@@ -17,6 +18,9 @@ async function main() {
   switch (command) {
     case "init":
       await initCommand();
+      break;
+    case "setup":
+      await setupCommand(args.slice(1));
       break;
     // TODO: Add cases for other commands (setup, deploy, etc.)
     default:
