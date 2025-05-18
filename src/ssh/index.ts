@@ -2,6 +2,9 @@
 
 import SSH2Promise from "ssh2-promise";
 import { ConnectConfig } from "ssh2"; // Import ConnectConfig from ssh2
+import { getSSHCredentials } from "./utils"; // Import the utility function
+
+export { getSSHCredentials }; // Export for use across the codebase
 
 export interface SSHClientOptions {
   host: string;

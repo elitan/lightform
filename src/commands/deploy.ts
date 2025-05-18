@@ -12,86 +12,9 @@ import {
   DockerBuildOptions,
   DockerContainerOptions,
 } from "../docker"; // Updated path and name
-import { SSHClient, SSHClientOptions } from "../ssh"; // Updated path
+import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh"; // Updated to import the utility function
 import { generateReleaseId } from "../utils"; // Changed path
-
-// Helper function to get SSH credentials - adapted from setup.ts
-// This should ideally be in a shared utils file if used by multiple commands.
-async function getSSHCredentialsForDeploy(
-  serverHostname: string,
-  config: LumaConfig,
-  secrets: LumaSecrets
-): Promise<Partial<SSHClientOptions>> {
-  // Returning Partial<SSHClientOptions> for more type safety
-  const sshUser = config.ssh?.username || "root"; // Default to root, though setup warns against it
-
-  // Check for server-specific key path in secrets
-  const serverSpecificKeyEnvVar = `SSH_KEY_${serverHostname
-    .replace(/\./g, "_")
-    .toUpperCase()}`;
-  const serverSpecificKeyPath = secrets[serverSpecificKeyEnvVar];
-  if (serverSpecificKeyPath) {
-    console.log(
-      `[${serverHostname}] Using server-specific SSH key from secrets: ${serverSpecificKeyPath}`
-    );
-    return {
-      username: sshUser,
-      privateKey: serverSpecificKeyPath,
-      host: serverHostname,
-      port: config.ssh?.port,
-    };
-  }
-
-  // Check for default key path in secrets
-  const defaultKeyPath = secrets.DEFAULT_SSH_KEY_PATH;
-  if (defaultKeyPath) {
-    console.log(
-      `[${serverHostname}] Using default SSH key from secrets: ${defaultKeyPath}`
-    );
-    return {
-      username: sshUser,
-      privateKey: defaultKeyPath,
-      host: serverHostname,
-      port: config.ssh?.port,
-    };
-  }
-
-  // Check for server-specific password in secrets
-  const serverSpecificPasswordEnvVar = `SSH_PASSWORD_${serverHostname
-    .replace(/\./g, "_")
-    .toUpperCase()}`;
-  const serverSpecificPassword = secrets[serverSpecificPasswordEnvVar];
-  if (serverSpecificPassword) {
-    console.log(
-      `[${serverHostname}] Using server-specific SSH password from secrets.`
-    );
-    return {
-      username: sshUser,
-      password: serverSpecificPassword,
-      host: serverHostname,
-      port: config.ssh?.port,
-    };
-  }
-
-  // Check for default password in secrets
-  const defaultPassword = secrets.DEFAULT_SSH_PASSWORD;
-  if (defaultPassword) {
-    console.log(`[${serverHostname}] Using default SSH password from secrets.`);
-    return {
-      username: sshUser,
-      password: defaultPassword,
-      host: serverHostname,
-      port: config.ssh?.port,
-    };
-  }
-
-  console.log(
-    `[${serverHostname}] No specific SSH key or password in secrets. Attempting agent-based or default key file auth.`
-  );
-  // For agent-based or default ~/.ssh keys, privateKey path is not explicitly set here
-  // SSHClient will attempt to use agent or common key locations if privateKey is not provided
-  return { username: sshUser, host: serverHostname, port: config.ssh?.port };
-}
+import { execSync } from "child_process";
 
 // Helper to resolve environment variables for a container
 function resolveEnvironmentVariables(
@@ -116,6 +39,19 @@ function resolveEnvironmentVariables(
     }
   }
   return envVars;
+}
+
+// Function to check for uncommitted changes in the working directory
+async function hasUncommittedChanges(): Promise<boolean> {
+  try {
+    const status = execSync("git status --porcelain").toString().trim();
+    return status.length > 0;
+  } catch (error) {
+    console.warn(
+      "Failed to check git status. Assuming no uncommitted changes."
+    );
+    return false;
+  }
 }
 
 // Helper to create DockerContainerOptions for an AppEntry
@@ -184,11 +120,25 @@ function normalizeConfigEntries(
 export async function deployCommand(rawEntryNamesAndFlags: string[]) {
   console.log("Deploy command initiated with raw args:", rawEntryNamesAndFlags);
 
-  // Detect --services flag and filter out actual entry names
-  const deployServicesFlag = rawEntryNamesAndFlags.includes("--services");
+  // Check for --force flag
+  const forceFlag = rawEntryNamesAndFlags.includes("--force");
+
+  // Filter out flags
   const entryNames = rawEntryNamesAndFlags.filter(
-    (name) => name !== "--services"
+    (name) => name !== "--services" && name !== "--force"
   );
+
+  // Check for uncommitted changes
+  if (!forceFlag && (await hasUncommittedChanges())) {
+    console.error(
+      "ERROR: Uncommitted changes detected in working directory. Deployment aborted for safety.\n" +
+        "Please commit your changes before deploying, or use --force to deploy anyway."
+    );
+    return;
+  }
+
+  // Detect --services flag
+  const deployServicesFlag = rawEntryNamesAndFlags.includes("--services");
 
   if (deployServicesFlag) {
     console.log(
@@ -321,13 +271,22 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       if (appEntry.build) {
         console.log(`  Building app ${appEntry.name}...`);
         try {
+          // Ensure platform is set to avoid architecture mismatch during deployment
+          const buildPlatform = appEntry.build.platform || "linux/amd64"; // Default to amd64 if not specified
+
+          if (!appEntry.build.platform) {
+            console.log(
+              `  No platform specified, defaulting to ${buildPlatform} for cross-platform compatibility`
+            );
+          }
+
           await DockerClient.build({
             // Use static method
             context: appEntry.build.context,
             dockerfile: appEntry.build.dockerfile,
             tags: [imageNameWithRelease],
             buildArgs: appEntry.build.args,
-            platform: appEntry.build.platform, // Assuming platform can be in build config
+            platform: buildPlatform, // Use the determined platform
             target: appEntry.build.target, // Assuming target can be in build config
           });
           console.log(
@@ -390,7 +349,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
         );
         let sshClient: SSHClient | undefined;
         try {
-          const sshCreds = await getSSHCredentialsForDeploy(
+          const sshCreds = await getSSHCredentials(
             serverHostname,
             config,
             secrets
@@ -413,20 +372,52 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
 
           const appRegistry = appEntry.registry;
           let appImageRegistry =
-            appRegistry?.url || globalRegistryConfig?.registry;
+            appRegistry?.url || globalRegistryConfig?.registry || "docker.io";
+
+          let registryLoginPerformed = false;
+
           if (appRegistry?.username && appRegistry?.password_secret) {
             const password = secrets[appRegistry.password_secret];
             if (password) {
               console.log(
-                `    [${serverHostname}] Logging into app-specific registry: ${
-                  appImageRegistry || "default"
-                }`
+                `    [${serverHostname}] Logging into app-specific registry: ${appImageRegistry}`
               );
-              await dockerClientRemote.login(
-                appImageRegistry || "docker.io",
-                appRegistry.username,
-                password
-              );
+              try {
+                await dockerClientRemote.login(
+                  appImageRegistry,
+                  appRegistry.username,
+                  password
+                );
+                console.log(
+                  `    [${serverHostname}] Successfully logged into registry`
+                );
+                registryLoginPerformed = true;
+              } catch (loginError) {
+                // Check if the error is just the unencrypted warning
+                const errorMessage =
+                  typeof loginError === "object" && loginError !== null
+                    ? String(loginError)
+                    : "Unknown error";
+
+                if (
+                  errorMessage.includes(
+                    "WARNING! Your password will be stored unencrypted"
+                  )
+                ) {
+                  // This is just a warning, not an actual error - login was successful
+                  console.log(
+                    `    [${serverHostname}] Login successful (with warning about unencrypted storage)`
+                  );
+                  registryLoginPerformed = true;
+                } else {
+                  // This is a real error
+                  console.error(
+                    `    [${serverHostname}] Failed to login to registry:`,
+                    loginError
+                  );
+                  // Continue anyway as the image might be public or pre-authenticated
+                }
+              }
             } else {
               console.warn(
                 `    [${serverHostname}] Secret ${appRegistry.password_secret} for app registry not found. Assuming public image or pre-existing login.`
@@ -439,14 +430,45 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
             // General DOCKER_REGISTRY_PASSWORD for global config
             console.log(
               `    [${serverHostname}] Logging into global Docker registry: ${
-                globalRegistryConfig.registry || "default"
+                globalRegistryConfig.registry || "docker.io"
               }`
             );
-            await dockerClientRemote.login(
-              globalRegistryConfig.registry || "docker.io",
-              globalRegistryConfig.username,
-              secrets.DOCKER_REGISTRY_PASSWORD
-            );
+            try {
+              await dockerClientRemote.login(
+                appImageRegistry,
+                globalRegistryConfig.username,
+                secrets.DOCKER_REGISTRY_PASSWORD
+              );
+              console.log(
+                `    [${serverHostname}] Successfully logged into registry`
+              );
+              registryLoginPerformed = true;
+            } catch (loginError) {
+              // Check if the error is just the unencrypted warning
+              const errorMessage =
+                typeof loginError === "object" && loginError !== null
+                  ? String(loginError)
+                  : "Unknown error";
+
+              if (
+                errorMessage.includes(
+                  "WARNING! Your password will be stored unencrypted"
+                )
+              ) {
+                // This is just a warning, not an actual error - login was successful
+                console.log(
+                  `    [${serverHostname}] Login successful (with warning about unencrypted storage)`
+                );
+                registryLoginPerformed = true;
+              } else {
+                // This is a real error
+                console.error(
+                  `    [${serverHostname}] Failed to login to registry:`,
+                  loginError
+                );
+                // Continue anyway as the image might be public or pre-authenticated
+              }
+            }
           } // Else: relying on pre-configured login on the server or public images
 
           console.log(
@@ -455,6 +477,15 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           const pullSuccess = await dockerClientRemote.pullImage(
             imageNameWithRelease
           );
+
+          // Logout after pulling to avoid storing credentials
+          if (registryLoginPerformed) {
+            console.log(
+              `    [${serverHostname}] Logging out from registry to avoid storing credentials...`
+            );
+            await dockerClientRemote.logout(appImageRegistry);
+          }
+
           if (!pullSuccess) {
             console.error(
               `    [${serverHostname}] Failed to pull image ${imageNameWithRelease}. Skipping deployment to this server.`
@@ -664,7 +695,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
         );
         let sshClient: SSHClient | undefined;
         try {
-          const sshCreds = await getSSHCredentialsForDeploy(
+          const sshCreds = await getSSHCredentials(
             serverHostname,
             config,
             secrets
@@ -687,20 +718,54 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
 
           const serviceRegistry = serviceEntry.registry;
           let serviceImageRegistry =
-            serviceRegistry?.url || globalRegistryConfig?.registry;
+            serviceRegistry?.url ||
+            globalRegistryConfig?.registry ||
+            "docker.io";
+
+          let registryLoginPerformed = false;
+
           if (serviceRegistry?.username && serviceRegistry?.password_secret) {
             const password = secrets[serviceRegistry.password_secret];
             if (password) {
               console.log(
-                `    [${serverHostname}] Logging into service-specific registry: ${
-                  serviceImageRegistry || "default"
-                }`
+                `    [${serverHostname}] Logging into service-specific registry: ${serviceImageRegistry}`
               );
-              await dockerClientRemote.login(
-                serviceImageRegistry || "docker.io",
-                serviceRegistry.username,
-                password
-              );
+              try {
+                await dockerClientRemote.login(
+                  serviceImageRegistry,
+                  serviceRegistry.username,
+                  password
+                );
+                console.log(
+                  `    [${serverHostname}] Successfully logged into registry`
+                );
+                registryLoginPerformed = true;
+              } catch (loginError) {
+                // Check if the error is just the unencrypted warning
+                const errorMessage =
+                  typeof loginError === "object" && loginError !== null
+                    ? String(loginError)
+                    : "Unknown error";
+
+                if (
+                  errorMessage.includes(
+                    "WARNING! Your password will be stored unencrypted"
+                  )
+                ) {
+                  // This is just a warning, not an actual error - login was successful
+                  console.log(
+                    `    [${serverHostname}] Login successful (with warning about unencrypted storage)`
+                  );
+                  registryLoginPerformed = true;
+                } else {
+                  // This is a real error
+                  console.error(
+                    `    [${serverHostname}] Failed to login to registry:`,
+                    loginError
+                  );
+                  // Continue anyway as the image might be public or pre-authenticated
+                }
+              }
             } else {
               console.warn(
                 `    [${serverHostname}] Secret ${serviceRegistry.password_secret} for service registry not found. Assuming public image or pre-existing login.`
@@ -712,14 +777,45 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           ) {
             console.log(
               `    [${serverHostname}] Logging into global Docker registry: ${
-                globalRegistryConfig.registry || "default"
+                globalRegistryConfig.registry || "docker.io"
               }`
             );
-            await dockerClientRemote.login(
-              globalRegistryConfig.registry || "docker.io",
-              globalRegistryConfig.username,
-              secrets.DOCKER_REGISTRY_PASSWORD
-            );
+            try {
+              await dockerClientRemote.login(
+                serviceImageRegistry,
+                globalRegistryConfig.username,
+                secrets.DOCKER_REGISTRY_PASSWORD
+              );
+              console.log(
+                `    [${serverHostname}] Successfully logged into registry`
+              );
+              registryLoginPerformed = true;
+            } catch (loginError) {
+              // Check if the error is just the unencrypted warning
+              const errorMessage =
+                typeof loginError === "object" && loginError !== null
+                  ? String(loginError)
+                  : "Unknown error";
+
+              if (
+                errorMessage.includes(
+                  "WARNING! Your password will be stored unencrypted"
+                )
+              ) {
+                // This is just a warning, not an actual error - login was successful
+                console.log(
+                  `    [${serverHostname}] Login successful (with warning about unencrypted storage)`
+                );
+                registryLoginPerformed = true;
+              } else {
+                // This is a real error
+                console.error(
+                  `    [${serverHostname}] Failed to login to registry:`,
+                  loginError
+                );
+                // Continue anyway as the image might be public or pre-authenticated
+              }
+            }
           } // Else: relying on pre-configured login on the server or public images
 
           console.log(
@@ -728,6 +824,15 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           const pullServiceSuccess = await dockerClientRemote.pullImage(
             imageToPull
           );
+
+          // Logout after pulling to avoid storing credentials
+          if (registryLoginPerformed) {
+            console.log(
+              `    [${serverHostname}] Logging out from registry to avoid storing credentials...`
+            );
+            await dockerClientRemote.logout(serviceImageRegistry);
+          }
+
           if (!pullServiceSuccess) {
             console.error(
               `    [${serverHostname}] Failed to pull image ${imageToPull}. Skipping deployment to this server.`
@@ -769,15 +874,16 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
             await sshClient.exec(`mkdir -p /etc/luma/releases`);
             await sshClient.exec(
               `echo '${imageToPull}' > ${serviceReleaseFilePath}`
-            ); // Store the full image tag
+            );
             console.log(
-              `    [${serverHostname}] Successfully tracked service image ${imageToPull}.`
+              `    [${serverHostname}] Successfully tracked deployed image ${imageToPull}.`
             );
           } catch (trackError) {
             console.error(
-              `    [${serverHostname}] Failed to track service image ${imageToPull}:`,
+              `    [${serverHostname}] Failed to track deployed image ${imageToPull}:`,
               trackError
             );
+            // This might be a non-fatal error for the running container, but critical for future rollbacks/info
           }
 
           // Prune for service server
@@ -785,7 +891,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           await dockerClientRemote.prune();
 
           console.log(
-            `    [${serverHostname}] Service ${serviceEntry.name} deployed.`
+            `    [${serverHostname}] Service ${serviceEntry.name} deployed successfully to this server.`
           );
         } catch (serverError) {
           console.error(
@@ -801,19 +907,4 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       }
     }
   }
-
-  console.log("Deployment process finished.");
 }
-
-// Helper function (needs to be adapted or moved, e.g. to ssh.ts or a new utils file)
-// async function getSSHCredentials(
-//   serverHostname: string,
-//   config: LumaConfig,
-//   secrets: LumaSecrets
-// ): Promise<any> {
-//   // This function needs to be adapted from setup.ts or similar logic created
-//   // to fetch appropriate SSH username, key/password from config and secrets.
-//   // It should align with how SSHClient expects its options.
-//   console.warn("[getSSHCredentials] Needs implementation for deploy command.");
-//   return { username: config.ssh?.username || "root" }; // Placeholder
-// }

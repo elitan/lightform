@@ -237,6 +237,23 @@ export class DockerClient {
   }
 
   /**
+   * Logout from Docker registry
+   */
+  async logout(registry: string): Promise<boolean> {
+    this.log(`Logging out from Docker registry: ${registry}...`);
+    try {
+      await this.execRemote(`logout ${registry}`);
+      this.log(`Successfully logged out from Docker registry: ${registry}.`);
+      return true;
+    } catch (error) {
+      this.logError(
+        `Failed to log out from Docker registry ${registry}: ${error}`
+      );
+      return false;
+    }
+  }
+
+  /**
    * Pull a Docker image
    */
   async pullImage(image: string): Promise<boolean> {

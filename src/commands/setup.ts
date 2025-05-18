@@ -1,6 +1,6 @@
 import { loadConfig, loadSecrets } from "../config";
 import { LumaConfig, LumaSecrets, LumaService } from "../config/types";
-import { SSHClient } from "../ssh";
+import { SSHClient, getSSHCredentials } from "../ssh";
 import { DockerClient } from "../docker";
 
 // Convert object or array format to a normalized array of entries with names
@@ -19,57 +19,6 @@ function normalizeConfigEntries(
     ...entry,
     name,
   }));
-}
-
-async function getSSHCredentials(
-  serverHostname: string,
-  config: LumaConfig,
-  secrets: LumaSecrets
-): Promise<any> {
-  const sshUser = config.ssh?.username || "root";
-
-  const serverSpecificKeyEnvVar = `SSH_KEY_${serverHostname
-    .replace(/\./g, "_")
-    .toUpperCase()}`;
-  const serverSpecificKeyPath = secrets[serverSpecificKeyEnvVar];
-  if (serverSpecificKeyPath) {
-    console.log(
-      `[${serverHostname}] Attempting SSH with server-specific key from secrets (${serverSpecificKeyEnvVar}): ${serverSpecificKeyPath}`
-    );
-    return { username: sshUser, identity: serverSpecificKeyPath };
-  }
-
-  const defaultKeyPath = secrets.DEFAULT_SSH_KEY_PATH;
-  if (defaultKeyPath) {
-    console.log(
-      `[${serverHostname}] Attempting SSH with default key path from secrets (DEFAULT_SSH_KEY_PATH): ${defaultKeyPath}`
-    );
-    return { username: sshUser, identity: defaultKeyPath };
-  }
-
-  const serverSpecificPasswordEnvVar = `SSH_PASSWORD_${serverHostname
-    .replace(/\./g, "_")
-    .toUpperCase()}`;
-  const serverSpecificPassword = secrets[serverSpecificPasswordEnvVar];
-  if (serverSpecificPassword) {
-    console.log(
-      `[${serverHostname}] Attempting SSH with server-specific password from secrets (${serverSpecificPasswordEnvVar}).`
-    );
-    return { username: sshUser, password: serverSpecificPassword };
-  }
-
-  const defaultPassword = secrets.DEFAULT_SSH_PASSWORD;
-  if (defaultPassword) {
-    console.log(
-      `[${serverHostname}] Attempting SSH with default password from secrets (DEFAULT_SSH_PASSWORD).`
-    );
-    return { username: sshUser, password: defaultPassword };
-  }
-
-  console.log(
-    `[${serverHostname}] No specific SSH key or password found in Luma secrets. Attempting agent-based or other default SSH authentication methods (e.g., default key files like ~/.ssh/id_rsa, ~/.ssh/id_ed25519).`
-  );
-  return { username: sshUser };
 }
 
 async function setupServer(
@@ -117,56 +66,12 @@ async function setupServer(
     );
   }
 
-  const sshClientOptions: any = {
-    host: serverHostname,
-    username: sshCredentials.username,
-    port: config.ssh?.port || 22,
-    identity: sshCredentials.identity,
-    password: sshCredentials.password,
-    // passphrase: secrets.SSH_KEY_PASSPHRASE, // If your private key is passphrase protected
-  };
-
-  // Always try default key locations with full paths
-  const homeDir = process.env.HOME || require("os").homedir();
-  console.log(`[${serverHostname}] Home directory resolved as: ${homeDir}`);
-
-  // Check for and use various common SSH key files
-  try {
-    const fs = require("fs");
-    const keyPaths = [
-      `${homeDir}/.ssh/id_rsa`,
-      `${homeDir}/.ssh/id_ed25519`,
-      `${homeDir}/.ssh/id_ecdsa`,
-      `${homeDir}/.ssh/id_dsa`,
-    ];
-
-    for (const keyPath of keyPaths) {
-      if (fs.existsSync(keyPath)) {
-        sshClientOptions.identity = keyPath;
-        console.log(
-          `[${serverHostname}] Explicitly using SSH key at: ${keyPath}`
-        );
-        break; // Stop after finding the first existing key
-      }
-    }
-
-    if (!sshClientOptions.identity) {
-      console.log(
-        `[${serverHostname}] No SSH keys found at standard locations: ${keyPaths.join(
-          ", "
-        )}`
-      );
-    }
-  } catch (error) {
-    console.error(
-      `[${serverHostname}] Error checking for default SSH keys:`,
-      error
-    );
-  }
-
   // Add ssh2 debug logging
-  sshClientOptions.debug = (message: string) => {
-    console.log(`[${serverHostname}] SSH_DEBUG: ${message}`);
+  const sshClientOptions = {
+    ...sshCredentials,
+    debug: (message: string) => {
+      console.log(`[${serverHostname}] SSH_DEBUG: ${message}`);
+    },
   };
 
   const loggableSshClientOptions = {
