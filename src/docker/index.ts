@@ -56,6 +56,17 @@ export class DockerClient {
   }
 
   /**
+   * Log a warning with server hostname prefix or general warning if no server context
+   */
+  private logWarn(message: string): void {
+    if (this.serverHostname) {
+      console.warn(`[${this.serverHostname}] ${message}`);
+    } else {
+      console.warn(message);
+    }
+  }
+
+  /**
    * Log an error with server hostname prefix or general error if no server context
    */
   private logError(message: string): void {
@@ -655,41 +666,41 @@ EOF`);
         return reuseHelper ? [false, ""] : false;
       }
 
-      // Give the container a moment to initialize its network settings
-      this.log(
-        `Waiting for container ${containerName} to initialize network settings...`
-      );
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Get the network of the target container - use a simpler inspect format to avoid template errors
-      const networkInfo = await this.execRemote(
-        `inspect -f "{{json .NetworkSettings.Networks}}" ${containerName}`
-      );
-
-      // Parse the JSON to extract the first network name
+      // Attempt to get network information with retries
       let network = "";
-      try {
-        const networkJson = JSON.parse(networkInfo.trim());
-        // Get the first network name (object key)
-        network = Object.keys(networkJson)[0] || "";
+      const maxAttempts = 4; // Try up to 4 times
+      const retryDelay = 500; // 500ms delay
 
-        if (network) {
-          this.log(
-            `Detected network for container ${containerName}: ${network}`
-          );
-        } else {
-          // If we can't get a network, try default bridge network
-          this.log(
-            `No specific network detected for ${containerName}, using 'bridge' as default`
-          );
-          network = "bridge";
-        }
-      } catch (parseError) {
-        this.logError(
-          `Cannot parse network info for container ${containerName}: ${parseError}. Using default 'bridge' network.`
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        this.log(
+          `Attempting to get network info for ${containerName} (attempt ${attempt}/${maxAttempts})...`
         );
-        // Default to bridge network if we can't determine the actual network
-        network = "bridge";
+        try {
+          const networkInfo = await this.execRemote(
+            `inspect -f "{{json .NetworkSettings.Networks}}" ${containerName}`
+          );
+          const networkJson = JSON.parse(networkInfo.trim());
+          network = Object.keys(networkJson)[0] || "";
+          if (network) {
+            this.log(
+              `Detected network for container ${containerName}: ${network}`
+            );
+            break; // Network found, exit loop
+          }
+        } catch (e) {
+          this.logWarn(
+            `Failed to get/parse network info on attempt ${attempt}: ${e}`
+          );
+        }
+
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        } else {
+          this.logWarn(
+            `Could not determine specific network for ${containerName} after ${maxAttempts} attempts. Defaulting to 'bridge' network.`
+          );
+          network = "bridge"; // Default after all attempts fail
+        }
       }
 
       this.log(`Using network ${network} for health check of ${containerName}`);
