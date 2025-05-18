@@ -579,8 +579,8 @@ EOF`);
     containerName: string,
     reuseHelper: boolean = false
   ): Promise<boolean | [boolean, string]> {
-    // Generate a unique name for the helper container
-    const helperName = `healthcheck-${containerName}-${Date.now()}`;
+    // Generate a unique name for the helper container with luma-hc prefix to avoid cleanup
+    const helperName = `luma-hc-helper-${Date.now()}`;
 
     try {
       // Verify the container exists before trying to inspect it

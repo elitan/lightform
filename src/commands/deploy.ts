@@ -699,9 +699,10 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
               `${appEntry.name}-`
             );
 
-          // Filter out the current container
+          // Filter out the current container and any health check helper containers
           const oldContainers = previousContainers.filter(
-            (name) => name !== containerName
+            (name) =>
+              name !== containerName && !name.startsWith("luma-hc-helper")
           );
 
           if (oldContainers.length > 0) {
