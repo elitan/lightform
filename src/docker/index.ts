@@ -486,6 +486,28 @@ export class DockerClient {
   }
 
   /**
+   * Find all containers (running or stopped) whose names match a prefix
+   * @param namePrefix The container name prefix to match
+   * @returns Array of container names
+   */
+  async findContainersByPrefix(namePrefix: string): Promise<string[]> {
+    try {
+      const result = await this.execRemote(
+        `ps -a --filter "name=${namePrefix}" --format "{{.Names}}"`
+      );
+      if (!result.trim()) {
+        return [];
+      }
+      return result.trim().split("\n");
+    } catch (error) {
+      this.logError(
+        `Failed to find containers by prefix ${namePrefix}: ${error}`
+      );
+      return [];
+    }
+  }
+
+  /**
    * Prune unused Docker resources (containers, networks, images, build cache) on the remote server.
    */
   async prune(): Promise<boolean> {

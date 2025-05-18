@@ -496,6 +496,29 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           console.log(
             `    [${serverHostname}] Starting new container ${containerName}...`
           ); // Now containerName is in scope
+
+          // Check if container with same name already exists and is running
+          const containerExists = await dockerClientRemote.containerExists(
+            containerName
+          );
+          if (containerExists) {
+            const containerRunning =
+              await dockerClientRemote.containerIsRunning(containerName);
+            if (containerRunning) {
+              console.log(
+                `    [${serverHostname}] Container ${containerName} is already running. Skipping deployment.`
+              );
+              // Continue with other servers/entries
+              continue;
+            } else {
+              // Container exists but not running - remove it first
+              console.log(
+                `    [${serverHostname}] Container ${containerName} exists but is not running. Removing it...`
+              );
+              await dockerClientRemote.removeContainer(containerName);
+            }
+          }
+
           const createSuccessApp = await dockerClientRemote.createContainer(
             containerOptions
           );
@@ -591,73 +614,50 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
             `    [${serverHostname}] New app container ${containerName} is healthy. Proceeding with deployment finalization.`
           );
 
-          const releaseFilePath = `/etc/luma/releases/${appEntry.name}`;
-          let currentReleaseId: string | null = null;
-          try {
-            console.log(
-              `    [${serverHostname}] Reading current release ID from ${releaseFilePath}...`
-            );
-            const catOutput = await sshClient.exec(`cat ${releaseFilePath}`);
-            currentReleaseId = catOutput.trim();
-            if (currentReleaseId) {
-              console.log(
-                `    [${serverHostname}] Current release ID found: ${currentReleaseId}`
-              );
-            }
-          } catch (e) {
-            // If file doesn't exist or other error, currentReleaseId remains null
-            console.log(
-              `    [${serverHostname}] No current release ID found at ${releaseFilePath} (or error reading it).`
-            );
-          }
+          // Find previous deployment containers for this app
+          console.log(
+            `    [${serverHostname}] Looking for previous deployments of ${appEntry.name}...`
+          );
 
-          if (currentReleaseId && currentReleaseId === releaseId) {
-            console.log(
-              `    [${serverHostname}] App ${appEntry.name} is already at release ${releaseId}. No changes needed.`
+          const previousContainers =
+            await dockerClientRemote.findContainersByPrefix(
+              `${appEntry.name}-`
             );
-            // Optionally, we could skip all previous steps if we checked this BEFORE pulling/starting new container.
-            // For now, this means we started a new identical container and will now stop the "old" identical one.
-            // To optimize, this check should happen much earlier.
-          } else if (currentReleaseId) {
-            const oldContainerName = `${appEntry.name}-${currentReleaseId}`;
+
+          // Filter out the current container
+          const oldContainers = previousContainers.filter(
+            (name) => name !== containerName
+          );
+
+          if (oldContainers.length > 0) {
             console.log(
-              `    [${serverHostname}] Stopping and removing old container ${oldContainerName}...`
+              `    [${serverHostname}] Found ${
+                oldContainers.length
+              } previous deployment(s) to clean up: ${oldContainers.join(", ")}`
             );
-            try {
-              await dockerClientRemote.stopContainer(oldContainerName);
-              await dockerClientRemote.removeContainer(oldContainerName);
+
+            // Stop and remove each old container
+            for (const oldContainer of oldContainers) {
               console.log(
-                `    [${serverHostname}] Old container ${oldContainerName} stopped and removed.`
+                `    [${serverHostname}] Stopping and removing old container ${oldContainer}...`
               );
-            } catch (stopOldError) {
-              console.warn(
-                `    [${serverHostname}] Could not stop/remove old container ${oldContainerName}. It might have already been stopped/removed.`,
-                stopOldError
-              );
+              try {
+                await dockerClientRemote.stopContainer(oldContainer);
+                await dockerClientRemote.removeContainer(oldContainer);
+                console.log(
+                  `    [${serverHostname}] Old container ${oldContainer} stopped and removed.`
+                );
+              } catch (stopOldError) {
+                console.warn(
+                  `    [${serverHostname}] Could not stop/remove old container ${oldContainer}. It might have already been stopped/removed.`,
+                  stopOldError
+                );
+              }
             }
           } else {
             console.log(
-              `    [${serverHostname}] No previously tracked release found for ${appEntry.name} to stop.`
+              `    [${serverHostname}] No previous deployments found for ${appEntry.name} to clean up.`
             );
-          }
-
-          // Track New Release for app
-          console.log(
-            `    [${serverHostname}] Tracking new release ${releaseId} to ${releaseFilePath}...`
-          );
-          try {
-            // Ensure directory exists
-            await sshClient.exec(`mkdir -p /etc/luma/releases`);
-            await sshClient.exec(`echo '${releaseId}' > ${releaseFilePath}`);
-            console.log(
-              `    [${serverHostname}] Successfully tracked new release ${releaseId}.`
-            );
-          } catch (trackError) {
-            console.error(
-              `    [${serverHostname}] Failed to track new release ${releaseId}:`,
-              trackError
-            );
-            // This might be a non-fatal error for the running container, but critical for future rollbacks/info
           }
 
           // Prune for app server
@@ -856,6 +856,39 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           console.log(
             `    [${serverHostname}] Starting new service container ${containerNameForService}...`
           );
+
+          // Check if the service container with the same name already exists and is running
+          const serviceContainerExists =
+            await dockerClientRemote.containerExists(containerNameForService);
+          if (serviceContainerExists) {
+            const serviceContainerRunning =
+              await dockerClientRemote.containerIsRunning(
+                containerNameForService
+              );
+
+            // For services, we'll still replace the existing container even if it's running
+            // But we'll log different messages based on state
+            if (serviceContainerRunning) {
+              console.log(
+                `    [${serverHostname}] Service container ${containerNameForService} is already running. Replacing it...`
+              );
+              await dockerClientRemote.stopContainer(containerNameForService);
+            } else {
+              console.log(
+                `    [${serverHostname}] Service container ${containerNameForService} exists but is not running. Removing it...`
+              );
+            }
+
+            try {
+              await dockerClientRemote.removeContainer(containerNameForService);
+            } catch (e) {
+              console.warn(
+                `    [${serverHostname}] Error removing existing service container:`,
+                e
+              );
+            }
+          }
+
           const createServiceSuccess = await dockerClientRemote.createContainer(
             serviceContainerOptions
           );
@@ -864,26 +897,6 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
               `    [${serverHostname}] Failed to create container ${containerNameForService}. Skipping further steps for this service on this server.`
             );
             continue;
-          }
-          // TODO: Track Release for service (image tag)
-          const serviceReleaseFilePath = `/etc/luma/releases/${serviceEntry.name}`;
-          console.log(
-            `    [${serverHostname}] Tracking deployed image ${imageToPull} for service ${serviceEntry.name} to ${serviceReleaseFilePath}...`
-          );
-          try {
-            await sshClient.exec(`mkdir -p /etc/luma/releases`);
-            await sshClient.exec(
-              `echo '${imageToPull}' > ${serviceReleaseFilePath}`
-            );
-            console.log(
-              `    [${serverHostname}] Successfully tracked deployed image ${imageToPull}.`
-            );
-          } catch (trackError) {
-            console.error(
-              `    [${serverHostname}] Failed to track deployed image ${imageToPull}:`,
-              trackError
-            );
-            // This might be a non-fatal error for the running container, but critical for future rollbacks/info
           }
 
           // Prune for service server
