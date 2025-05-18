@@ -15,6 +15,8 @@ export const HealthCheckSchema = z.object({
   timeout: z.string().optional(), // e.g., "5s"
   retries: z.number().optional(),
   start_period: z.string().optional(), // e.g., "60s"
+  endpoint: z.string().optional(), // For custom HTTP endpoint check (e.g., "/up", "/health")
+  port: z.number().optional(), // Port the app is listening on inside the container (default: 8080)
 });
 export type HealthCheckConfig = z.infer<typeof HealthCheckSchema>;
 

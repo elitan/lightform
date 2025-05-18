@@ -508,6 +508,67 @@ export class DockerClient {
   }
 
   /**
+   * Check container's health by making an HTTP request to an endpoint using a temporary helper container
+   * @param containerName The name of the container to check
+   * @param endpoint The HTTP endpoint to check (e.g., "/up", "/health")
+   * @param port The port the application is listening on inside the container (default: 8080)
+   * @returns true if the endpoint returns 200, false otherwise
+   */
+  async checkContainerEndpoint(
+    containerName: string,
+    endpoint: string = "/up",
+    port: number = 8080
+  ): Promise<boolean> {
+    // Generate a unique name for the helper container
+    const helperName = `healthcheck-${containerName}-${Date.now()}`;
+
+    try {
+      // Get the network of the target container
+      const networkInfo = await this.execRemote(
+        `inspect -f "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}" ${containerName}`
+      );
+      const network = networkInfo.trim();
+
+      if (!network) {
+        this.logError(
+          `Cannot determine network for container ${containerName}`
+        );
+        return false;
+      }
+
+      this.log(`Using network ${network} for health check of ${containerName}`);
+
+      // Run a temporary Alpine container with curl
+      const helperCmd = `run --rm --name ${helperName} --network ${network} alpine:latest /bin/sh -c "apk add --no-cache curl && curl -s -o /dev/null -w '%{http_code}' http://${containerName}:${port}${endpoint} || echo 'failed'"`;
+
+      this.log(`Starting helper container to check health of ${containerName}`);
+      const statusCode = await this.execRemote(helperCmd);
+
+      // Check the status code
+      const cleanStatusCode = statusCode.trim();
+      this.log(
+        `Health check for ${containerName} returned status: ${cleanStatusCode}`
+      );
+
+      return cleanStatusCode === "200";
+    } catch (error) {
+      this.logError(`Health check failed for ${containerName}: ${error}`);
+
+      // Try to clean up the helper container if it's still running
+      try {
+        const helperExists = await this.containerExists(helperName);
+        if (helperExists) {
+          await this.removeContainer(helperName);
+        }
+      } catch (cleanupError) {
+        this.logError(`Failed to clean up helper container: ${cleanupError}`);
+      }
+
+      return false;
+    }
+  }
+
+  /**
    * Prune unused Docker resources (containers, networks, images, build cache) on the remote server.
    */
   async prune(): Promise<boolean> {

@@ -552,34 +552,80 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
               );
             }
 
-            for (let i = 0; i < retries; i++) {
+            // Check if we should use custom endpoint check or Docker's built-in health check
+            if (hcConfig.endpoint) {
               console.log(
-                `    [${serverHostname}] Health check attempt ${
-                  i + 1
-                }/${retries} for ${containerName}...`
+                `    [${serverHostname}] Using HTTP endpoint check for ${containerName}: ${hcConfig.endpoint}`
               );
-              const healthStatus = await dockerClientRemote.getContainerHealth(
-                containerName
-              );
-              if (healthStatus === "healthy") {
-                newAppIsHealthy = true;
+
+              // Use our endpoint check with helper container
+              for (let i = 0; i < retries; i++) {
                 console.log(
-                  `    [${serverHostname}] Container ${containerName} is healthy.`
+                  `    [${serverHostname}] HTTP endpoint check attempt ${
+                    i + 1
+                  }/${retries} for ${containerName}...`
                 );
-                break;
+
+                const isHealthy =
+                  await dockerClientRemote.checkContainerEndpoint(
+                    containerName,
+                    hcConfig.endpoint,
+                    hcConfig.port || 8080
+                  );
+
+                if (isHealthy) {
+                  newAppIsHealthy = true;
+                  console.log(
+                    `    [${serverHostname}] HTTP endpoint check successful for ${containerName}`
+                  );
+                  break;
+                }
+
+                if (i < retries - 1) {
+                  console.log(
+                    `    [${serverHostname}] Waiting ${intervalSeconds}s before next attempt...`
+                  );
+                  await new Promise((resolve) =>
+                    setTimeout(resolve, intervalSeconds * 1000)
+                  );
+                }
               }
-              if (healthStatus === "unhealthy") {
+
+              if (!newAppIsHealthy) {
                 console.error(
-                  `    [${serverHostname}] Container ${containerName} reported unhealthy. Health check failed.`
+                  `    [${serverHostname}] All HTTP endpoint checks failed for ${containerName}`
                 );
-                newAppIsHealthy = false;
-                break;
               }
-              // If status is 'starting' or null (no health check defined in image, but Luma config expects one), keep trying.
-              if (i < retries - 1) {
-                await new Promise((resolve) =>
-                  setTimeout(resolve, intervalSeconds * 1000)
+            } else {
+              // Use Docker's built-in health check
+              for (let i = 0; i < retries; i++) {
+                console.log(
+                  `    [${serverHostname}] Health check attempt ${
+                    i + 1
+                  }/${retries} for ${containerName}...`
                 );
+                const healthStatus =
+                  await dockerClientRemote.getContainerHealth(containerName);
+                if (healthStatus === "healthy") {
+                  newAppIsHealthy = true;
+                  console.log(
+                    `    [${serverHostname}] Container ${containerName} is healthy.`
+                  );
+                  break;
+                }
+                if (healthStatus === "unhealthy") {
+                  console.error(
+                    `    [${serverHostname}] Container ${containerName} reported unhealthy. Health check failed.`
+                  );
+                  newAppIsHealthy = false;
+                  break;
+                }
+                // If status is 'starting' or null (no health check defined in image, but Luma config expects one), keep trying.
+                if (i < retries - 1) {
+                  await new Promise((resolve) =>
+                    setTimeout(resolve, intervalSeconds * 1000)
+                  );
+                }
               }
             }
           } else {
