@@ -14,13 +14,14 @@ A lightweight HTTP/HTTPS reverse proxy with host-based routing.
 ### Running the proxy
 
 ```
-luma-proxy run [--port <https_port>] [--socket-path <path>]
+luma-proxy run [--port <https_port>] [--socket-path <path>] [--cert-email <email>]
 ```
 
 Options:
 
 - `--port`: HTTPS port to listen on (default: 443)
 - `--socket-path`: Path to the Unix domain socket for management
+- `--cert-email`: Email address for Let's Encrypt registration (recommended)
 
 ### Configuring routing
 
@@ -39,7 +40,7 @@ Options:
 ### Start the proxy
 
 ```
-luma-proxy run
+luma-proxy run --cert-email admin@example.com
 ```
 
 ### Configure routing for an application
@@ -56,18 +57,19 @@ luma-proxy deploy --host api2.example.com --target localhost:3000 --project my-o
 
 ## SSL Certificates
 
-The proxy requires SSL certificates for HTTPS. By default, it looks for:
+Luma Proxy automatically obtains and manages SSL certificates using Let's Encrypt. The proxy will:
 
-- `cert.pem`: SSL certificate
-- `key.pem`: SSL key
+1. Obtain certificates for all configured hostnames.
+2. Automatically renew certificates before they expire (typically 30 days before expiry).
+3. Handle Let's Encrypt ACME challenges (HTTP-01).
 
-You can generate a self-signed certificate for testing:
+Certificates are stored by default in `/var/lib/luma-proxy/certs` inside the container.
 
-```
-openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
-```
+**Important notes:**
 
-For production, you should use proper certificates from a trusted CA.
+- Your server must be accessible from the internet on ports 80 and 443.
+- DNS records for your domains must point to your server.
+- Providing an email address via `--cert-email` is highly recommended for certificate expiry notifications from Let's Encrypt.
 
 ## Integration with Luma CLI
 
@@ -75,7 +77,7 @@ When deploying applications with Luma CLI, it automatically configures the Luma 
 
 - Routing requests based on hostname to the appropriate container
 - HTTP to HTTPS redirection
-- TLS termination
+- TLS termination (with automatic Let's Encrypt certificates)
 
 ## Building from source
 

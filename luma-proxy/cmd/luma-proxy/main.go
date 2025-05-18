@@ -44,7 +44,11 @@ func printUsage() {
 	fmt.Println("Luma Proxy")
 	fmt.Println("Usage: luma-proxy <command> [arguments]")
 	fmt.Println("\nCommands:")
-	fmt.Println("  run [--port <https_port>] [--socket-path <path>]   Run the proxy daemon (HTTP on 80 redirects to HTTPS on <https_port>, default 443)")
-	fmt.Println("  deploy --host <hostname> --target <ip:port> [--project <project-name>]  Configure routing for a hostname")
+	fmt.Println("  run [--port <https_port>] [--socket-path <path>] [--cert-email <email>]")
+	fmt.Println("      Run the proxy daemon (HTTP on 80 redirects to HTTPS, automatic Let's Encrypt)")
+	fmt.Println("  deploy --host <hostname> --target <ip:port> [--project <project-name>]")
+	fmt.Println("      Configure routing for a hostname")
+	fmt.Println("\nLet's Encrypt certificate options for 'run' command:")
+	fmt.Println("  --cert-email <email>   Email address for Let's Encrypt registration (recommended)")
 	fmt.Println("\nUse 'luma-proxy <command> --help' for more information on a specific command.")
 }

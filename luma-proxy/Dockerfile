@@ -1,5 +1,5 @@
 # Stage 1: Build the Go application
-FROM golang:1.21-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
 
 WORKDIR /app
 
@@ -13,7 +13,8 @@ COPY . .
 
 # Build the application
 # -ldflags "-w -s" reduces the size of the binary by removing debug information.
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-w -s" -o /luma-proxy cmd/luma-proxy/main.go
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-w -s" -o /luma-proxy cmd/luma-proxy/main.go
 
 # Stage 2: Create the final lightweight image
 FROM alpine:latest
@@ -26,8 +27,15 @@ WORKDIR /app
 # Copy the built binary from the builder stage
 COPY --from=builder /luma-proxy .
 
+# Create directories for certificates and configuration
+RUN mkdir -p /var/lib/luma-proxy/certs && \
+    chmod 700 /var/lib/luma-proxy/certs
+
 # Expose ports 80 and 443
 EXPOSE 80 443
 
 # Set the entrypoint for the container
-ENTRYPOINT ["./luma-proxy", "run"] 
+ENTRYPOINT ["/app/luma-proxy"]
+
+# Default command is to run the proxy
+CMD ["run"] 

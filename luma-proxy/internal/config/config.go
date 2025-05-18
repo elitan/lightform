@@ -18,6 +18,7 @@ const ConfigFile = "/tmp/luma-proxy-config.json"
 // ProxyConfig holds the global proxy configuration and services
 type ProxyConfig struct {
 	Services map[string]models.Service `json:"services"` // Map of service name to service config
+	Certs    models.CertConfig         `json:"certs"`    // Certificate configuration
 	mutex    sync.RWMutex              // Mutex to protect concurrent access
 }
 
@@ -25,6 +26,7 @@ type ProxyConfig struct {
 func New() *ProxyConfig {
 	return &ProxyConfig{
 		Services: make(map[string]models.Service),
+		Certs:    models.NewDefaultCertConfig(),
 	}
 }
 

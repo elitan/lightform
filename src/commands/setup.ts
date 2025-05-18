@@ -164,6 +164,15 @@ async function setupServer(
         `[${serverHostname}] Connecting Luma Proxy to the project network...`
       );
       try {
+        // Verify that the proxy container actually exists before attempting to connect it to the network
+        const proxyExists = await dockerClient.containerExists(LUMA_PROXY_NAME);
+
+        if (!proxyExists) {
+          throw new Error(
+            `Luma Proxy container (${LUMA_PROXY_NAME}) does not exist despite setup reporting success`
+          );
+        }
+
         // Check if the proxy is already connected to the network
         const checkNetworkCmd = `docker inspect ${LUMA_PROXY_NAME} --format "{{json .NetworkSettings.Networks}}"`;
         const networkOutput = await sshClient.exec(checkNetworkCmd);

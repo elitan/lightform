@@ -162,6 +162,14 @@ export const LumaConfigSchema = z.object({
       // Default key path can be a LumaSecret reference, e.g. default_ssh_key_secret: "DEFAULT_SSH_KEY_PATH"
     })
     .optional(),
+  proxy: z
+    .object({
+      image: z
+        .string()
+        .describe("Custom Docker image for the Luma proxy")
+        .optional(),
+    })
+    .optional(),
   proxy_options: GlobalProxyOptionsSchema.optional(),
 });
 export type LumaConfig = z.infer<typeof LumaConfigSchema>;

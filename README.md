@@ -72,6 +72,10 @@ docker:
   registry: my.private-registry.com
   username: my_registry_user # Password for this user should be in .luma/secrets
 
+# Optional: Luma proxy configuration
+proxy:
+  image: my-registry.com/custom-luma-proxy:latest # Configure a custom proxy image
+
 # Define your primary applications under 'apps'.
 # These are typically built by Luma and benefit from zero-downtime deployment.
 apps:

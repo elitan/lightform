@@ -10,25 +10,37 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/elitan/luma-proxy/internal/cert"
 	"github.com/elitan/luma-proxy/internal/service"
+	"github.com/elitan/luma-proxy/pkg/models"
 )
 
 // Server represents the proxy server
 type Server struct {
 	httpsPort      string
 	serviceManager *service.Manager
-	certFile       string
-	keyFile        string
+	certManager    *cert.Manager
+	certConfig     models.CertConfig
 }
 
 // NewServer creates a new proxy server
-func NewServer(httpsPort string, serviceManager *service.Manager) *Server {
-	return &Server{
+func NewServer(httpsPort string, serviceManager *service.Manager, certConfig models.CertConfig) *Server {
+	server := &Server{
 		httpsPort:      httpsPort,
 		serviceManager: serviceManager,
-		certFile:       "cert.pem", // TODO: Make configurable
-		keyFile:        "key.pem",  // TODO: Make configurable
+		certConfig:     certConfig,
 	}
+
+	// Initialize the certificate manager
+	log.Println("Setting up automatic Let's Encrypt certificate management")
+	server.certManager = cert.NewManager(certConfig.Email)
+
+	// Add all known domains to the certificate manager
+	for _, svc := range serviceManager.GetAllServices() {
+		server.certManager.AddDomain(svc.Host)
+	}
+
+	return server
 }
 
 // Start starts the proxy server
@@ -38,8 +50,8 @@ func (s *Server) Start() error {
 	// Start HTTPS server in a goroutine
 	go s.startHTTPSServer()
 
-	// Start HTTP redirect server (blocking)
-	return s.startHTTPRedirectServer()
+	// Start HTTP server for redirects and ACME challenges
+	return s.startHTTPServer()
 }
 
 // startHTTPSServer starts the HTTPS server
@@ -65,18 +77,31 @@ func (s *Server) startHTTPSServer() {
 	httpsMux.HandleFunc("/health-check", s.handleHealthCheck)
 
 	log.Printf("Luma Proxy daemon starting HTTPS listener on port %s", s.httpsPort)
-	if err := http.ListenAndServeTLS(":"+s.httpsPort, s.certFile, s.keyFile, httpsMux); err != nil {
+
+	// Get TLS config from cert manager for automatic certificates
+	tlsConfig := s.certManager.GetTLSConfig()
+	server := &http.Server{
+		Addr:      ":" + s.httpsPort,
+		Handler:   httpsMux,
+		TLSConfig: tlsConfig,
+	}
+
+	// ListenAndServeTLS with empty strings uses the certificates from the TLS config
+	if err := server.ListenAndServeTLS("", ""); err != nil {
 		log.Fatalf("Failed to start HTTPS server: %s\n", err)
 	}
 }
 
-// startHTTPRedirectServer starts the HTTP redirect server
-func (s *Server) startHTTPRedirectServer() error {
-	httpRedirectMux := http.NewServeMux()
-	httpRedirectMux.HandleFunc("/", s.handleHTTPRedirect)
+// startHTTPServer starts the HTTP server for redirects and ACME challenges
+func (s *Server) startHTTPServer() error {
+	// The HTTP handler from cert manager handles ACME challenges
+	// and falls back to our redirect handler for other requests
+	httpHandler := s.certManager.HTTPHandler(http.HandlerFunc(s.handleHTTPRedirect))
+	httpMux := http.NewServeMux()
+	httpMux.Handle("/", httpHandler)
 
-	log.Printf("Luma Proxy daemon starting HTTP listener on port 80 for redirection to HTTPS")
-	return http.ListenAndServe(":80", httpRedirectMux)
+	log.Printf("Luma Proxy daemon starting HTTP listener on port 80")
+	return http.ListenAndServe(":80", httpMux)
 }
 
 // handleHTTPSRequest handles HTTPS requests and routes them to the appropriate service
