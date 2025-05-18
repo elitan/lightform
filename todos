@@ -1,0 +1,16 @@
+# Luma Project Todos
+
+- Setup:
+    - Load configuration (luma.yml) and secrets (.luma/secrets)
+    - Normalize service entries from config
+    - For each target server:
+        - Establish SSH connection using appropriate credentials
+        - Verify Docker installation and install if needed
+        - Log into Docker registry with provided credentials
+        - Create dedicated Docker network for all Luma containers
+        - Set up Luma Proxy and connect it to the project network
+        - For each service assigned to the server:
+            - Handle service-specific registry logins if needed
+            - Pull latest Docker image
+            - Check if container exists (running or stopped)
+            - Start existing container if stopped or create new one if needed

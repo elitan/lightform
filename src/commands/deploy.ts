@@ -13,7 +13,7 @@ import {
   DockerContainerOptions,
 } from "../docker"; // Updated path and name
 import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh"; // Updated to import the utility function
-import { generateReleaseId } from "../utils"; // Changed path
+import { generateReleaseId, getProjectNetworkName } from "../utils"; // Changed path and added getProjectNetworkName
 import { execSync } from "child_process";
 
 // Helper to resolve environment variables for a container
@@ -64,6 +64,7 @@ function appEntryToContainerOptions(
   const imageNameWithRelease = `${appEntry.image}:${releaseId}`;
   const containerName = `${appEntry.name}-${releaseId}`;
   const envVars = resolveEnvironmentVariables(appEntry, secrets);
+  const networkName = getProjectNetworkName(projectName);
 
   return {
     name: containerName,
@@ -71,7 +72,7 @@ function appEntryToContainerOptions(
     ports: appEntry.ports,
     volumes: appEntry.volumes,
     envVars: envVars,
-    network: `${projectName}-network`,
+    network: networkName,
     restart: "unless-stopped",
     // TODO: Add healthcheck options if DockerContainerOptions supports them directly,
     // or handle healthcheck separately after container start.
@@ -87,6 +88,7 @@ function serviceEntryToContainerOptions(
 ): DockerContainerOptions {
   const containerName = serviceEntry.name; // Services use their simple name
   const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
+  const networkName = getProjectNetworkName(projectName);
 
   return {
     name: containerName,
@@ -94,7 +96,7 @@ function serviceEntryToContainerOptions(
     ports: serviceEntry.ports,
     volumes: serviceEntry.volumes,
     envVars: envVars,
-    network: `${projectName}-network`, // Assumes network is named project_name-network
+    network: networkName, // Assumes network is named project_name-network
     restart: "unless-stopped", // Default restart policy for services
   };
 }
@@ -241,6 +243,56 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
   );
 
   const projectName = config.name;
+  const networkName = getProjectNetworkName(projectName);
+
+  // Create/ensure the project-specific network on each relevant server before deploying apps/services to it.
+  // This is a bit tricky because services and apps can target different sets of servers.
+  // For simplicity, we'll attempt to create the network on *all* servers involved in this deployment run.
+  // A more optimized approach might do this per-server, just before the first app/service deployment to it.
+
+  // Collect all unique server hostnames from the target entries
+  const allTargetServers = new Set<string>();
+  targetEntries.forEach((entry) => {
+    entry.servers.forEach((server) => allTargetServers.add(server));
+  });
+
+  console.log(
+    `Ensuring project network "${networkName}" exists on target servers: ${Array.from(
+      allTargetServers
+    ).join(", ")}`
+  );
+  for (const serverHostname of Array.from(allTargetServers)) {
+    let sshClientNetwork: SSHClient | undefined;
+    try {
+      const sshCreds = await getSSHCredentials(serverHostname, config, secrets);
+      if (!sshCreds.host) sshCreds.host = serverHostname;
+      sshClientNetwork = await SSHClient.create(sshCreds as SSHClientOptions);
+      await sshClientNetwork.connect();
+      const dockerClientRemote = new DockerClient(
+        sshClientNetwork,
+        serverHostname
+      );
+      const networkCreated = await dockerClientRemote.createNetwork({
+        name: networkName,
+      });
+      if (networkCreated) {
+        console.log(`  [${serverHostname}] Network "${networkName}" ensured.`);
+      } else {
+        console.warn(
+          `  [${serverHostname}] Failed to ensure network "${networkName}". Subsequent deployments may fail.`
+        );
+      }
+    } catch (networkError) {
+      console.error(
+        `  [${serverHostname}] Error ensuring network "${networkName}":`,
+        networkError
+      );
+    } finally {
+      if (sshClientNetwork) {
+        await sshClientNetwork.close();
+      }
+    }
+  }
 
   for (const entry of targetEntries) {
     const globalRegistryConfig = config.docker;
@@ -259,6 +311,8 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       const appEntry = entry as AppEntry;
       const imageNameWithRelease = `${appEntry.image}:${releaseId}`;
       const containerName = `${appEntry.name}-${releaseId}`;
+      const envVars = resolveEnvironmentVariables(appEntry, secrets);
+      const networkName = getProjectNetworkName(projectName);
       console.log(
         `Deploying app: ${
           appEntry.name
@@ -572,7 +626,8 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
 
             const result = (await dockerClientRemote.checkContainerEndpoint(
               containerName,
-              true // Create a reusable container
+              true, // Create a reusable container
+              projectName // Pass projectName
             )) as [boolean, string];
 
             initialCheckResult = result[0];
@@ -758,6 +813,8 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       // It's a Service
       const serviceEntry = entry as ServiceEntry;
       const containerNameForService = serviceEntry.name;
+      const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
+      const networkName = getProjectNetworkName(projectName);
       console.log(
         `Deploying service: ${
           serviceEntry.name

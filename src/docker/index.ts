@@ -9,6 +9,7 @@ import {
 } from "../config/types";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { getProjectNetworkName } from "../utils";
 
 const execAsync = promisify(exec);
 
@@ -333,6 +334,36 @@ EOF`);
   }
 
   /**
+   * Force pull a Docker image, ensuring we get the latest version from the registry
+   * This removes the image first if it exists locally, then pulls it again
+   */
+  async forcePullImage(image: string): Promise<boolean> {
+    this.log(`Force pulling latest image ${image}...`);
+    try {
+      // First try to remove the image (ignoring errors if it doesn't exist)
+      try {
+        await this.execRemote(`rmi ${image}`);
+        this.log(
+          `Removed existing image ${image} to ensure we get the latest version.`
+        );
+      } catch (rmError) {
+        // Ignore errors - the image might not exist locally or might be in use
+        this.log(
+          `Could not remove existing image ${image}, will try pulling anyway.`
+        );
+      }
+
+      // Now pull the image
+      await this.execRemote(`pull ${image}`);
+      this.log(`Successfully pulled latest image ${image}.`);
+      return true;
+    } catch (error) {
+      this.logError(`Failed to force pull image ${image}: ${error}`);
+      return false;
+    }
+  }
+
+  /**
    * Check if a network exists
    */
   async networkExists(name: string): Promise<boolean> {
@@ -357,7 +388,8 @@ EOF`);
         this.log(`Docker network ${options.name} already exists.`);
         return true;
       }
-
+      // Ensure network name is project specific if generated via new utility elsewhere
+      this.log(`Creating Docker network: ${options.name}`);
       await this.execRemote(`network create ${options.name}`);
       this.log(`Created Docker network: ${options.name}`);
       return true;
@@ -651,183 +683,128 @@ EOF`);
    */
   async checkContainerEndpoint(
     containerName: string,
-    reuseHelper: boolean = false
+    reuseHelper: boolean = false,
+    projectName?: string
   ): Promise<boolean | [boolean, string]> {
-    // We'll use a generated name only for non-reusable containers
-    let helperName = "";
-
-    try {
-      // Verify the container exists before trying to inspect it
-      const containerExists = await this.containerExists(containerName);
-      if (!containerExists) {
-        this.logError(
-          `Container ${containerName} does not exist. Cannot perform health check.`
-        );
-        return reuseHelper ? [false, ""] : false;
-      }
-
-      // Attempt to get network information with retries
-      let network = "";
-      const maxAttempts = 4; // Try up to 4 times
-      const retryDelay = 500; // 500ms delay
-
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        this.log(
-          `Attempting to get network info for ${containerName} (attempt ${attempt}/${maxAttempts})...`
-        );
-        try {
-          const networkInfo = await this.execRemote(
-            `inspect -f "{{json .NetworkSettings.Networks}}" ${containerName}`
-          );
-          const networkJson = JSON.parse(networkInfo.trim());
-          network = Object.keys(networkJson)[0] || "";
-          if (network) {
-            this.log(
-              `Detected network for container ${containerName}: ${network}`
-            );
-            break; // Network found, exit loop
-          }
-        } catch (e) {
-          this.logWarn(
-            `Failed to get/parse network info on attempt ${attempt}: ${e}`
-          );
-        }
-
-        if (attempt < maxAttempts) {
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
-        } else {
-          this.logWarn(
-            `Could not determine specific network for ${containerName} after ${maxAttempts} attempts. Defaulting to 'bridge' network.`
-          );
-          network = "bridge"; // Default after all attempts fail
-        }
-      }
-
-      this.log(`Using network ${network} for health check of ${containerName}`);
-
-      // Create and start the helper container
-      if (reuseHelper) {
-        try {
-          // Find or create a helper container
-          const [helperSuccess, helperContainerName] =
-            await this.findOrCreateHealthCheckHelper(network);
-
-          if (!helperSuccess || !helperContainerName) {
-            this.logError(
-              "Failed to obtain a helper container for health checks"
-            );
-            return [false, ""];
-          }
-
-          // Create a shell script that loops for 60 seconds, checking the endpoint every second
-          this.log(
-            `Running health check loop in container ${helperContainerName}...`
-          );
-          const healthCheckScript = `
-            #!/bin/sh
-            echo "Starting health check loop for ${containerName}:80/up"
-            START_TIME=$(date +%s)
-            END_TIME=$((START_TIME + 60))
-            
-            while [ $(date +%s) -lt $END_TIME ]; do
-              echo "Checking endpoint ($(date))"
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 3 http://${containerName}:80/up || echo "failed")
-              echo "Response: $STATUS"
-              
-              if [ "$STATUS" = "200" ]; then
-                echo "Success! Endpoint returned 200"
-                exit 0
-              fi
-              
-              sleep 1
-            done
-            
-            echo "Timeout after 60 seconds. Health check failed."
-            exit 1
-          `;
-
-          // Execute the health check script and capture the exit code
-          this.log(
-            `Executing health check script in ${helperContainerName}...`
-          );
-          try {
-            await this
-              .execRemote(`exec ${helperContainerName} sh -c 'cat > /tmp/healthcheck.sh << "EOL"
-${healthCheckScript}
-EOL
-chmod +x /tmp/healthcheck.sh
-/tmp/healthcheck.sh'`);
-
-            // If we get here, the script exited with code 0 (success)
-            this.log(`Health check script succeeded for ${containerName}`);
-            return [true, helperContainerName];
-          } catch (error) {
-            // Script exited with non-zero (failure)
-            this.logError(
-              `Health check script failed for ${containerName}: ${error}`
-            );
-            return [false, helperContainerName];
-          }
-        } catch (error) {
-          this.logError(`Error finding or creating helper container: ${error}`);
-          return [false, ""];
-        }
-      } else {
-        // Original implementation - run a one-time check with a temporary container
-
-        // Generate a temporary name for the helper container
-        helperName = `luma-hc-temp-${Date.now()}`;
-
-        // First ensure Alpine image is available
-        const alpineAvailable = await this.ensureAlpineImage();
-        if (!alpineAvailable) {
-          this.logError(
-            "Cannot proceed with health check: Alpine image is not available"
-          );
-          return false;
-        }
-
-        const helperCmd = `run --rm --name ${helperName} --network ${network} alpine:latest /bin/sh -c "apk add --no-cache curl && curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${containerName}:80/up || echo 'failed'"`;
-
-        this.log(
-          `Starting temporary helper container to check health of ${containerName}`
-        );
-        const statusCode = await this.execRemote(helperCmd);
-
-        // Check the status code
-        const cleanStatusCode = statusCode.trim();
-        this.log(
-          `Health check for ${containerName} returned status: ${cleanStatusCode}`
-        );
-
-        return cleanStatusCode === "200";
-      }
-    } catch (error) {
-      this.logError(`Health check failed for ${containerName}: ${error}`);
-
-      // Try to clean up the helper container if it's still running
-      try {
-        const helperExists = await this.containerExists(helperName);
-        if (helperExists) {
-          await this.removeContainer(helperName);
-        }
-      } catch (cleanupError) {
-        this.logError(`Failed to clean up helper container: ${cleanupError}`);
-      }
-
+    if (!projectName) {
+      this.logError(
+        "Project name is required for checkContainerEndpoint to ensure correct network communication."
+      );
       return reuseHelper ? [false, ""] : false;
+    }
+
+    this.log(
+      `Performing endpoint health check for ${containerName} (project: ${projectName}, reuseHelper: ${reuseHelper})`
+    );
+
+    const targetNetworkName = await this.getContainerNetworkName(
+      containerName,
+      projectName
+    );
+
+    if (!targetNetworkName) {
+      this.logError(
+        `Container ${containerName} is not on the expected project network. Aborting health check.`
+      );
+      return reuseHelper ? [false, ""] : false;
+    }
+
+    const targetIP = await this.getContainerIPAddress(
+      containerName,
+      targetNetworkName
+    );
+
+    if (!targetIP) {
+      this.logError(
+        `Failed to get IP address for ${containerName} on network ${targetNetworkName}. Aborting health check.`
+      );
+      return reuseHelper ? [false, ""] : false;
+    }
+
+    // The port is hardcoded to 80 and path to /up in checkHealthWithExistingHelper
+    // and the temporary helper execution.
+
+    if (reuseHelper) {
+      const [helperOk, helperName] = await this.findOrCreateHealthCheckHelper(
+        targetNetworkName
+      );
+      if (!helperOk || !helperName) {
+        this.logError(
+          "Failed to find or create a reusable health check helper."
+        );
+        return [false, ""];
+      }
+      const isHealthy = await this.checkHealthWithExistingHelper(
+        helperName,
+        targetIP,
+        containerName
+      );
+      return [isHealthy, helperName];
+    } else {
+      // Create a temporary, single-use helper container on the target network
+      const tempHelperName = `luma-temp-hc-${Date.now()}`;
+      const alpineAvailable = await this.ensureAlpineImage();
+      if (!alpineAvailable) {
+        this.logError("Alpine image not available for temporary health check.");
+        return false;
+      }
+
+      this.log(
+        `Creating temporary health check helper ${tempHelperName} on network ${targetNetworkName}`
+      );
+
+      // Command to run curl and then self-remove.
+      // Important: The target for curl is now targetIP.
+      // The health check target is hardcoded to http://${targetIP}:80/up
+      // Allow up to 60s for this check (12 attempts * 5s timeout for curl)
+      const maxAttempts = 12; // 12 attempts * 5s = 60s total for curl to succeed
+      const curlInterval = "5"; // 5s for curl connect/max-time
+      const sleepInterval = "3"; // 3s between curl attempts
+
+      let curlCommand = `apk add --no-cache curl && `;
+      curlCommand += `for i in $(seq 1 ${maxAttempts}); do `;
+      curlCommand += `curl -s -f --connect-timeout ${curlInterval} --max-time ${curlInterval} http://${targetIP}:80/up && exit 0; `;
+      curlCommand += `echo \"Attempt $i failed, retrying in ${sleepInterval}s...\"; `;
+      curlCommand += `sleep ${sleepInterval}; `;
+      curlCommand += `done; echo \"All attempts failed.\"; exit 1`;
+
+      const runCmd = `run --rm --name ${tempHelperName} --network ${targetNetworkName} alpine:latest sh -c "${curlCommand.replace(
+        /"/g,
+        '\\"'
+      )}"`;
+
+      try {
+        this.log(
+          `Executing health check for ${containerName} via temporary helper ${tempHelperName} (target IP: ${targetIP} on ${targetNetworkName})`
+        );
+        // This execRemote will resolve when the sh -c command finishes (i.e., curl succeeds or loop finishes)
+        await this.execRemote(runCmd);
+        // If execRemote doesn't throw, it means curl eventually succeeded (exit 0)
+        this.log(
+          `Health check for ${containerName} (IP: ${targetIP}) succeeded via temporary helper.`
+        );
+        return true;
+      } catch (error) {
+        // If execRemote throws, it means the sh -c script exited with non-zero (curl failed all attempts)
+        this.logError(
+          `Health check for ${containerName} (IP: ${targetIP}) failed via temporary helper: ${error}`
+        );
+        return false;
+      }
     }
   }
 
   /**
    * Run a health check using an existing helper container
    * @param helperName Name of the helper container to use
-   * @param targetContainer Name of the container to check
+   * @param targetContainerIP IP address of the container to check
+   * @param targetContainerName Name of the container to check
    * @returns true if the /up endpoint returns 200, false otherwise
    */
   async checkHealthWithExistingHelper(
     helperName: string,
-    targetContainer: string
+    targetContainerIP: string,
+    targetContainerName: string
   ): Promise<boolean> {
     try {
       if (!helperName) {
@@ -844,16 +821,17 @@ chmod +x /tmp/healthcheck.sh
       }
 
       this.log(
-        `Using helper container ${helperName} for health check of ${targetContainer}`
+        `Using helper container ${helperName} for health check of ${targetContainerName} (IP: ${targetContainerIP})`
       );
 
-      // Retry the curl command if it fails
+      // Retry the curl command if it fails. Port hardcoded to 80, path to /up.
       let statusCode = "";
       let success = false;
 
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainer}:80/up || echo 'failed'`;
+          // Use targetContainerIP directly in the URL
+          const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainerIP}:80/up || echo 'failed'`;
           statusCode = await this.execRemote(execCmd);
           success = true;
           break;
@@ -878,12 +856,12 @@ chmod +x /tmp/healthcheck.sh
       // Check the status code
       const cleanStatusCode = statusCode.trim();
       this.log(
-        `Health check for ${targetContainer} returned status: ${cleanStatusCode} (using helper ${helperName})`
+        `Health check for ${targetContainerName} (IP: ${targetContainerIP}) returned status: ${cleanStatusCode} (using helper ${helperName})`
       );
 
       return cleanStatusCode === "200";
     } catch (error) {
-      this.logError(`Health check failed for ${targetContainer}: ${error}`);
+      this.logError(`Health check failed for ${targetContainerName}: ${error}`);
       return false;
     }
   }
@@ -995,6 +973,82 @@ chmod +x /tmp/healthcheck.sh
     } catch (error) {
       this.logError(`Error checking/pulling Alpine image: ${error}`);
       return false;
+    }
+  }
+
+  /**
+   * Get the IP address of a container on a specific network.
+   * @param containerName The name of the container.
+   * @param networkName The name of the network.
+   * @returns The IP address string, or null if not found or an error occurs.
+   */
+  async getContainerIPAddress(
+    containerName: string,
+    networkName: string
+  ): Promise<string | null> {
+    this.log(
+      `Getting IP address for container ${containerName} on network ${networkName}`
+    );
+    try {
+      const command = `inspect ${containerName} --format "{{.NetworkSettings.Networks.${networkName}.IPAddress}}"`;
+      const ipAddress = await this.execRemote(command);
+      const trimmedIp = ipAddress.trim();
+      if (trimmedIp && trimmedIp !== "<no value>" && trimmedIp !== "null") {
+        this.log(
+          `Container ${containerName} has IP ${trimmedIp} on network ${networkName}`
+        );
+        return trimmedIp;
+      }
+      this.logWarn(
+        `Could not find IP address for ${containerName} on network ${networkName}. Output: '${trimmedIp}'`
+      );
+      return null;
+    } catch (error) {
+      this.logError(
+        `Failed to get IP address for container ${containerName} on network ${networkName}: ${error}`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Get the project-specific network name a container is connected to.
+   * @param containerName The name of the container.
+   * @param projectName The name of the current Luma project.
+   * @returns The network name string, or null if not found or an error occurs.
+   */
+  async getContainerNetworkName(
+    containerName: string,
+    projectName: string
+  ): Promise<string | null> {
+    this.log(
+      `Getting project network for container ${containerName} (project: ${projectName})`
+    );
+    const expectedNetworkName = getProjectNetworkName(projectName);
+    try {
+      const command = `inspect ${containerName} --format "{{json .NetworkSettings.Networks}}"`;
+      const output = await this.execRemote(command);
+      const networks = JSON.parse(output.trim());
+
+      for (const netName in networks) {
+        if (netName === expectedNetworkName) {
+          this.log(
+            `Container ${containerName} is connected to project network ${expectedNetworkName}`
+          );
+          return expectedNetworkName;
+        }
+      }
+      this.logWarn(
+        `Container ${containerName} is not connected to the expected project network ${expectedNetworkName}. Found: ${Object.keys(
+          networks
+        ).join(", ")}`
+      );
+      return null;
+    } catch (error) {
+      this.logError(
+        `Failed to get network information for container ${containerName}: ${error}`
+      );
+      return null;
     }
   }
 }

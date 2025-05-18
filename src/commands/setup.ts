@@ -1,7 +1,8 @@
 import { loadConfig, loadSecrets } from "../config";
-import { LumaConfig, LumaSecrets, LumaService } from "../config/types";
+import { LumaConfig, LumaSecrets } from "../config/types";
 import { SSHClient, getSSHCredentials } from "../ssh";
 import { DockerClient } from "../docker";
+import { setupLumaProxy, LUMA_PROXY_NAME } from "../setup-proxy/index";
 
 // Convert object or array format to a normalized array of entries with names
 function normalizeConfigEntries(
@@ -69,15 +70,17 @@ async function setupServer(
   // Add ssh2 debug logging
   const sshClientOptions = {
     ...sshCredentials,
+    host: serverHostname,
+    username: sshCredentials.username as string,
     debug: (message: string) => {
       console.log(`[${serverHostname}] SSH_DEBUG: ${message}`);
     },
   };
 
   const loggableSshClientOptions = {
-    ...sshClientOptions,
-    password: sshClientOptions.password ? "***hidden***" : undefined,
-    debug: sshClientOptions.debug ? "<function>" : undefined,
+    ...sshCredentials,
+    password: sshCredentials.password ? "***hidden***" : undefined,
+    debug: "debug-function",
   };
   console.log(
     `[${serverHostname}] SSHClient options:`,
@@ -128,7 +131,67 @@ async function setupServer(
       );
     }
 
-    // 3. Start the services assigned to this server
+    // 3. Require a project name for network creation
+    if (!config.name) {
+      console.error(
+        `[${serverHostname}] Project name is required in luma.yml (add 'name: your_project_name').`
+      );
+      console.error(
+        `[${serverHostname}] The project name is used to create a unique Docker network for your services.`
+      );
+      throw new Error(
+        `Project name not specified in configuration. Please add 'name: your_project_name' to your luma.yml file.`
+      );
+    }
+
+    // 4. Create a dedicated Docker network for all Luma containers
+    const networkName = `${config.name}-network`;
+    await dockerClient.createNetwork({ name: networkName });
+
+    // 5. Check if Luma Proxy is running and set it up if not
+    console.log(`[${serverHostname}] Checking Luma Proxy status...`);
+    const proxySetupResult = await setupLumaProxy(serverHostname, sshClient);
+
+    if (!proxySetupResult) {
+      console.warn(
+        `[${serverHostname}] Failed to set up Luma Proxy. Some services may not work correctly.`
+      );
+    } else {
+      console.log(`[${serverHostname}] Luma Proxy is ready.`);
+
+      // Connect Luma Proxy to the project network
+      console.log(
+        `[${serverHostname}] Connecting Luma Proxy to the project network...`
+      );
+      try {
+        // Check if the proxy is already connected to the network
+        const checkNetworkCmd = `docker inspect ${LUMA_PROXY_NAME} --format "{{json .NetworkSettings.Networks}}"`;
+        const networkOutput = await sshClient.exec(checkNetworkCmd);
+        const networks = JSON.parse(networkOutput.trim());
+
+        if (networks && networks[networkName]) {
+          console.log(
+            `[${serverHostname}] Luma Proxy is already connected to network: ${networkName}`
+          );
+        } else {
+          // Connect to the network
+          const connectCmd = `docker network connect ${networkName} ${LUMA_PROXY_NAME}`;
+          await sshClient.exec(connectCmd);
+          console.log(
+            `[${serverHostname}] Successfully connected Luma Proxy to network: ${networkName}`
+          );
+        }
+      } catch (error) {
+        console.error(
+          `[${serverHostname}] Failed to connect Luma Proxy to network: ${error}`
+        );
+        console.warn(
+          `[${serverHostname}] Some services may not be accessible through the proxy.`
+        );
+      }
+    }
+
+    // 6. Start the services assigned to this server
     console.log(
       `[${serverHostname}] Starting services assigned to this server...`
     );
@@ -146,23 +209,6 @@ async function setupServer(
       console.log(
         `[${serverHostname}] Found ${servicesOnThisServer.length} services to start.`
       );
-
-      // Require a project name for network creation
-      if (!config.name) {
-        console.error(
-          `[${serverHostname}] Project name is required in luma.yml (add 'name: your_project_name').`
-        );
-        console.error(
-          `[${serverHostname}] The project name is used to create a unique Docker network for your services.`
-        );
-        throw new Error(
-          `Project name not specified in configuration. Please add 'name: your_project_name' to your luma.yml file.`
-        );
-      }
-
-      // Create a dedicated Docker network for all Luma containers
-      const networkName = `${config.name}-network`;
-      await dockerClient.createNetwork({ name: networkName });
 
       // Handle service-specific registry logins
       const serviceRegistryMap = new Map<
@@ -187,22 +233,20 @@ async function setupServer(
 
           // Check if registry has a password in secrets
           if (
-            service.registry.password &&
-            Array.isArray(service.registry.password) &&
-            service.registry.password.length > 0
+            service.registry.password_secret &&
+            !serviceRegistryMap.has(serviceRegistry)
           ) {
-            const passwordSecretKey = service.registry.password[0];
-            const servicePassword = secrets[passwordSecretKey];
+            const servicePassword = secrets[service.registry.password_secret];
 
-            if (servicePassword && !serviceRegistryMap.has(serviceRegistry)) {
+            if (servicePassword) {
               serviceRegistryMap.set(serviceRegistry, {
                 registry: serviceRegistry,
                 username: serviceUsername,
                 password: servicePassword,
               });
-            } else if (!servicePassword) {
+            } else {
               console.warn(
-                `[${serverHostname}] Service ${service.name}: Secret ${passwordSecretKey} not found in .luma/secrets. Skipping registry login.`
+                `[${serverHostname}] Service ${service.name}: Secret ${service.registry.password_secret} not found in .luma/secrets. Skipping registry login.`
               );
             }
           }

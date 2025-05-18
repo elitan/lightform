@@ -13,21 +13,21 @@ COPY . .
 
 # Build the application
 # -ldflags "-w -s" reduces the size of the binary by removing debug information.
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-w -s" -o /luma-proxy main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-w -s" -o /luma-proxy cmd/luma-proxy/main.go
 
 # Stage 2: Create the final lightweight image
 FROM alpine:latest
 
-# Add ca-certificates in case the proxy needs to make HTTPS calls (e.g., to Let's Encrypt)
-RUN apk --no-cache add ca-certificates
+# Add ca-certificates and curl for health checks
+RUN apk --no-cache add ca-certificates curl
 
 WORKDIR /app
 
 # Copy the built binary from the builder stage
 COPY --from=builder /luma-proxy .
 
-# Expose port 8080 (this will eventually be 80 and 443)
-EXPOSE 8080
+# Expose ports 80 and 443
+EXPOSE 80 443
 
 # Set the entrypoint for the container
 ENTRYPOINT ["./luma-proxy", "run"] 
