@@ -406,7 +406,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
                 ) {
                   // This is just a warning, not an actual error - login was successful
                   console.log(
-                    `    [${serverHostname}] Login successful (with warning about unencrypted storage)`
+                    `    [${serverHostname}] Successfully logged into registry`
                   );
                   registryLoginPerformed = true;
                 } else {
@@ -457,7 +457,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
               ) {
                 // This is just a warning, not an actual error - login was successful
                 console.log(
-                  `    [${serverHostname}] Login successful (with warning about unencrypted storage)`
+                  `    [${serverHostname}] Successfully logged into registry`
                 );
                 registryLoginPerformed = true;
               } else {
@@ -835,7 +835,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
                 ) {
                   // This is just a warning, not an actual error - login was successful
                   console.log(
-                    `    [${serverHostname}] Login successful (with warning about unencrypted storage)`
+                    `    [${serverHostname}] Successfully logged into registry`
                   );
                   registryLoginPerformed = true;
                 } else {
@@ -885,7 +885,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
               ) {
                 // This is just a warning, not an actual error - login was successful
                 console.log(
-                  `    [${serverHostname}] Login successful (with warning about unencrypted storage)`
+                  `    [${serverHostname}] Successfully logged into registry`
                 );
                 registryLoginPerformed = true;
               } else {

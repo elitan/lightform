@@ -265,9 +265,8 @@ EOF`);
             "WARNING! Your password will be stored unencrypted"
           )
         ) {
-          this.log(
-            `Login successful to ${registry} (with warning about unencrypted storage).`
-          );
+          // Still treat as success but don't mention the warning in user-facing logs
+          this.log(`Successfully logged into Docker registry: ${registry}.`);
           return true;
         }
 
