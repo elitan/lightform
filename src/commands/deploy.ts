@@ -530,110 +530,160 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           }
 
           let newAppIsHealthy = false;
-          if (appEntry.health_check) {
+
+          // First, always check the /up endpoint as a required Luma check
+          console.log(
+            `    [${serverHostname}] Performing /up endpoint health check for ${containerName}...`
+          );
+
+          // Set up retry parameters with fixed values for the /up check
+          // Check every 1 second for up to 60 seconds
+          const upCheckMaxAttempts = 60;
+          const upCheckIntervalSeconds = 1;
+
+          // We'll still use the start period from config if available
+          const hcConfig = appEntry.health_check || {};
+          const startPeriodSeconds = parseInt(
+            hcConfig.start_period || "0s",
+            10
+          ); // Default 0s
+
+          if (startPeriodSeconds > 0) {
             console.log(
-              `    [${serverHostname}] Performing health check for new container ${containerName}...`
+              `    [${serverHostname}] Waiting for start period: ${startPeriodSeconds}s...`
             );
-            const hcConfig = appEntry.health_check;
-            const retries = hcConfig.retries || 3;
-            const intervalSeconds = parseInt(hcConfig.interval || "10s", 10); // Default 10s
-            const startPeriodSeconds = parseInt(
-              hcConfig.start_period || "0s",
-              10
-            ); // Default 0s
-            // Timeout for each check can also be added from hcConfig.timeout if defined.
+            await new Promise((resolve) =>
+              setTimeout(resolve, startPeriodSeconds * 1000)
+            );
+          }
 
-            if (startPeriodSeconds > 0) {
+          // Create a single reusable helper container for all health checks
+          console.log(
+            `    [${serverHostname}] Creating health check helper container...`
+          );
+
+          let helperContainerName = "";
+          let initialCheckResult = false;
+
+          try {
+            // Initial health check with reusable container
+            const result = (await dockerClientRemote.checkContainerEndpoint(
+              containerName,
+              true // Create a reusable container
+            )) as [boolean, string];
+
+            initialCheckResult = result[0];
+            helperContainerName = result[1];
+
+            if (initialCheckResult) {
+              // First check was successful
+              newAppIsHealthy = true;
               console.log(
-                `    [${serverHostname}] Waiting for start period: ${startPeriodSeconds}s...`
+                `    [${serverHostname}] /up endpoint check successful on first attempt`
               );
-              await new Promise((resolve) =>
-                setTimeout(resolve, startPeriodSeconds * 1000)
-              );
-            }
-
-            // Check if we should use custom endpoint check or Docker's built-in health check
-            if (hcConfig.endpoint) {
+            } else {
+              // Need to keep checking
               console.log(
-                `    [${serverHostname}] Using HTTP endpoint check for ${containerName}: ${hcConfig.endpoint}`
+                `    [${serverHostname}] First health check failed, continuing with repeated checks...`
               );
 
-              // Use our endpoint check with helper container
-              for (let i = 0; i < retries; i++) {
-                console.log(
-                  `    [${serverHostname}] HTTP endpoint check attempt ${
-                    i + 1
-                  }/${retries} for ${containerName}...`
-                );
+              // Perform the required /up endpoint check (starting from attempt 2)
+              for (let i = 1; i < upCheckMaxAttempts; i++) {
+                // Only log the attempt every 5 attempts to reduce verbosity
+                if (i % 5 === 0 || i === upCheckMaxAttempts - 1) {
+                  console.log(
+                    `    [${serverHostname}] /up endpoint check attempt ${
+                      i + 1
+                    }/${upCheckMaxAttempts} for ${containerName}...`
+                  );
+                }
 
                 const isHealthy =
-                  await dockerClientRemote.checkContainerEndpoint(
-                    containerName,
-                    hcConfig.endpoint,
-                    hcConfig.port || 8080
+                  await dockerClientRemote.checkHealthWithExistingHelper(
+                    helperContainerName,
+                    containerName
                   );
 
                 if (isHealthy) {
                   newAppIsHealthy = true;
                   console.log(
-                    `    [${serverHostname}] HTTP endpoint check successful for ${containerName}`
+                    `    [${serverHostname}] /up endpoint check successful for ${containerName} after ${
+                      i + 1
+                    } attempts`
                   );
                   break;
                 }
 
-                if (i < retries - 1) {
-                  console.log(
-                    `    [${serverHostname}] Waiting ${intervalSeconds}s before next attempt...`
-                  );
+                if (i < upCheckMaxAttempts - 1) {
+                  // No need to log waiting messages as we're checking every second
                   await new Promise((resolve) =>
-                    setTimeout(resolve, intervalSeconds * 1000)
-                  );
-                }
-              }
-
-              if (!newAppIsHealthy) {
-                console.error(
-                  `    [${serverHostname}] All HTTP endpoint checks failed for ${containerName}`
-                );
-              }
-            } else {
-              // Use Docker's built-in health check
-              for (let i = 0; i < retries; i++) {
-                console.log(
-                  `    [${serverHostname}] Health check attempt ${
-                    i + 1
-                  }/${retries} for ${containerName}...`
-                );
-                const healthStatus =
-                  await dockerClientRemote.getContainerHealth(containerName);
-                if (healthStatus === "healthy") {
-                  newAppIsHealthy = true;
-                  console.log(
-                    `    [${serverHostname}] Container ${containerName} is healthy.`
-                  );
-                  break;
-                }
-                if (healthStatus === "unhealthy") {
-                  console.error(
-                    `    [${serverHostname}] Container ${containerName} reported unhealthy. Health check failed.`
-                  );
-                  newAppIsHealthy = false;
-                  break;
-                }
-                // If status is 'starting' or null (no health check defined in image, but Luma config expects one), keep trying.
-                if (i < retries - 1) {
-                  await new Promise((resolve) =>
-                    setTimeout(resolve, intervalSeconds * 1000)
+                    setTimeout(resolve, upCheckIntervalSeconds * 1000)
                   );
                 }
               }
             }
-          } else {
-            // No health check defined in luma.yml, assume healthy after start
-            console.log(
-              `    [${serverHostname}] No health check configured for ${appEntry.name}. Assuming container ${containerName} is operational.`
+
+            // Additionally, check Docker's built-in health check if configured
+            if (newAppIsHealthy && appEntry.health_check) {
+              // Use parameters from config for Docker's health check
+              const dockerHcRetries = hcConfig.retries || 3;
+              const dockerHcIntervalSeconds = parseInt(
+                hcConfig.interval || "10s",
+                10
+              );
+
+              console.log(
+                `    [${serverHostname}] Also checking Docker's built-in health status for ${containerName}...`
+              );
+
+              // Use Docker's built-in health check as an additional check
+              for (let i = 0; i < dockerHcRetries; i++) {
+                console.log(
+                  `    [${serverHostname}] Docker health check attempt ${
+                    i + 1
+                  }/${dockerHcRetries} for ${containerName}...`
+                );
+                const healthStatus =
+                  await dockerClientRemote.getContainerHealth(containerName);
+
+                if (healthStatus === "healthy") {
+                  console.log(
+                    `    [${serverHostname}] Docker reports container ${containerName} is healthy.`
+                  );
+                  break;
+                }
+
+                if (healthStatus === "unhealthy") {
+                  console.error(
+                    `    [${serverHostname}] Docker reports container ${containerName} is unhealthy. This is concerning but we'll continue since the /up check passed.`
+                  );
+                  break;
+                }
+
+                // If status is 'starting' or null, keep trying.
+                if (i < dockerHcRetries - 1) {
+                  await new Promise((resolve) =>
+                    setTimeout(resolve, dockerHcIntervalSeconds * 1000)
+                  );
+                }
+              }
+            }
+          } finally {
+            // Always clean up the helper container
+            if (helperContainerName) {
+              console.log(
+                `    [${serverHostname}] Cleaning up health check helper container...`
+              );
+              await dockerClientRemote.cleanupHelperContainer(
+                helperContainerName
+              );
+            }
+          }
+
+          if (!newAppIsHealthy) {
+            console.error(
+              `    [${serverHostname}] Container ${containerName} failed the required /up endpoint check. Deployment cannot proceed.`
             );
-            newAppIsHealthy = true;
           }
 
           if (!newAppIsHealthy) {
