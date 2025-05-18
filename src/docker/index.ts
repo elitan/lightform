@@ -570,6 +570,69 @@ EOF`);
   }
 
   /**
+   * Find an existing health check helper container or create a new one
+   * @returns [success, helperName]
+   */
+  async findOrCreateHealthCheckHelper(
+    network: string
+  ): Promise<[boolean, string]> {
+    try {
+      // Look for existing helper containers
+      const result = await this.execRemote(
+        `ps --filter "name=luma-hc-helper" --format "{{.Names}}"`
+      );
+
+      if (result.trim()) {
+        // Found at least one helper container
+        const helpers = result.trim().split("\n");
+        this.log(`Found existing health check helper container: ${helpers[0]}`);
+        return [true, helpers[0]];
+      }
+
+      // No existing helper found, create a new one
+      const helperName = `luma-hc-helper-${Date.now()}`;
+
+      // Ensure Alpine image is available
+      const alpineAvailable = await this.ensureAlpineImage();
+      if (!alpineAvailable) {
+        this.logError(
+          "Cannot proceed with health check: Alpine image is not available"
+        );
+        return [false, ""];
+      }
+
+      // Create a container that keeps running so we can exec into it
+      const helperStartCmd = `run -d --name ${helperName} --network ${network} alpine:latest sh -c "apk add --no-cache curl && sleep 36000"`; // 10 hour timeout
+
+      this.log(`Starting new helper container ${helperName}`);
+      await this.execRemote(helperStartCmd);
+
+      // Verify the container was created and is running
+      let helperExists = false;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        helperExists = await this.containerExists(helperName);
+        if (helperExists) break;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
+      if (!helperExists) {
+        this.logError(`Failed to create helper container ${helperName}`);
+        return [false, ""];
+      }
+
+      this.log(
+        `Helper container ${helperName} created successfully. Waiting for curl installation...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      return [true, helperName];
+    } catch (error) {
+      this.logError(`Error finding or creating helper container: ${error}`);
+      return [false, ""];
+    }
+  }
+
+  /**
    * Check container's health by making an HTTP request to an endpoint using a temporary helper container
    * @param containerName The name of the container to check
    * @param reuseHelper Whether to create the helper container but return a container name for reuse
@@ -579,8 +642,8 @@ EOF`);
     containerName: string,
     reuseHelper: boolean = false
   ): Promise<boolean | [boolean, string]> {
-    // Generate a unique name for the helper container with luma-hc prefix to avoid cleanup
-    const helperName = `luma-hc-helper-${Date.now()}`;
+    // We'll use a generated name only for non-reusable containers
+    let helperName = "";
 
     try {
       // Verify the container exists before trying to inspect it
@@ -634,51 +697,21 @@ EOF`);
       // Create and start the helper container
       if (reuseHelper) {
         try {
-          // First ensure Alpine image is available
-          const alpineAvailable = await this.ensureAlpineImage();
-          if (!alpineAvailable) {
+          // Find or create a helper container
+          const [helperSuccess, helperContainerName] =
+            await this.findOrCreateHealthCheckHelper(network);
+
+          if (!helperSuccess || !helperContainerName) {
             this.logError(
-              "Cannot proceed with health check: Alpine image is not available"
+              "Failed to obtain a helper container for health checks"
             );
             return [false, ""];
           }
-
-          // Create a container that keeps running so we can exec into it
-          const helperStartCmd = `run -d --name ${helperName} --network ${network} alpine:latest sh -c "apk add --no-cache curl && sleep 3600"`;
-
-          this.log(
-            `Starting reusable helper container ${helperName} to check health of ${containerName}`
-          );
-          await this.execRemote(helperStartCmd);
-
-          // Verify the container was created and is running - retry a few times if needed
-          let helperExists = false;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            this.log(
-              `Verifying helper container exists (attempt ${attempt + 1}/3)...`
-            );
-            helperExists = await this.containerExists(helperName);
-            if (helperExists) {
-              break;
-            }
-            // Short wait before retry
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-          }
-
-          if (!helperExists) {
-            this.logError(`Failed to create helper container ${helperName}`);
-            return [false, ""];
-          }
-
-          this.log(
-            `Helper container ${helperName} created successfully. Waiting for curl installation...`
-          );
-
-          // Wait for curl installation to complete
-          await new Promise((resolve) => setTimeout(resolve, 5000));
 
           // Create a shell script that loops for 60 seconds, checking the endpoint every second
-          this.log(`Running health check loop in container ${helperName}...`);
+          this.log(
+            `Running health check loop in container ${helperContainerName}...`
+          );
           const healthCheckScript = `
             #!/bin/sh
             echo "Starting health check loop for ${containerName}:80/up"
@@ -703,10 +736,12 @@ EOF`);
           `;
 
           // Execute the health check script and capture the exit code
-          this.log(`Executing health check script in ${helperName}...`);
+          this.log(
+            `Executing health check script in ${helperContainerName}...`
+          );
           try {
             await this
-              .execRemote(`exec ${helperName} sh -c 'cat > /tmp/healthcheck.sh << "EOL"
+              .execRemote(`exec ${helperContainerName} sh -c 'cat > /tmp/healthcheck.sh << "EOL"
 ${healthCheckScript}
 EOL
 chmod +x /tmp/healthcheck.sh
@@ -714,20 +749,23 @@ chmod +x /tmp/healthcheck.sh
 
             // If we get here, the script exited with code 0 (success)
             this.log(`Health check script succeeded for ${containerName}`);
-            return [true, helperName];
+            return [true, helperContainerName];
           } catch (error) {
             // Script exited with non-zero (failure)
             this.logError(
               `Health check script failed for ${containerName}: ${error}`
             );
-            return [false, helperName];
+            return [false, helperContainerName];
           }
         } catch (error) {
-          this.logError(`Error setting up helper container: ${error}`);
+          this.logError(`Error finding or creating helper container: ${error}`);
           return [false, ""];
         }
       } else {
-        // Original implementation - run a one-time check
+        // Original implementation - run a one-time check with a temporary container
+
+        // Generate a temporary name for the helper container
+        helperName = `luma-hc-temp-${Date.now()}`;
 
         // First ensure Alpine image is available
         const alpineAvailable = await this.ensureAlpineImage();
@@ -741,7 +779,7 @@ chmod +x /tmp/healthcheck.sh
         const helperCmd = `run --rm --name ${helperName} --network ${network} alpine:latest /bin/sh -c "apk add --no-cache curl && curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${containerName}:80/up || echo 'failed'"`;
 
         this.log(
-          `Starting helper container to check health of ${containerName}`
+          `Starting temporary helper container to check health of ${containerName}`
         );
         const statusCode = await this.execRemote(helperCmd);
 
