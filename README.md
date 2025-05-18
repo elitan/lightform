@@ -334,5 +334,3 @@ sudo usermod -a -G docker luma
 Once Docker is successfully installed, you can run `luma setup` again to continue with the deployment setup.
 
 ## Contributing
-
-(Details TBD)
