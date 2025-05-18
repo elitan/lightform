@@ -529,12 +529,6 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
             continue;
           }
 
-          // Give the container a moment to initialize
-          console.log(
-            `    [${serverHostname}] Waiting 5 seconds for container to initialize...`
-          );
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-
           let newAppIsHealthy = false;
 
           // First, always check the /up endpoint as a required Luma check
@@ -654,15 +648,15 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
               }
             }
           } finally {
-            // Always clean up the helper container
-            if (helperContainerName) {
-              console.log(
-                `    [${serverHostname}] Cleaning up health check helper container...`
-              );
-              await dockerClientRemote.cleanupHelperContainer(
-                helperContainerName
-              );
-            }
+            // Don't clean up the helper container so it can be reused for future deployments
+            // if (helperContainerName) {
+            //   console.log(
+            //     `    [${serverHostname}] Cleaning up health check helper container...`
+            //   );
+            //   await dockerClientRemote.cleanupHelperContainer(
+            //     helperContainerName
+            //   );
+            // }
           }
 
           if (!newAppIsHealthy) {
