@@ -80,21 +80,31 @@ export class SSHClient {
   }
 
   async exec(command: string): Promise<string> {
+    // Check if this is a sensitive command containing credentials
+    const isSensitiveCommand =
+      command.includes("password") ||
+      command.includes("login") ||
+      command.includes('echo "') ||
+      command.includes("cat >");
+
+    // Create a sanitized version for logging
+    const sanitizedCommand = isSensitiveCommand
+      ? command
+          .replace(/echo ".*?"/g, 'echo "***REDACTED***"')
+          .replace(/cat > .*?<< ['"]?EOF/g, "cat > ***REDACTED*** << EOF")
+      : command;
+
     try {
       const result = await this.ssh.exec(command);
       if (typeof result === "string") {
         return result;
       }
-      // ssh2-promise can return an object with stdout/stderr for exec
-      // Based on ssh2-promise docs, exec directly returns string output or throws error.
-      // However, the previous code had a more complex check, let's stick to simpler string for now.
-      // If complex object is indeed returned, this needs adjustment based on actual behavior.
       console.warn(
         `Unexpected exec result type on ${
           this.host
-        } for command "${command}": ${typeof result}`
+        } for command "${sanitizedCommand}": ${typeof result}`
       );
-      return String(result); // Attempt to convert, but this might not be ideal.
+      return String(result);
     } catch (err) {
       // Check if error has stdout/stderr (common for exec errors)
       const execError = err as {
@@ -103,23 +113,68 @@ export class SSHClient {
         message?: string;
         code?: number | string;
       };
-      if (execError.stderr) {
+
+      // Sanitize error outputs
+      if (execError.stderr && isSensitiveCommand) {
+        const sanitizedStderr = this.sanitizeErrorOutput(execError.stderr);
         console.error(
-          `Command "${command}" on ${this.host} failed with stderr:\n${execError.stderr}`
+          `Command "${sanitizedCommand}" on ${this.host} failed with stderr:\n${sanitizedStderr}`
+        );
+      } else if (execError.stderr) {
+        console.error(
+          `Command "${sanitizedCommand}" on ${this.host} failed with stderr:\n${execError.stderr}`
         );
       }
-      if (execError.stdout) {
-        // Sometimes errors might still have stdout
+
+      if (execError.stdout && isSensitiveCommand) {
+        const sanitizedStdout = this.sanitizeErrorOutput(execError.stdout);
         console.warn(
-          `Command "${command}" on ${this.host} had stdout despite error:\n${execError.stdout}`
+          `Command "${sanitizedCommand}" on ${this.host} had stdout despite error:\n${sanitizedStdout}`
+        );
+      } else if (execError.stdout) {
+        console.warn(
+          `Command "${sanitizedCommand}" on ${this.host} had stdout despite error:\n${execError.stdout}`
         );
       }
+
+      // Sanitize the error message
+      const errorMessage = execError.message || String(err);
+      const sanitizedError = isSensitiveCommand
+        ? this.sanitizeErrorOutput(errorMessage)
+        : errorMessage;
+
       console.error(
-        `Error executing command "${command}" on ${this.host}:`,
-        execError.message || err
+        `Error executing command "${sanitizedCommand}" on ${this.host}:`,
+        sanitizedError
       );
+
       throw err;
     }
+  }
+
+  // Helper method to sanitize potentially sensitive output
+  private sanitizeErrorOutput(output: string): string {
+    // Replace potential Docker login password in command
+    output = output.replace(
+      /echo ".*?" \| docker login/g,
+      'echo "***REDACTED***" | docker login'
+    );
+
+    // Replace other sensitive patterns
+    output = output.replace(
+      /password=.*?( |$|\n)/gi,
+      "password=***REDACTED*** "
+    );
+    output = output.replace(
+      /password:.*?( |$|\n)/gi,
+      "password:***REDACTED*** "
+    );
+    output = output.replace(
+      /--password[-_]?\w*\s+["']?[\w!@#$%^&*(),.?;:|<>]*["']?/gi,
+      "--password ***REDACTED***"
+    );
+
+    return output;
   }
 
   async close(): Promise<void> {

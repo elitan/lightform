@@ -231,22 +231,51 @@ export class DockerClient {
   ): Promise<boolean> {
     this.log(`Logging into Docker registry: ${registry}...`);
     try {
-      const escapedPassword = password.replace(
-        /[\$"`\\\n]/g,
-        (match) => `\\${match}`
-      );
-      const loginCommand = `login ${registry} -u "${username}" --password-stdin`;
       if (!this.sshClient) {
         this.logError("SSH client not available for Docker login operation.");
         return false;
       }
-      await this.sshClient.exec(
-        `echo "${escapedPassword}" | docker ${loginCommand}`
-      );
-      this.log(`Successfully logged into Docker registry: ${registry}.`);
-      return true;
+      
+      // Create a temporary file with the password on the remote server
+      const tempFile = `/tmp/docker_login_${Date.now()}.tmp`;
+      
+      // Write password to temporary file without echoing it
+      await this.sshClient.exec(`cat > ${tempFile} << 'EOF'
+${password}
+EOF`);
+      
+      // Set restrictive permissions
+      await this.sshClient.exec(`chmod 600 ${tempFile}`);
+      
+      // Login using the file and immediately remove it
+      try {
+        await this.sshClient.exec(
+          `cat ${tempFile} | docker login ${registry} -u "${username}" --password-stdin && rm -f ${tempFile}`
+        );
+        this.log(`Successfully logged into Docker registry: ${registry}.`);
+        return true;
+      } catch (loginError) {
+        // Delete the temp file even if login fails
+        await this.sshClient.exec(`rm -f ${tempFile}`);
+        
+        // Handle the common warning about unencrypted storage
+        const errorMessage = String(loginError);
+        if (errorMessage.includes("WARNING! Your password will be stored unencrypted")) {
+          this.log(`Login successful to ${registry} (with warning about unencrypted storage).`);
+          return true;
+        }
+        
+        // Don't include the error message which might contain sensitive info
+        throw new Error("Docker login failed (see server logs for details)");
+      }
     } catch (error) {
-      this.logError(`Failed to log into Docker registry ${registry}: ${error}`);
+      const errorStr = String(error);
+      // Sanitize any error message to prevent password disclosure
+      if (errorStr.includes(password)) {
+        this.logError(`Failed to log into Docker registry ${registry}: [Password redacted from logs]`);
+      } else {
+        this.logError(`Failed to log into Docker registry ${registry}: ${error}`);
+      }
       return false;
     }
   }
@@ -609,305 +638,4 @@ export class DockerClient {
           const helperStartCmd = `run -d --name ${helperName} --network ${network} alpine:latest sh -c "apk add --no-cache curl && sleep 3600"`;
 
           this.log(
-            `Starting reusable helper container ${helperName} to check health of ${containerName}`
-          );
-          await this.execRemote(helperStartCmd);
-
-          // Verify the container was created and is running - retry a few times if needed
-          let helperExists = false;
-          for (let attempt = 0; attempt < 3; attempt++) {
-            this.log(
-              `Verifying helper container exists (attempt ${attempt + 1}/3)...`
-            );
-            helperExists = await this.containerExists(helperName);
-            if (helperExists) {
-              break;
-            }
-            // Short wait before retry
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-          }
-
-          if (!helperExists) {
-            this.logError(`Failed to create helper container ${helperName}`);
-            return [false, ""];
-          }
-
-          this.log(
-            `Helper container ${helperName} created successfully. Waiting for curl installation...`
-          );
-
-          // Wait for curl installation to complete
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-
-          // Create a shell script that loops for 60 seconds, checking the endpoint every second
-          this.log(`Running health check loop in container ${helperName}...`);
-          const healthCheckScript = `
-            #!/bin/sh
-            echo "Starting health check loop for ${containerName}:80/up"
-            START_TIME=$(date +%s)
-            END_TIME=$((START_TIME + 60))
-            
-            while [ $(date +%s) -lt $END_TIME ]; do
-              echo "Checking endpoint ($(date))"
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 3 http://${containerName}:80/up || echo "failed")
-              echo "Response: $STATUS"
-              
-              if [ "$STATUS" = "200" ]; then
-                echo "Success! Endpoint returned 200"
-                exit 0
-              fi
-              
-              sleep 1
-            done
-            
-            echo "Timeout after 60 seconds. Health check failed."
-            exit 1
-          `;
-
-          // Execute the health check script and capture the exit code
-          this.log(`Executing health check script in ${helperName}...`);
-          try {
-            await this
-              .execRemote(`exec ${helperName} sh -c 'cat > /tmp/healthcheck.sh << "EOL"
-${healthCheckScript}
-EOL
-chmod +x /tmp/healthcheck.sh
-/tmp/healthcheck.sh'`);
-
-            // If we get here, the script exited with code 0 (success)
-            this.log(`Health check script succeeded for ${containerName}`);
-            return [true, helperName];
-          } catch (error) {
-            // Script exited with non-zero (failure)
-            this.logError(
-              `Health check script failed for ${containerName}: ${error}`
-            );
-            return [false, helperName];
-          }
-        } catch (error) {
-          this.logError(`Error setting up helper container: ${error}`);
-          return [false, ""];
-        }
-      } else {
-        // Original implementation - run a one-time check
-
-        // First ensure Alpine image is available
-        const alpineAvailable = await this.ensureAlpineImage();
-        if (!alpineAvailable) {
-          this.logError(
-            "Cannot proceed with health check: Alpine image is not available"
-          );
-          return false;
-        }
-
-        const helperCmd = `run --rm --name ${helperName} --network ${network} alpine:latest /bin/sh -c "apk add --no-cache curl && curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${containerName}:80/up || echo 'failed'"`;
-
-        this.log(
-          `Starting helper container to check health of ${containerName}`
-        );
-        const statusCode = await this.execRemote(helperCmd);
-
-        // Check the status code
-        const cleanStatusCode = statusCode.trim();
-        this.log(
-          `Health check for ${containerName} returned status: ${cleanStatusCode}`
-        );
-
-        return cleanStatusCode === "200";
-      }
-    } catch (error) {
-      this.logError(`Health check failed for ${containerName}: ${error}`);
-
-      // Try to clean up the helper container if it's still running
-      try {
-        const helperExists = await this.containerExists(helperName);
-        if (helperExists) {
-          await this.removeContainer(helperName);
-        }
-      } catch (cleanupError) {
-        this.logError(`Failed to clean up helper container: ${cleanupError}`);
-      }
-
-      return reuseHelper ? [false, ""] : false;
-    }
-  }
-
-  /**
-   * Run a health check using an existing helper container
-   * @param helperName Name of the helper container to use
-   * @param targetContainer Name of the container to check
-   * @returns true if the /up endpoint returns 200, false otherwise
-   */
-  async checkHealthWithExistingHelper(
-    helperName: string,
-    targetContainer: string
-  ): Promise<boolean> {
-    try {
-      if (!helperName) {
-        this.logError(
-          `Invalid helper container name (${helperName}) provided for health check`
-        );
-        return false;
-      }
-
-      const helperExists = await this.containerExists(helperName);
-      if (!helperExists) {
-        this.logError(`Helper container ${helperName} does not exist`);
-        return false;
-      }
-
-      this.log(
-        `Using helper container ${helperName} for health check of ${targetContainer}`
-      );
-
-      // Retry the curl command if it fails
-      let statusCode = "";
-      let success = false;
-
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainer}:80/up || echo 'failed'`;
-          statusCode = await this.execRemote(execCmd);
-          success = true;
-          break;
-        } catch (execError) {
-          this.logError(
-            `Health check attempt ${attempt + 1}/2 failed: ${execError}`
-          );
-          if (attempt < 1) {
-            // Brief pause before retry
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-          }
-        }
-      }
-
-      if (!success) {
-        this.logError(
-          `All health check attempts with helper ${helperName} failed`
-        );
-        return false;
-      }
-
-      // Check the status code
-      const cleanStatusCode = statusCode.trim();
-      this.log(
-        `Health check for ${targetContainer} returned status: ${cleanStatusCode} (using helper ${helperName})`
-      );
-
-      return cleanStatusCode === "200";
-    } catch (error) {
-      this.logError(`Health check failed for ${targetContainer}: ${error}`);
-      return false;
-    }
-  }
-
-  /**
-   * Clean up a helper container
-   * @param helperName Name of the helper container to remove
-   */
-  async cleanupHelperContainer(helperName: string): Promise<boolean> {
-    try {
-      const exists = await this.containerExists(helperName);
-      if (exists) {
-        await this.stopContainer(helperName);
-        await this.removeContainer(helperName);
-        this.log(`Successfully removed helper container ${helperName}`);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      this.logError(
-        `Failed to clean up helper container ${helperName}: ${error}`
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Prune unused Docker resources (containers, networks, images, build cache) on the remote server.
-   */
-  async prune(): Promise<boolean> {
-    this.log("Pruning Docker resources (system prune -af)...");
-    try {
-      await this.execRemote("system prune -af");
-      this.log("Successfully pruned Docker resources.");
-      return true;
-    } catch (error) {
-      this.logError(`Failed to prune Docker resources: ${error}`);
-      return false;
-    }
-  }
-
-  /**
-   * Convert a Luma service definition to Docker container options
-   */
-  static serviceToContainerOptions(
-    service: ServiceEntry,
-    projectName: string,
-    secrets: LumaSecrets
-  ): DockerContainerOptions {
-    const containerName = `luma-${projectName}-${service.name}`;
-    const options: DockerContainerOptions = {
-      name: containerName,
-      image: service.image,
-      network: `${projectName}-network`,
-      ports: service.ports,
-      volumes: service.volumes,
-      envVars: {},
-    };
-
-    // Add environment variables
-    if (service.environment?.plain) {
-      for (const [key, value] of Object.entries(service.environment.plain)) {
-        if (key && value !== undefined) {
-          options.envVars![key] = value;
-        }
-      }
-    }
-
-    // Secret environment variables
-    if (service.environment?.secret) {
-      service.environment.secret.forEach((secretName: string) => {
-        const secretValue = secrets[secretName];
-        if (secretValue) {
-          options.envVars![secretName] = secretValue;
-        }
-      });
-    }
-
-    return options;
-  }
-
-  /**
-   * Ensure Alpine image is available on the remote server
-   * @returns true if Alpine image is available or was successfully pulled
-   */
-  private async ensureAlpineImage(): Promise<boolean> {
-    try {
-      this.log("Checking if Alpine image is available...");
-
-      // Check if the alpine image already exists
-      try {
-        await this.execRemote("images alpine:latest --quiet");
-        this.log("Alpine image is already available");
-        return true;
-      } catch (error) {
-        // Image doesn't exist or another error occurred
-        this.log("Alpine image not found, pulling it...");
-      }
-
-      // Pull the alpine image explicitly
-      try {
-        await this.execRemote("pull alpine:latest");
-        this.log("Successfully pulled Alpine image");
-        return true;
-      } catch (pullError) {
-        this.logError(`Failed to pull Alpine image: ${pullError}`);
-        return false;
-      }
-    } catch (error) {
-      this.logError(`Error checking/pulling Alpine image: ${error}`);
-      return false;
-    }
-  }
-}
+            `
