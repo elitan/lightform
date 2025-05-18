@@ -92,8 +92,7 @@ apps:
     # Uncomment and configure if this app uses a different registry than the default.
     # registry:
     #   username: app_specific_username
-    #   password:
-    #     - APP_REGISTRY_PASSWORD_VAR
+    #   password_secret: APP_REGISTRY_PASSWORD_VAR
 
     # Optional: Configuration for building the Docker image.
     # Required if you are building your own image from a Dockerfile.

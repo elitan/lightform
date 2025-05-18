@@ -2,6 +2,7 @@
 
 import { initCommand } from "./commands/init";
 import { setupCommand } from "./commands/setup";
+import { deployCommand } from "./commands/deploy";
 
 async function main() {
   const args = Bun.argv.slice(2); // Remove 'bun' and 'src/index.ts' from args
@@ -21,6 +22,9 @@ async function main() {
       break;
     case "setup":
       await setupCommand(args.slice(1));
+      break;
+    case "deploy":
+      await deployCommand(args.slice(1));
       break;
     // TODO: Add cases for other commands (setup, deploy, etc.)
     default:

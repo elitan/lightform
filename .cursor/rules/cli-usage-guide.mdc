@@ -1,0 +1,21 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Luma CLI Usage Guide
+
+For detailed information on Luma CLI commands, configuration options (`luma.yml`, `.luma/secrets`), and overall workflow, please refer to the main project `[README.md](mdc:README.md)`.
+
+The `README.md` provides comprehensive explanations of:
+
+*   Available commands (`init`, `setup`, `deploy`, etc.) and their usage.
+*   The structure and options for the `luma.yml` configuration file.
+*   The purpose and usage of the `.luma/secrets` file.
+*   Deployment strategies and core functionalities like SSH and Docker integration.
+
+Key modules related to these functionalities are:
+*   Commands: `[src/commands/](mdc:src/commands)`
+*   Configuration loading: `[src/config/](mdc:src/config)`
+*   Docker operations: `[src/docker/](mdc:src/docker)`
+*   SSH connections: `[src/ssh/](mdc:src/ssh)`

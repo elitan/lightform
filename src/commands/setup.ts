@@ -3,6 +3,24 @@ import { LumaConfig, LumaSecrets, LumaService } from "../config/types";
 import { SSHClient } from "../ssh";
 import { DockerClient } from "../docker";
 
+// Convert object or array format to a normalized array of entries with names
+function normalizeConfigEntries(
+  entries: Record<string, any> | Array<any> | undefined
+): Array<any> {
+  if (!entries) return [];
+
+  // If it's already an array, return it
+  if (Array.isArray(entries)) {
+    return entries;
+  }
+
+  // If it's an object, convert to array with name property
+  return Object.entries(entries).map(([name, entry]) => ({
+    ...entry,
+    name,
+  }));
+}
+
 async function getSSHCredentials(
   serverHostname: string,
   config: LumaConfig,
@@ -394,13 +412,15 @@ export async function setupCommand(serviceNames?: string[]) {
     const config = await loadConfig();
     const secrets = await loadSecrets();
 
-    let servicesToSetup: LumaService[] = [];
+    const configuredServices = normalizeConfigEntries(config.services);
+    let servicesToSetup: Array<any> = [];
 
     if (serviceNames && serviceNames.length > 0) {
       console.log(`Targeting services: ${serviceNames.join(", ")}`);
       serviceNames.forEach((name) => {
-        if (config.services[name]) {
-          servicesToSetup.push(config.services[name]);
+        const service = configuredServices.find((s) => s.name === name);
+        if (service) {
+          servicesToSetup.push(service);
         } else {
           console.warn(
             `Service "${name}" not found in configuration. Skipping.`
@@ -409,7 +429,7 @@ export async function setupCommand(serviceNames?: string[]) {
       });
     } else {
       console.log("Targeting all services for setup.");
-      servicesToSetup = Object.values(config.services);
+      servicesToSetup = configuredServices;
     }
 
     if (servicesToSetup.length === 0) {

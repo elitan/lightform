@@ -21,9 +21,67 @@ export async function loadConfig(): Promise<LumaConfig> {
     const validationResult = LumaConfigSchema.safeParse(rawConfig);
     if (!validationResult.success) {
       console.error(`Invalid configuration in ${CONFIG_FILE}:`);
+
+      // Enhanced error messages with more helpful guidance
       validationResult.error.errors.forEach((err) => {
-        console.error(`  Path: ${err.path.join(".")}, Message: ${err.message}`);
+        const path = err.path.join(".");
+        let message = err.message;
+
+        // Special handling for common configuration issues
+        if (path === "name" && message.includes("Required")) {
+          console.error(`  Error: Missing required 'name' field`);
+          console.error(
+            `  Help: Add 'name: your-project-name' to the top of luma.yml`
+          );
+          console.error(
+            `  Note: The project name is used for network naming and other identifiers.`
+          );
+        } else if (path === "project_name") {
+          console.error(`  Error: 'project_name' field is not recognized`);
+          console.error(
+            `  Help: Use 'name' instead of 'project_name' at the top of luma.yml`
+          );
+        } else if (path === "apps" && message.includes("Expected")) {
+          console.error(`  Error: Issue with the 'apps' section format`);
+          console.error(`  Required format:    Where each key is an app name`);
+          console.error(`    apps:`);
+          console.error(
+            `      web:            <-- Object format using app name as key`
+          );
+          console.error(`        image: ...`);
+          console.error(`        servers:`);
+          console.error(`          - hostname1`);
+        } else if (path === "services" && message.includes("Expected")) {
+          console.error(`  Error: Issue with the 'services' section format`);
+          console.error(
+            `  Required format:    Where each key is a service name`
+          );
+          console.error(`    services:`);
+          console.error(
+            `      db:             <-- Object format using service name as key`
+          );
+          console.error(`        image: ...`);
+          console.error(`        servers:`);
+          console.error(`          - hostname1`);
+        } else if (
+          path.includes("environment.plain") &&
+          message.includes("Expected")
+        ) {
+          console.error(
+            `  Error: Environment variables should be in array format with '='`
+          );
+          console.error(`  Required format:`);
+          console.error(`    environment:`);
+          console.error(`      plain:`);
+          console.error(
+            `        - KEY=VALUE   <-- Array format with KEY=VALUE format`
+          );
+          console.error(`        - PORT=8080`);
+        } else {
+          console.error(`  Path: ${path}, Message: ${message}`);
+        }
       });
+
       throw new Error(`Invalid configuration in ${CONFIG_FILE}.`);
     }
     return validationResult.data;

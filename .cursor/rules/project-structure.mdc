@@ -1,0 +1,34 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Project Structure Guide
+
+This document outlines the basic structure of the Luma project.
+
+## Key Files
+
+*   **Main Entry Point**: The primary entry point for the application is `[src/index.ts](mdc:src/index.ts)`. This is defined in `[package.json](mdc:package.json)` via the `start` script, `bin` field, and `module` field.
+*   **TypeScript Configuration**: The project uses TypeScript, configured in `[tsconfig.json](mdc:tsconfig.json)`. Source files are located in `src/` and compiled output goes to `dist/`.
+*   **Package Management**: The project uses Bun for package management and script execution. Dependencies and scripts are defined in `[package.json](mdc:package.json)`. The Bun lockfile is `[bun.lockb](mdc:bun.lockb)`.
+*   **Type Definitions**: Custom project-specific types are likely defined in `[src/types.ts](mdc:src/types.ts)`.
+
+## Core Directories
+
+*   **`src/`**: Contains all the primary source code for the application.
+    *   `[src/index.ts](mdc:src/index.ts)`: The main application entry point.
+    *   `[src/types.ts](mdc:src/types.ts)`: Contains shared type definitions.
+    *   `[src/commands/](mdc:src/commands)`: Likely contains command-line interface command handlers or similar logic.
+    *   `[src/config/](mdc:src/config)`: Probably handles application configuration.
+    *   `[src/docker/](mdc:src/docker)`: May contain Docker-related files and configurations.
+    *   `[src/ssh/](mdc:src/ssh)`: Suggests functionality related to SSH connections or operations.
+    *   `[src/utils/](mdc:src/utils)`: A common place for utility functions and helper modules.
+*   **`test/`**: Contains automated tests for the project.
+*   **`node_modules/`**: Stores project dependencies.
+*   **`.git/`**: Git version control system directory.
+
+## Development & Build
+
+*   To start the application: `bun run src/index.ts`
+*   To run tests: `bun test`
