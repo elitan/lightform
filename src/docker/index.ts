@@ -531,39 +531,58 @@ export class DockerClient {
         this.logError(
           `Cannot determine network for container ${containerName}`
         );
-        return false;
+        return reuseHelper ? [false, ""] : false;
       }
 
       this.log(`Using network ${network} for health check of ${containerName}`);
 
       // Create and start the helper container
       if (reuseHelper) {
-        // Create a container that keeps running so we can exec into it
-        const helperStartCmd = `run -d --name ${helperName} --network ${network} alpine:latest sh -c "apk add --no-cache curl && sleep 3600"`;
+        try {
+          // Create a container that keeps running so we can exec into it
+          const helperStartCmd = `run -d --name ${helperName} --network ${network} alpine:latest sh -c "apk add --no-cache curl && sleep 3600"`;
 
-        this.log(
-          `Starting reusable helper container to check health of ${containerName}`
-        );
-        await this.execRemote(helperStartCmd);
+          this.log(
+            `Starting reusable helper container ${helperName} to check health of ${containerName}`
+          );
+          await this.execRemote(helperStartCmd);
 
-        // Wait a moment for curl to be installed
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+          // Verify the container was created and is running
+          const helperExists = await this.containerExists(helperName);
+          if (!helperExists) {
+            this.logError(`Failed to create helper container ${helperName}`);
+            return [false, ""];
+          }
 
-        // Do an initial health check
-        const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' http://${containerName}:80/up || echo 'failed'`;
-        const statusCode = await this.execRemote(execCmd);
+          this.log(
+            `Helper container ${helperName} created successfully. Waiting for curl installation...`
+          );
 
-        // Check the status code
-        const cleanStatusCode = statusCode.trim();
-        this.log(
-          `Health check for ${containerName} returned status: ${cleanStatusCode}`
-        );
+          // Wait a moment for curl to be installed
+          await new Promise((resolve) => setTimeout(resolve, 3000));
 
-        // Return both the status and the helper container name
-        return [cleanStatusCode === "200", helperName];
+          // Do an initial health check
+          this.log(
+            `Performing health check with helper container ${helperName}...`
+          );
+          const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${containerName}:80/up || echo 'failed'`;
+          const statusCode = await this.execRemote(execCmd);
+
+          // Check the status code
+          const cleanStatusCode = statusCode.trim();
+          this.log(
+            `Health check for ${containerName} returned status: ${cleanStatusCode} (using helper ${helperName})`
+          );
+
+          // Return both the status and the helper container name
+          return [cleanStatusCode === "200", helperName];
+        } catch (error) {
+          this.logError(`Error setting up helper container: ${error}`);
+          return [false, ""];
+        }
       } else {
         // Original implementation - run a one-time check
-        const helperCmd = `run --rm --name ${helperName} --network ${network} alpine:latest /bin/sh -c "apk add --no-cache curl && curl -s -o /dev/null -w '%{http_code}' http://${containerName}:80/up || echo 'failed'"`;
+        const helperCmd = `run --rm --name ${helperName} --network ${network} alpine:latest /bin/sh -c "apk add --no-cache curl && curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${containerName}:80/up || echo 'failed'"`;
 
         this.log(
           `Starting helper container to check health of ${containerName}`
@@ -591,7 +610,7 @@ export class DockerClient {
         this.logError(`Failed to clean up helper container: ${cleanupError}`);
       }
 
-      return false;
+      return reuseHelper ? [false, ""] : false;
     }
   }
 
@@ -606,13 +625,29 @@ export class DockerClient {
     targetContainer: string
   ): Promise<boolean> {
     try {
-      const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' http://${targetContainer}:80/up || echo 'failed'`;
+      if (!helperName) {
+        this.logError(
+          `Invalid helper container name (${helperName}) provided for health check`
+        );
+        return false;
+      }
+
+      const helperExists = await this.containerExists(helperName);
+      if (!helperExists) {
+        this.logError(`Helper container ${helperName} does not exist`);
+        return false;
+      }
+
+      this.log(
+        `Using helper container ${helperName} for health check of ${targetContainer}`
+      );
+      const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainer}:80/up || echo 'failed'`;
       const statusCode = await this.execRemote(execCmd);
 
       // Check the status code
       const cleanStatusCode = statusCode.trim();
       this.log(
-        `Health check for ${targetContainer} returned status: ${cleanStatusCode}`
+        `Health check for ${targetContainer} returned status: ${cleanStatusCode} (using helper ${helperName})`
       );
 
       return cleanStatusCode === "200";

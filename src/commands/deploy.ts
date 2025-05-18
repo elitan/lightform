@@ -567,6 +567,9 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
 
           try {
             // Initial health check with reusable container
+            console.log(
+              `    [${serverHostname}] Initial health check setup for ${containerName}...`
+            );
             const result = (await dockerClientRemote.checkContainerEndpoint(
               containerName,
               true // Create a reusable container
@@ -575,7 +578,16 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
             initialCheckResult = result[0];
             helperContainerName = result[1];
 
-            if (initialCheckResult) {
+            console.log(
+              `    [${serverHostname}] Helper container name: ${helperContainerName}`
+            );
+
+            if (!helperContainerName) {
+              console.error(
+                `    [${serverHostname}] Failed to create valid helper container. Aborting health checks.`
+              );
+              newAppIsHealthy = false; // Cannot proceed with health checks
+            } else if (initialCheckResult) {
               // First check was successful
               newAppIsHealthy = true;
               console.log(
@@ -596,6 +608,13 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
                       i + 1
                     }/${upCheckMaxAttempts} for ${containerName}...`
                   );
+                }
+
+                if (!helperContainerName) {
+                  console.error(
+                    `    [${serverHostname}] Invalid helper container name. Aborting health checks.`
+                  );
+                  break;
                 }
 
                 const isHealthy =
