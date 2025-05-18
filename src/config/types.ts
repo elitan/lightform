@@ -19,6 +19,49 @@ export const HealthCheckSchema = z.object({
 });
 export type HealthCheckConfig = z.infer<typeof HealthCheckSchema>;
 
+// Zod schema for App-specific Proxy Configuration
+export const AppProxyConfigSchema = z.object({
+  hosts: z.array(z.string()).optional(),
+  app_port: z
+    .number()
+    .describe(
+      "Port the application container is exposed on, e.g. 3000. The proxy will forward traffic to this port."
+    )
+    .optional(),
+  ssl: z
+    .boolean()
+    .describe(
+      "Enable automatic HTTPS via Let's Encrypt. Requires 'hosts' to be set and DNS to point to the server."
+    )
+    .optional()
+    .default(false),
+  ssl_redirect: z
+    .boolean()
+    .describe("Redirect HTTP to HTTPS if SSL is enabled. Defaults to true.")
+    .optional(),
+  forward_headers: z
+    .boolean()
+    .describe(
+      "Forward X-Forwarded-For/Proto headers. Default depends on SSL status (true if SSL disabled, false if SSL enabled, unless overridden)."
+    )
+    .optional(),
+  response_timeout: z
+    .string()
+    .describe("Request timeout, e.g., '30s', '1m'. Default is '30s'.")
+    .optional(),
+});
+export type AppProxyConfig = z.infer<typeof AppProxyConfigSchema>;
+
+// Zod schema for Global Proxy Options
+export const GlobalProxyOptionsSchema = z.object({
+  lets_encrypt_email: z
+    .string()
+    .email()
+    .describe("Email address for Let's Encrypt registration.")
+    .optional(),
+});
+export type GlobalProxyOptions = z.infer<typeof GlobalProxyOptionsSchema>;
+
 // Zod schema for AppEntry without name (used in record format)
 export const AppEntryWithoutNameSchema = z.object({
   image: z.string(),
@@ -48,6 +91,7 @@ export const AppEntryWithoutNameSchema = z.object({
     })
     .optional(),
   health_check: HealthCheckSchema.optional(),
+  proxy: AppProxyConfigSchema.optional(),
   // Potentially add other app-specific fields like 'replicas', 'domains', etc.
 });
 export type AppEntryWithoutName = z.infer<typeof AppEntryWithoutNameSchema>;
@@ -118,6 +162,7 @@ export const LumaConfigSchema = z.object({
       // Default key path can be a LumaSecret reference, e.g. default_ssh_key_secret: "DEFAULT_SSH_KEY_PATH"
     })
     .optional(),
+  proxy_options: GlobalProxyOptionsSchema.optional(),
 });
 export type LumaConfig = z.infer<typeof LumaConfigSchema>;
 

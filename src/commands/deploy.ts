@@ -71,8 +71,8 @@ function appEntryToContainerOptions(
     ports: appEntry.ports,
     volumes: appEntry.volumes,
     envVars: envVars,
-    network: `${projectName}-network`, // Assumes network is named project_name-network
-    restart: "unless-stopped", // Default restart policy for apps
+    network: `${projectName}-network`,
+    restart: "unless-stopped",
     // TODO: Add healthcheck options if DockerContainerOptions supports them directly,
     // or handle healthcheck separately after container start.
     // Dockerode, for example, allows specifying Healthcheck in HostConfig
@@ -258,7 +258,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     if (currentEntryIsApp) {
       const appEntry = entry as AppEntry;
       const imageNameWithRelease = `${appEntry.image}:${releaseId}`;
-      const containerName = `${appEntry.name}-${releaseId}`; // Define containerName for app here
+      const containerName = `${appEntry.name}-${releaseId}`;
       console.log(
         `Deploying app: ${
           appEntry.name
@@ -281,7 +281,6 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           }
 
           await DockerClient.build({
-            // Use static method
             context: appEntry.build.context,
             dockerfile: appEntry.build.dockerfile,
             tags: [imageNameWithRelease],
@@ -306,7 +305,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           `  Tagging ${appEntry.image} as ${imageNameWithRelease}...`
         );
         try {
-          await DockerClient.tag(appEntry.image, imageNameWithRelease); // Use static method
+          await DockerClient.tag(appEntry.image, imageNameWithRelease);
           console.log(
             `  Successfully tagged ${appEntry.image} as ${imageNameWithRelease}`
           );
@@ -328,7 +327,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
         // Determine registry for push
         const registryToPush =
           appEntry.registry?.url || config.docker?.registry;
-        await DockerClient.push(imageNameWithRelease, registryToPush); // Use static method
+        await DockerClient.push(imageNameWithRelease, registryToPush);
         console.log(
           `  Successfully pushed ${imageNameWithRelease} to ${
             registryToPush || "default registry"
@@ -495,7 +494,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
 
           console.log(
             `    [${serverHostname}] Starting new container ${containerName}...`
-          ); // Now containerName is in scope
+          );
 
           // Check if container with same name already exists and is running
           const containerExists = await dockerClientRemote.containerExists(
@@ -525,7 +524,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           if (!createSuccessApp) {
             console.error(
               `    [${serverHostname}] Failed to create container ${containerName}. Skipping further steps for this app on this server.`
-            ); // containerName is in scope
+            );
             continue;
           }
 
@@ -758,7 +757,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     } else {
       // It's a Service
       const serviceEntry = entry as ServiceEntry;
-      const containerNameForService = serviceEntry.name; // Define containerName for service here
+      const containerNameForService = serviceEntry.name;
       console.log(
         `Deploying service: ${
           serviceEntry.name
