@@ -572,10 +572,11 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           let initialCheckResult = false;
 
           try {
-            // Initial health check with reusable container
+            // Run health check with looping script inside container
             console.log(
-              `    [${serverHostname}] Initial health check setup for ${containerName}...`
+              `    [${serverHostname}] Running health check for ${containerName} (will check for up to 60 seconds)...`
             );
+
             const result = (await dockerClientRemote.checkContainerEndpoint(
               containerName,
               true // Create a reusable container
@@ -594,58 +595,17 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
               );
               newAppIsHealthy = false; // Cannot proceed with health checks
             } else if (initialCheckResult) {
-              // First check was successful
+              // Health check script succeeded
               newAppIsHealthy = true;
               console.log(
-                `    [${serverHostname}] /up endpoint check successful on first attempt`
+                `    [${serverHostname}] /up endpoint check successful for ${containerName}`
               );
             } else {
-              // Need to keep checking
-              console.log(
-                `    [${serverHostname}] First health check failed, continuing with repeated checks...`
+              // Health check script failed after 60 seconds
+              console.error(
+                `    [${serverHostname}] /up endpoint check failed after 60 seconds for ${containerName}`
               );
-
-              // Perform the required /up endpoint check (starting from attempt 2)
-              for (let i = 1; i < upCheckMaxAttempts; i++) {
-                // Only log the attempt every 5 attempts to reduce verbosity
-                if (i % 5 === 0 || i === upCheckMaxAttempts - 1) {
-                  console.log(
-                    `    [${serverHostname}] /up endpoint check attempt ${
-                      i + 1
-                    }/${upCheckMaxAttempts} for ${containerName}...`
-                  );
-                }
-
-                if (!helperContainerName) {
-                  console.error(
-                    `    [${serverHostname}] Invalid helper container name. Aborting health checks.`
-                  );
-                  break;
-                }
-
-                const isHealthy =
-                  await dockerClientRemote.checkHealthWithExistingHelper(
-                    helperContainerName,
-                    containerName
-                  );
-
-                if (isHealthy) {
-                  newAppIsHealthy = true;
-                  console.log(
-                    `    [${serverHostname}] /up endpoint check successful for ${containerName} after ${
-                      i + 1
-                    } attempts`
-                  );
-                  break;
-                }
-
-                if (i < upCheckMaxAttempts - 1) {
-                  // No need to log waiting messages as we're checking every second
-                  await new Promise((resolve) =>
-                    setTimeout(resolve, upCheckIntervalSeconds * 1000)
-                  );
-                }
-              }
+              newAppIsHealthy = false;
             }
 
             // Additionally, check Docker's built-in health check if configured

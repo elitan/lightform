@@ -78,6 +78,21 @@ export class DockerClient {
     try {
       return await this.sshClient.exec(`docker ${command}`);
     } catch (error) {
+      // Check if this is a "non-error" Docker message (like image pull progress)
+      const errorMessage = String(error);
+
+      // Docker outputs image pull information to stderr, but it's not actually an error
+      if (
+        errorMessage.includes("Status: Downloaded newer image for") ||
+        errorMessage.includes("Status: Image is up to date")
+      ) {
+        this.log(
+          `Docker image pull completed successfully (from stderr): ${errorMessage}`
+        );
+        // Return a successful response
+        return "success";
+      }
+
       this.logError(`Remote Docker command failed: ${error}`);
       throw error;
     }
@@ -581,6 +596,15 @@ export class DockerClient {
       // Create and start the helper container
       if (reuseHelper) {
         try {
+          // First ensure Alpine image is available
+          const alpineAvailable = await this.ensureAlpineImage();
+          if (!alpineAvailable) {
+            this.logError(
+              "Cannot proceed with health check: Alpine image is not available"
+            );
+            return [false, ""];
+          }
+
           // Create a container that keeps running so we can exec into it
           const helperStartCmd = `run -d --name ${helperName} --network ${network} alpine:latest sh -c "apk add --no-cache curl && sleep 3600"`;
 
@@ -589,8 +613,20 @@ export class DockerClient {
           );
           await this.execRemote(helperStartCmd);
 
-          // Verify the container was created and is running
-          const helperExists = await this.containerExists(helperName);
+          // Verify the container was created and is running - retry a few times if needed
+          let helperExists = false;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            this.log(
+              `Verifying helper container exists (attempt ${attempt + 1}/3)...`
+            );
+            helperExists = await this.containerExists(helperName);
+            if (helperExists) {
+              break;
+            }
+            // Short wait before retry
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+
           if (!helperExists) {
             this.logError(`Failed to create helper container ${helperName}`);
             return [false, ""];
@@ -600,30 +636,70 @@ export class DockerClient {
             `Helper container ${helperName} created successfully. Waiting for curl installation...`
           );
 
-          // Wait a moment for curl to be installed
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+          // Wait for curl installation to complete
+          await new Promise((resolve) => setTimeout(resolve, 5000));
 
-          // Do an initial health check
-          this.log(
-            `Performing health check with helper container ${helperName}...`
-          );
-          const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${containerName}:80/up || echo 'failed'`;
-          const statusCode = await this.execRemote(execCmd);
+          // Create a shell script that loops for 60 seconds, checking the endpoint every second
+          this.log(`Running health check loop in container ${helperName}...`);
+          const healthCheckScript = `
+            #!/bin/sh
+            echo "Starting health check loop for ${containerName}:80/up"
+            START_TIME=$(date +%s)
+            END_TIME=$((START_TIME + 60))
+            
+            while [ $(date +%s) -lt $END_TIME ]; do
+              echo "Checking endpoint ($(date))"
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 2 --max-time 3 http://${containerName}:80/up || echo "failed")
+              echo "Response: $STATUS"
+              
+              if [ "$STATUS" = "200" ]; then
+                echo "Success! Endpoint returned 200"
+                exit 0
+              fi
+              
+              sleep 1
+            done
+            
+            echo "Timeout after 60 seconds. Health check failed."
+            exit 1
+          `;
 
-          // Check the status code
-          const cleanStatusCode = statusCode.trim();
-          this.log(
-            `Health check for ${containerName} returned status: ${cleanStatusCode} (using helper ${helperName})`
-          );
+          // Execute the health check script and capture the exit code
+          this.log(`Executing health check script in ${helperName}...`);
+          try {
+            await this
+              .execRemote(`exec ${helperName} sh -c 'cat > /tmp/healthcheck.sh << "EOL"
+${healthCheckScript}
+EOL
+chmod +x /tmp/healthcheck.sh
+/tmp/healthcheck.sh'`);
 
-          // Return both the status and the helper container name
-          return [cleanStatusCode === "200", helperName];
+            // If we get here, the script exited with code 0 (success)
+            this.log(`Health check script succeeded for ${containerName}`);
+            return [true, helperName];
+          } catch (error) {
+            // Script exited with non-zero (failure)
+            this.logError(
+              `Health check script failed for ${containerName}: ${error}`
+            );
+            return [false, helperName];
+          }
         } catch (error) {
           this.logError(`Error setting up helper container: ${error}`);
           return [false, ""];
         }
       } else {
         // Original implementation - run a one-time check
+
+        // First ensure Alpine image is available
+        const alpineAvailable = await this.ensureAlpineImage();
+        if (!alpineAvailable) {
+          this.logError(
+            "Cannot proceed with health check: Alpine image is not available"
+          );
+          return false;
+        }
+
         const helperCmd = `run --rm --name ${helperName} --network ${network} alpine:latest /bin/sh -c "apk add --no-cache curl && curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${containerName}:80/up || echo 'failed'"`;
 
         this.log(
@@ -683,8 +759,34 @@ export class DockerClient {
       this.log(
         `Using helper container ${helperName} for health check of ${targetContainer}`
       );
-      const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainer}:80/up || echo 'failed'`;
-      const statusCode = await this.execRemote(execCmd);
+
+      // Retry the curl command if it fails
+      let statusCode = "";
+      let success = false;
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainer}:80/up || echo 'failed'`;
+          statusCode = await this.execRemote(execCmd);
+          success = true;
+          break;
+        } catch (execError) {
+          this.logError(
+            `Health check attempt ${attempt + 1}/2 failed: ${execError}`
+          );
+          if (attempt < 1) {
+            // Brief pause before retry
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        }
+      }
+
+      if (!success) {
+        this.logError(
+          `All health check attempts with helper ${helperName} failed`
+        );
+        return false;
+      }
 
       // Check the status code
       const cleanStatusCode = statusCode.trim();
@@ -774,5 +876,38 @@ export class DockerClient {
     }
 
     return options;
+  }
+
+  /**
+   * Ensure Alpine image is available on the remote server
+   * @returns true if Alpine image is available or was successfully pulled
+   */
+  private async ensureAlpineImage(): Promise<boolean> {
+    try {
+      this.log("Checking if Alpine image is available...");
+
+      // Check if the alpine image already exists
+      try {
+        await this.execRemote("images alpine:latest --quiet");
+        this.log("Alpine image is already available");
+        return true;
+      } catch (error) {
+        // Image doesn't exist or another error occurred
+        this.log("Alpine image not found, pulling it...");
+      }
+
+      // Pull the alpine image explicitly
+      try {
+        await this.execRemote("pull alpine:latest");
+        this.log("Successfully pulled Alpine image");
+        return true;
+      } catch (pullError) {
+        this.logError(`Failed to pull Alpine image: ${pullError}`);
+        return false;
+      }
+    } catch (error) {
+      this.logError(`Error checking/pulling Alpine image: ${error}`);
+      return false;
+    }
   }
 }
