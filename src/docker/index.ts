@@ -456,6 +456,15 @@ export class DockerClient {
   async getContainerHealth(containerName: string): Promise<string | null> {
     this.log(`Checking health of container ${containerName}...`);
     try {
+      // Verify the container exists before trying to inspect it
+      const containerExists = await this.containerExists(containerName);
+      if (!containerExists) {
+        this.logError(
+          `Container ${containerName} does not exist. Cannot perform health check.`
+        );
+        return null;
+      }
+
       // The --format '{{json .State.Health}}' will output the Health object as a JSON string or an empty string if no health check.
       // If there's no Health object (e.g. container doesn't have a health check configured), it might return GO template error or empty.
       // A more robust way is to get the full state and check for the Health property.
@@ -521,17 +530,50 @@ export class DockerClient {
     const helperName = `healthcheck-${containerName}-${Date.now()}`;
 
     try {
-      // Get the network of the target container
-      const networkInfo = await this.execRemote(
-        `inspect -f "{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}" ${containerName}`
-      );
-      const network = networkInfo.trim();
-
-      if (!network) {
+      // Verify the container exists before trying to inspect it
+      const containerExists = await this.containerExists(containerName);
+      if (!containerExists) {
         this.logError(
-          `Cannot determine network for container ${containerName}`
+          `Container ${containerName} does not exist. Cannot perform health check.`
         );
         return reuseHelper ? [false, ""] : false;
+      }
+
+      // Give the container a moment to initialize its network settings
+      this.log(
+        `Waiting for container ${containerName} to initialize network settings...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Get the network of the target container - use a simpler inspect format to avoid template errors
+      const networkInfo = await this.execRemote(
+        `inspect -f "{{json .NetworkSettings.Networks}}" ${containerName}`
+      );
+
+      // Parse the JSON to extract the first network name
+      let network = "";
+      try {
+        const networkJson = JSON.parse(networkInfo.trim());
+        // Get the first network name (object key)
+        network = Object.keys(networkJson)[0] || "";
+
+        if (network) {
+          this.log(
+            `Detected network for container ${containerName}: ${network}`
+          );
+        } else {
+          // If we can't get a network, try default bridge network
+          this.log(
+            `No specific network detected for ${containerName}, using 'bridge' as default`
+          );
+          network = "bridge";
+        }
+      } catch (parseError) {
+        this.logError(
+          `Cannot parse network info for container ${containerName}: ${parseError}. Using default 'bridge' network.`
+        );
+        // Default to bridge network if we can't determine the actual network
+        network = "bridge";
       }
 
       this.log(`Using network ${network} for health check of ${containerName}`);

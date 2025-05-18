@@ -529,6 +529,12 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
             continue;
           }
 
+          // Give the container a moment to initialize
+          console.log(
+            `    [${serverHostname}] Waiting 5 seconds for container to initialize...`
+          );
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+
           let newAppIsHealthy = false;
 
           // First, always check the /up endpoint as a required Luma check
