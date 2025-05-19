@@ -34,7 +34,7 @@ export const AppProxyConfigSchema = z.object({
       "Enable automatic HTTPS via Let's Encrypt. Requires 'hosts' to be set and DNS to point to the server."
     )
     .optional()
-    .default(false),
+    .default(true),
   ssl_redirect: z
     .boolean()
     .describe("Redirect HTTP to HTTPS if SSL is enabled. Defaults to true.")

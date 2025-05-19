@@ -15,6 +15,9 @@ apps:
       context: .
       dockerfile: Dockerfile
       platform: linux/amd64
+    proxy:
+      host: test.eliasson.me
+      app_port: 3000
 
 services:
   db:

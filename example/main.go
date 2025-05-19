@@ -16,7 +16,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "80"
+		port = "3000"
 	}
 
 	fmt.Printf("Starting server at port %s\n", port)
