@@ -8,6 +8,11 @@ A lightweight HTTP/HTTPS reverse proxy with host-based routing.
 - Host-based routing
 - Dynamic service configuration
 - Project-based isolation for multi-project deployments
+- Automatic Let's Encrypt certificate management
+
+### Reserved Paths
+
+Paths starting with `/luma-proxy/` are reserved for the proxy's internal functionality (e.g., `/luma-proxy/health`, `/luma-proxy/check-target`). Please ensure your backend applications do not use routes that begin with this prefix to avoid conflicts.
 
 ## Usage
 

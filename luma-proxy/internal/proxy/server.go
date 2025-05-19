@@ -62,19 +62,19 @@ func (s *Server) startHTTPSServer() {
 	httpsMux.HandleFunc("/", s.handleHTTPSRequest)
 
 	// Test endpoint
-	httpsMux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("HTTPS: Received request for /test endpoint from %s\n", r.RemoteAddr)
-		fmt.Fprintf(w, "Luma Proxy (HTTPS): /test endpoint is working!")
+	httpsMux.HandleFunc("/luma-proxy/test", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("HTTPS: Received request for /luma-proxy/test endpoint from %s\n", r.RemoteAddr)
+		fmt.Fprintf(w, "Luma Proxy (HTTPS): /luma-proxy/test endpoint is working!")
 	})
 
 	// Health check endpoint for the proxy itself
-	httpsMux.HandleFunc("/luma-proxy-health", func(w http.ResponseWriter, r *http.Request) {
+	httpsMux.HandleFunc("/luma-proxy/health", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("HTTPS: Received request for proxy health check from %s\n", r.RemoteAddr)
 		fmt.Fprintf(w, "OK")
 	})
 
 	// Health check endpoint for target services
-	httpsMux.HandleFunc("/health-check", s.handleHealthCheck)
+	httpsMux.HandleFunc("/luma-proxy/check-target", s.handleHealthCheck)
 
 	log.Printf("Luma Proxy daemon starting HTTPS listener on port %s", s.httpsPort)
 
@@ -109,8 +109,8 @@ func (s *Server) handleHTTPSRequest(w http.ResponseWriter, r *http.Request) {
 	host := strings.Split(r.Host, ":")[0] // Remove port if present
 	log.Printf("HTTPS: Received request for host: %s, path: %s from %s\n", host, r.URL.Path, r.RemoteAddr)
 
-	// If it's a request for the proxy itself
-	if strings.HasPrefix(r.URL.Path, "/luma-proxy-") || strings.HasPrefix(r.URL.Path, "/health-check") {
+	// If it's a request for the proxy itself (endpoints under /luma-proxy/)
+	if strings.HasPrefix(r.URL.Path, "/luma-proxy/") {
 		return // Let the specific handlers take care of it
 	}
 

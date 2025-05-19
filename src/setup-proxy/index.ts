@@ -78,8 +78,8 @@ export async function setupLumaProxy(
     const containerOptions = {
       name: LUMA_PROXY_NAME,
       image: proxyImage,
-      // Add any other required options for the proxy
-      ports: ["80:80", "443:443"], // Standard HTTP/HTTPS ports
+      ports: ["80:80", "443:443"],
+      volumes: ["luma-proxy-certs:/var/lib/luma-proxy/certs"],
       restart: "always",
     };
 

@@ -398,12 +398,12 @@ export async function setupCommand(serviceNames?: string[]) {
     const uniqueServers = new Set<string>();
     servicesToSetup.forEach((service) => {
       if (service.servers && service.servers.length > 0) {
-        service.servers.forEach((server) => uniqueServers.add(server));
+        service.servers.forEach((server: string) => uniqueServers.add(server));
       } else {
         console.warn(
-          `Service "${Object.keys(config.services).find(
-            (key) => config.services[key] === service
-          )}" has no servers defined. Skipping.`
+          `Service "${
+            service.name || "Unknown Service"
+          }" has no servers defined. Skipping.`
         );
       }
     });

@@ -889,6 +889,27 @@ EOF`);
   }
 
   /**
+   * Execute a command inside a running container
+   */
+  async execInContainer(
+    containerName: string,
+    command: string
+  ): Promise<{ success: boolean; output: string }> {
+    this.log(`Executing command in container ${containerName}: ${command}`);
+    try {
+      const output = await this.execRemote(`exec ${containerName} ${command}`);
+      this.log(`Successfully executed command in container ${containerName}.`);
+      return { success: true, output };
+    } catch (error) {
+      const errorOutput = String(error);
+      this.logError(
+        `Failed to execute command in container ${containerName}: ${errorOutput}`
+      );
+      return { success: false, output: errorOutput };
+    }
+  }
+
+  /**
    * Prune unused Docker resources (containers, networks, images, build cache) on the remote server.
    */
   async prune(): Promise<boolean> {

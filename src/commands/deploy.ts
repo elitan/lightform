@@ -15,6 +15,7 @@ import {
 import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh"; // Updated to import the utility function
 import { generateReleaseId, getProjectNetworkName } from "../utils"; // Changed path and added getProjectNetworkName
 import { execSync } from "child_process";
+import { LumaProxyClient } from "../proxy";
 
 // Helper to resolve environment variables for a container
 function resolveEnvironmentVariables(
@@ -257,10 +258,15 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
   });
 
   console.log(
-    `Ensuring project network "${networkName}" exists on target servers: ${Array.from(
+    `Verifying luma-proxy container and project network "${networkName}" on target servers: ${Array.from(
       allTargetServers
     ).join(", ")}`
   );
+
+  // Check if network exists and luma-proxy is running on all target servers
+  let missingNetworkServers: string[] = [];
+  let missingProxyServers: string[] = [];
+
   for (const serverHostname of Array.from(allTargetServers)) {
     let sshClientNetwork: SSHClient | undefined;
     try {
@@ -272,26 +278,70 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
         sshClientNetwork,
         serverHostname
       );
-      const networkCreated = await dockerClientRemote.createNetwork({
-        name: networkName,
-      });
-      if (networkCreated) {
-        console.log(`  [${serverHostname}] Network "${networkName}" ensured.`);
+
+      // Check if network exists instead of creating it
+      const networkExists = await dockerClientRemote.networkExists(networkName);
+
+      if (networkExists) {
+        console.log(`  [${serverHostname}] Network "${networkName}" verified.`);
       } else {
-        console.warn(
-          `  [${serverHostname}] Failed to ensure network "${networkName}". Subsequent deployments may fail.`
+        console.error(
+          `  [${serverHostname}] Network "${networkName}" does not exist. Please run \`luma setup\` first.`
         );
+        missingNetworkServers.push(serverHostname);
+      }
+
+      // Check if luma-proxy container is running using LumaProxyClient
+      const proxyClient = new LumaProxyClient(
+        dockerClientRemote,
+        serverHostname
+      );
+      const proxyRunning = await proxyClient.isProxyRunning();
+
+      if (proxyRunning) {
+        console.log(`  [${serverHostname}] luma-proxy container is running.`);
+      } else {
+        console.error(
+          `  [${serverHostname}] luma-proxy container is not running. Please run \`luma setup\` first.`
+        );
+        missingProxyServers.push(serverHostname);
       }
     } catch (networkError) {
       console.error(
-        `  [${serverHostname}] Error ensuring network "${networkName}":`,
+        `  [${serverHostname}] Error verifying network and proxy:`,
         networkError
       );
+      missingNetworkServers.push(serverHostname);
+      missingProxyServers.push(serverHostname);
     } finally {
       if (sshClientNetwork) {
         await sshClientNetwork.close();
       }
     }
+  }
+
+  // Exit early if any server is missing the required network or proxy
+  if (missingNetworkServers.length > 0 || missingProxyServers.length > 0) {
+    if (missingNetworkServers.length > 0) {
+      console.error(
+        `Error: Required network "${networkName}" is missing on the following servers: ${missingNetworkServers.join(
+          ", "
+        )}`
+      );
+    }
+
+    if (missingProxyServers.length > 0) {
+      console.error(
+        `Error: Required luma-proxy container is not running on the following servers: ${missingProxyServers.join(
+          ", "
+        )}`
+      );
+    }
+
+    console.error(
+      `Please run \`luma setup\` to create the required network and start luma-proxy before deploying.`
+    );
+    return;
   }
 
   for (const entry of targetEntries) {
@@ -788,6 +838,54 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
             console.log(
               `    [${serverHostname}] No previous deployments found for ${appEntry.name} to clean up.`
             );
+          }
+
+          // Configure luma-proxy if app has proxy configuration
+          if (
+            appEntry.proxy &&
+            appEntry.proxy.hosts &&
+            appEntry.proxy.hosts.length > 0
+          ) {
+            console.log(
+              `    [${serverHostname}] Configuring luma-proxy for ${appEntry.name}...`
+            );
+
+            // Create LumaProxyClient instance
+            const proxyClient = new LumaProxyClient(
+              dockerClientRemote,
+              serverHostname
+            );
+
+            // Get proxy configuration
+            const hosts = appEntry.proxy.hosts;
+            const appPort = appEntry.proxy.app_port || 80; // Default to port 80 if not specified
+            const useSSL = appEntry.proxy.ssl || false;
+
+            console.log(
+              `    [${serverHostname}] Configuring proxy for ${hosts.length} host(s)`
+            );
+
+            // Use our LumaProxyClient to configure the proxy for all hosts at once
+            try {
+              const configSuccess = await proxyClient.deploy(
+                hosts,
+                appEntry.name, // Target container name
+                appPort,
+                projectName,
+                useSSL
+              );
+
+              if (!configSuccess) {
+                console.error(
+                  `    [${serverHostname}] Failed to configure luma-proxy for some hosts`
+                );
+              }
+            } catch (proxyError) {
+              console.error(
+                `    [${serverHostname}] Error configuring luma-proxy:`,
+                proxyError
+              );
+            }
           }
 
           // Prune for app server
