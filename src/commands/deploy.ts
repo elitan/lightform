@@ -500,7 +500,8 @@ async function deployAppToServer(
       containerOptions,
       appEntry,
       dockerClientRemote,
-      serverHostname
+      serverHostname,
+      context.projectName
     );
 
     await cleanupOldContainers(
@@ -703,7 +704,8 @@ async function createAndHealthCheckContainer(
   containerOptions: DockerContainerOptions,
   appEntry: AppEntry,
   dockerClient: DockerClient,
-  serverHostname: string
+  serverHostname: string,
+  projectName: string
 ): Promise<void> {
   const containerExists = await dockerClient.containerExists(
     containerOptions.name
@@ -734,7 +736,8 @@ async function createAndHealthCheckContainer(
     containerOptions.name,
     appEntry,
     dockerClient,
-    serverHostname
+    serverHostname,
+    projectName
   );
   if (!isHealthy) {
     await dockerClient.stopContainer(containerOptions.name);
@@ -750,7 +753,8 @@ async function performHealthChecks(
   containerName: string,
   appEntry: AppEntry,
   dockerClient: DockerClient,
-  serverHostname: string
+  serverHostname: string,
+  projectName: string
 ): Promise<boolean> {
   console.log(
     `    [${serverHostname}] Performing health checks for ${containerName}...`
@@ -772,7 +776,7 @@ async function performHealthChecks(
     const result = await dockerClient.checkContainerEndpoint(
       containerName,
       true,
-      appEntry.name
+      projectName
     );
     const [healthCheckPassed] = result as [boolean, string];
 
