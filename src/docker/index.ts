@@ -1011,7 +1011,7 @@ EOF`);
       `Getting IP address for container ${containerName} on network ${networkName}`
     );
     try {
-      const command = `inspect ${containerName} --format "{{.NetworkSettings.Networks.${networkName}.IPAddress}}"`;
+      const command = `inspect ${containerName} --format "{{index .NetworkSettings.Networks \"${networkName}\" \"IPAddress\"}}"`;
       const ipAddress = await this.execRemote(command);
       const trimmedIp = ipAddress.trim();
       if (trimmedIp && trimmedIp !== "<no value>" && trimmedIp !== "null") {
