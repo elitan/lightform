@@ -21,6 +21,7 @@ export interface DockerContainerOptions {
   name: string;
   image: string;
   network?: string;
+  networkAlias?: string;
   ports?: string[];
   volumes?: string[];
   envVars?: Record<string, string>;
@@ -480,6 +481,11 @@ EOF`);
       // Add network if specified
       if (options.network) {
         cmd += ` --network ${options.network}`;
+
+        // Add network alias if specified
+        if (options.networkAlias) {
+          cmd += ` --network-alias ${options.networkAlias}`;
+        }
       }
 
       // Add restart policy

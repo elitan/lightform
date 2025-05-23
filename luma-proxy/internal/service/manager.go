@@ -37,10 +37,10 @@ func (m *Manager) FindByHost(hostname string) (models.Service, bool) {
 // Deploy configures routing for a hostname to a specific target
 func (m *Manager) Deploy(host, target, project string) error {
 	m.config.Lock()
-	defer m.config.Unlock()
 
 	for _, service := range m.config.Services {
 		if service.Host == host && service.Project != project {
+			m.config.Unlock()
 			return fmt.Errorf("host %s is already used in project %s",
 				host, service.Project)
 		}
@@ -52,6 +52,8 @@ func (m *Manager) Deploy(host, target, project string) error {
 		Target:  target,
 		Project: project,
 	}
+
+	m.config.Unlock()
 
 	return m.config.Save()
 }

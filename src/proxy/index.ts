@@ -74,15 +74,13 @@ export class LumaProxyClient {
    * @param targetContainer The container name to route traffic to
    * @param targetPort The port on the target container
    * @param projectName The name of the project (used for network connectivity)
-   * @param ssl Whether to enable SSL for this host
    * @returns true if the configuration was successful
    */
   async configureProxy(
     host: string,
     targetContainer: string,
     targetPort: number,
-    projectName: string,
-    ssl: boolean = false
+    projectName: string
   ): Promise<boolean> {
     try {
       // Check if luma-proxy is running
@@ -97,13 +95,8 @@ export class LumaProxyClient {
         `Configuring luma-proxy for host: ${host} -> ${targetContainer}:${targetPort}`
       );
 
-      // Build the proxy configuration command
-      let proxyCmd = `luma-proxy deploy --host ${host} --target ${targetContainer}:${targetPort} --project ${projectName}`;
-
-      // Add SSL flag if enabled
-      if (ssl) {
-        proxyCmd += " --ssl";
-      }
+      // Build the proxy configuration command (SSL certificates are now always attempted automatically)
+      const proxyCmd = `luma-proxy deploy --host ${host} --target ${targetContainer}:${targetPort} --project ${projectName}`;
 
       // Execute the command in the luma-proxy container
       const execResult = await this.dockerClient.execInContainer(

@@ -29,6 +29,12 @@ func main() {
 			log.Fatalf("Failed to parse deploy command arguments: %v", err)
 		}
 		err = deployCmd.Execute()
+	case "status":
+		statusCmd := cmd.NewStatusCmd()
+		if err = statusCmd.Parse(os.Args[2:]); err != nil {
+			log.Fatalf("Failed to parse status command arguments: %v", err)
+		}
+		err = statusCmd.Execute()
 	default:
 		fmt.Printf("Unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -48,6 +54,8 @@ func printUsage() {
 	fmt.Println("      Run the proxy daemon (HTTP on 80 redirects to HTTPS, automatic Let's Encrypt)")
 	fmt.Println("  deploy --host <hostname> --target <ip:port> [--project <project-name>]")
 	fmt.Println("      Configure routing for a hostname")
+	fmt.Println("  status")
+	fmt.Println("      Check the certificate retry queue status")
 	fmt.Println("\nLet's Encrypt certificate options for 'run' command:")
 	fmt.Println("  --cert-email <email>   Email address for Let's Encrypt registration (recommended)")
 	fmt.Println("\nUse 'luma-proxy <command> --help' for more information on a specific command.")

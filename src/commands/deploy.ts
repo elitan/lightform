@@ -80,6 +80,7 @@ function appEntryToContainerOptions(
     volumes: appEntry.volumes,
     envVars: envVars,
     network: networkName,
+    networkAlias: appEntry.name,
     restart: "unless-stopped",
     // TODO: Add healthcheck options if DockerContainerOptions supports them directly,
     // or handle healthcheck separately after container start.
@@ -496,6 +497,7 @@ async function deployAppToServer(
       context.secrets,
       context.projectName
     );
+
     await createAndHealthCheckContainer(
       containerOptions,
       appEntry,
@@ -510,6 +512,7 @@ async function deployAppToServer(
       dockerClientRemote,
       serverHostname
     );
+
     await configureProxyForApp(
       appEntry,
       dockerClientRemote,
@@ -866,7 +869,6 @@ async function configureProxyForApp(
   const proxyClient = new LumaProxyClient(dockerClient, serverHostname);
   const hosts = appEntry.proxy.hosts;
   const appPort = appEntry.proxy.app_port || 80;
-  const useSSL = appEntry.proxy.ssl || false;
 
   for (const host of hosts) {
     try {
@@ -874,8 +876,7 @@ async function configureProxyForApp(
         host,
         appEntry.name,
         appPort,
-        projectName,
-        useSSL
+        projectName
       );
 
       if (!configSuccess) {
