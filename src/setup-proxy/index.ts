@@ -79,7 +79,10 @@ export async function setupLumaProxy(
       name: LUMA_PROXY_NAME,
       image: proxyImage,
       ports: ["80:80", "443:443"],
-      volumes: ["luma-proxy-certs:/var/lib/luma-proxy/certs"],
+      volumes: [
+        "luma-proxy-certs:/var/lib/luma-proxy/certs",
+        "luma-proxy-config:/tmp", // Persist config and cert queue files
+      ],
       restart: "always",
     };
 
