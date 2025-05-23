@@ -676,15 +676,18 @@ EOF`);
   }
 
   /**
-   * Check container's health by making an HTTP request to an endpoint using a temporary helper container
+   * Check container's health by making an HTTP request to an endpoint using the luma-proxy container
    * @param containerName The name of the container to check
-   * @param reuseHelper Whether to create the helper container but return a container name for reuse
+   * @param reuseHelper Whether to create the helper container but return a container name for reuse (legacy parameter, always uses luma-proxy now)
+   * @param projectName The project name for network verification
+   * @param appPort The port the app is listening on (default: 80)
    * @returns true if the /up endpoint returns 200, false otherwise. When reuseHelper is true, returns [boolean, string] with container name
    */
   async checkContainerEndpoint(
     containerName: string,
     reuseHelper: boolean = false,
-    projectName?: string
+    projectName?: string,
+    appPort: number = 80
   ): Promise<boolean | [boolean, string]> {
     if (!projectName) {
       this.logError(
@@ -694,7 +697,7 @@ EOF`);
     }
 
     this.log(
-      `Performing endpoint health check for ${containerName} (project: ${projectName}, reuseHelper: ${reuseHelper})`
+      `Performing endpoint health check for ${containerName} (project: ${projectName}, using luma-proxy, port: ${appPort})`
     );
 
     const targetNetworkName = await this.getContainerNetworkName(
@@ -721,125 +724,72 @@ EOF`);
       return reuseHelper ? [false, ""] : false;
     }
 
-    // The port is hardcoded to 80 and path to /up in checkHealthWithExistingHelper
-    // and the temporary helper execution.
+    // Use the luma-proxy container for health checks
+    const proxyContainerName = "luma-proxy";
 
-    if (reuseHelper) {
-      const [helperOk, helperName] = await this.findOrCreateHealthCheckHelper(
-        targetNetworkName
+    // Verify luma-proxy container exists and is running
+    const proxyExists = await this.containerExists(proxyContainerName);
+    if (!proxyExists) {
+      this.logError(
+        `luma-proxy container not found. Cannot perform health check.`
       );
-      if (!helperOk || !helperName) {
-        this.logError(
-          "Failed to find or create a reusable health check helper."
-        );
-        return [false, ""];
-      }
-      const isHealthy = await this.checkHealthWithExistingHelper(
-        helperName,
-        targetIP,
-        containerName
-      );
-      return [isHealthy, helperName];
-    } else {
-      // Create a temporary, single-use helper container on the target network
-      const tempHelperName = `luma-temp-hc-${Date.now()}`;
-      const alpineAvailable = await this.ensureAlpineImage();
-      if (!alpineAvailable) {
-        this.logError("Alpine image not available for temporary health check.");
-        return false;
-      }
-
-      this.log(
-        `Creating temporary health check helper ${tempHelperName} on network ${targetNetworkName}`
-      );
-
-      // Command to run curl and then self-remove.
-      // Important: The target for curl is now targetIP.
-      // The health check target is hardcoded to http://${targetIP}:80/up
-      // Allow up to 60s for this check (12 attempts * 5s timeout for curl)
-      const maxAttempts = 12; // 12 attempts * 5s = 60s total for curl to succeed
-      const curlInterval = "5"; // 5s for curl connect/max-time
-      const sleepInterval = "3"; // 3s between curl attempts
-
-      let curlCommand = `apk add --no-cache curl && `;
-      curlCommand += `for i in $(seq 1 ${maxAttempts}); do `;
-      curlCommand += `curl -s -f --connect-timeout ${curlInterval} --max-time ${curlInterval} http://${targetIP}:80/up && exit 0; `;
-      curlCommand += `echo \"Attempt $i failed, retrying in ${sleepInterval}s...\"; `;
-      curlCommand += `sleep ${sleepInterval}; `;
-      curlCommand += `done; echo \"All attempts failed.\"; exit 1`;
-
-      const runCmd = `run --rm --name ${tempHelperName} --network ${targetNetworkName} alpine:latest sh -c "${curlCommand.replace(
-        /"/g,
-        '\\"'
-      )}"`;
-
-      try {
-        this.log(
-          `Executing health check for ${containerName} via temporary helper ${tempHelperName} (target IP: ${targetIP} on ${targetNetworkName})`
-        );
-        // This execRemote will resolve when the sh -c command finishes (i.e., curl succeeds or loop finishes)
-        await this.execRemote(runCmd);
-        // If execRemote doesn't throw, it means curl eventually succeeded (exit 0)
-        this.log(
-          `Health check for ${containerName} (IP: ${targetIP}) succeeded via temporary helper.`
-        );
-        return true;
-      } catch (error) {
-        // If execRemote throws, it means the sh -c script exited with non-zero (curl failed all attempts)
-        this.logError(
-          `Health check for ${containerName} (IP: ${targetIP}) failed via temporary helper: ${error}`
-        );
-        return false;
-      }
+      return reuseHelper ? [false, ""] : false;
     }
+
+    const proxyRunning = await this.containerIsRunning(proxyContainerName);
+    if (!proxyRunning) {
+      this.logError(
+        `luma-proxy container is not running. Cannot perform health check.`
+      );
+      return reuseHelper ? [false, ""] : false;
+    }
+
+    const isHealthy = await this.checkHealthWithLumaProxy(
+      proxyContainerName,
+      targetIP,
+      containerName,
+      appPort
+    );
+
+    return reuseHelper ? [isHealthy, proxyContainerName] : isHealthy;
   }
 
   /**
-   * Run a health check using an existing helper container
-   * @param helperName Name of the helper container to use
+   * Run a health check using the luma-proxy container
+   * @param proxyContainerName Name of the luma-proxy container (should be "luma-proxy")
    * @param targetContainerIP IP address of the container to check
    * @param targetContainerName Name of the container to check
+   * @param appPort The port the app is listening on (default: 80)
    * @returns true if the /up endpoint returns 200, false otherwise
    */
-  async checkHealthWithExistingHelper(
-    helperName: string,
+  async checkHealthWithLumaProxy(
+    proxyContainerName: string,
     targetContainerIP: string,
-    targetContainerName: string
+    targetContainerName: string,
+    appPort: number = 80
   ): Promise<boolean> {
     try {
-      if (!helperName) {
-        this.logError(
-          `Invalid helper container name (${helperName}) provided for health check`
-        );
-        return false;
-      }
-
-      const helperExists = await this.containerExists(helperName);
-      if (!helperExists) {
-        this.logError(`Helper container ${helperName} does not exist`);
-        return false;
-      }
-
       this.log(
-        `Using helper container ${helperName} for health check of ${targetContainerName} (IP: ${targetContainerIP})`
+        `Using luma-proxy container for health check of ${targetContainerName} (IP: ${targetContainerIP}:${appPort})`
       );
 
-      // Retry the curl command if it fails. Port hardcoded to 80, path to /up.
+      // Retry the curl command if it fails. Use the provided port, path to /up.
       let statusCode = "";
       let success = false;
 
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          // Use targetContainerIP directly in the URL
-          const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainerIP}:80/up || echo 'failed'`;
+          // Use curl from within the luma-proxy container
+          // The luma-proxy container should have curl available, but if not we'll install it
+          const execCmd = `exec ${proxyContainerName} sh -c "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y curl); curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainerIP}:${appPort}/up || echo 'failed'"`;
           statusCode = await this.execRemote(execCmd);
           success = true;
           break;
         } catch (execError) {
           this.logError(
-            `Health check attempt ${attempt + 1}/2 failed: ${execError}`
+            `Health check attempt ${attempt + 1}/3 failed: ${execError}`
           );
-          if (attempt < 1) {
+          if (attempt < 2) {
             // Brief pause before retry
             await new Promise((resolve) => setTimeout(resolve, 1000));
           }
@@ -847,16 +797,14 @@ EOF`);
       }
 
       if (!success) {
-        this.logError(
-          `All health check attempts with helper ${helperName} failed`
-        );
+        this.logError(`All health check attempts with luma-proxy failed`);
         return false;
       }
 
       // Check the status code
       const cleanStatusCode = statusCode.trim();
       this.log(
-        `Health check for ${targetContainerName} (IP: ${targetContainerIP}) returned status: ${cleanStatusCode} (using helper ${helperName})`
+        `Health check for ${targetContainerName} (IP: ${targetContainerIP}:${appPort}) returned status: ${cleanStatusCode} (using luma-proxy)`
       );
 
       return cleanStatusCode === "200";
@@ -1011,17 +959,31 @@ EOF`);
       `Getting IP address for container ${containerName} on network ${networkName}`
     );
     try {
-      const command = `inspect ${containerName} --format "{{index .NetworkSettings.Networks \"${networkName}\" \"IPAddress\"}}"`;
-      const ipAddress = await this.execRemote(command);
-      const trimmedIp = ipAddress.trim();
-      if (trimmedIp && trimmedIp !== "<no value>" && trimmedIp !== "null") {
+      // Use JSON output instead of Go template to avoid issues with hyphens in network names
+      const command = `inspect ${containerName} --format "{{json .NetworkSettings.Networks}}"`;
+      this.log(`Executing Docker command: docker ${command}`);
+
+      const output = await this.execRemote(command);
+      this.log(`Docker inspect output: ${output}`);
+
+      const networks = JSON.parse(output.trim());
+
+      if (
+        networks &&
+        networks[networkName] &&
+        networks[networkName].IPAddress
+      ) {
+        const ipAddress = networks[networkName].IPAddress;
         this.log(
-          `Container ${containerName} has IP ${trimmedIp} on network ${networkName}`
+          `Container ${containerName} has IP ${ipAddress} on network ${networkName}`
         );
-        return trimmedIp;
+        return ipAddress;
       }
+
       this.logWarn(
-        `Could not find IP address for ${containerName} on network ${networkName}. Output: '${trimmedIp}'`
+        `Could not find IP address for ${containerName} on network ${networkName}. Available networks: ${Object.keys(
+          networks || {}
+        ).join(", ")}`
       );
       return null;
     } catch (error) {

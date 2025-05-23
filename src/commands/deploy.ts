@@ -773,10 +773,17 @@ async function performHealthChecks(
   }
 
   try {
+    // Extract the correct app port from proxy configuration
+    const appPort = appEntry.proxy?.app_port || 80;
+    console.log(
+      `    [${serverHostname}] Using app port ${appPort} for health check`
+    );
+
     const result = await dockerClient.checkContainerEndpoint(
       containerName,
       true,
-      projectName
+      projectName,
+      appPort
     );
     const [healthCheckPassed] = result as [boolean, string];
 
