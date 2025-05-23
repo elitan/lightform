@@ -17,7 +17,9 @@ import { generateReleaseId, getProjectNetworkName } from "../utils"; // Changed 
 import { execSync } from "child_process";
 import { LumaProxyClient } from "../proxy";
 
-// Helper to resolve environment variables for a container
+/**
+ * Resolves environment variables for a container from plain and secret sources
+ */
 function resolveEnvironmentVariables(
   entry: AppEntry | ServiceEntry,
   secrets: LumaSecrets
@@ -42,7 +44,9 @@ function resolveEnvironmentVariables(
   return envVars;
 }
 
-// Function to check for uncommitted changes in the working directory
+/**
+ * Checks if there are uncommitted changes in the working directory
+ */
 async function hasUncommittedChanges(): Promise<boolean> {
   try {
     const status = execSync("git status --porcelain").toString().trim();
@@ -55,7 +59,9 @@ async function hasUncommittedChanges(): Promise<boolean> {
   }
 }
 
-// Helper to create DockerContainerOptions for an AppEntry
+/**
+ * Creates Docker container options for an app entry
+ */
 function appEntryToContainerOptions(
   appEntry: AppEntry,
   releaseId: string,
@@ -81,7 +87,9 @@ function appEntryToContainerOptions(
   };
 }
 
-// Helper to create DockerContainerOptions for a ServiceEntry
+/**
+ * Creates Docker container options for a service entry
+ */
 function serviceEntryToContainerOptions(
   serviceEntry: ServiceEntry,
   secrets: LumaSecrets,
@@ -102,7 +110,9 @@ function serviceEntryToContainerOptions(
   };
 }
 
-// Convert object or array format to a normalized array of entries with names
+/**
+ * Converts object or array format configuration entries to a normalized array
+ */
 function normalizeConfigEntries(
   entries: Record<string, any> | Array<any> | undefined
 ): Array<any> {
@@ -120,80 +130,100 @@ function normalizeConfigEntries(
   }));
 }
 
-export async function deployCommand(rawEntryNamesAndFlags: string[]) {
-  console.log("Deploy command initiated with raw args:", rawEntryNamesAndFlags);
+interface DeploymentContext {
+  config: LumaConfig;
+  secrets: LumaSecrets;
+  targetEntries: (AppEntry | ServiceEntry)[];
+  releaseId: string;
+  projectName: string;
+  networkName: string;
+  forceFlag: boolean;
+  deployServicesFlag: boolean;
+}
 
-  // Check for --force flag
+interface ParsedArgs {
+  entryNames: string[];
+  forceFlag: boolean;
+  deployServicesFlag: boolean;
+}
+
+/**
+ * Parses command line arguments and extracts flags and entry names
+ */
+function parseDeploymentArgs(rawEntryNamesAndFlags: string[]): ParsedArgs {
   const forceFlag = rawEntryNamesAndFlags.includes("--force");
+  const deployServicesFlag = rawEntryNamesAndFlags.includes("--services");
 
-  // Filter out flags
   const entryNames = rawEntryNamesAndFlags.filter(
     (name) => name !== "--services" && name !== "--force"
   );
 
-  // Check for uncommitted changes
+  return { entryNames, forceFlag, deployServicesFlag };
+}
+
+/**
+ * Validates git status and throws error if uncommitted changes exist (unless forced)
+ */
+async function checkUncommittedChanges(forceFlag: boolean): Promise<void> {
   if (!forceFlag && (await hasUncommittedChanges())) {
     console.error(
       "ERROR: Uncommitted changes detected in working directory. Deployment aborted for safety.\n" +
         "Please commit your changes before deploying, or use --force to deploy anyway."
     );
-    return;
+    throw new Error("Uncommitted changes detected");
   }
+}
 
-  // Detect --services flag
-  const deployServicesFlag = rawEntryNamesAndFlags.includes("--services");
-
-  if (deployServicesFlag) {
-    console.log(
-      "Service deployment explicitly requested (--services flag detected)."
-    );
-  } else {
-    console.log("Defaulting to app deployment (no --services flag detected).");
-  }
-
-  let config: LumaConfig;
-  let secrets: LumaSecrets;
+/**
+ * Loads and validates Luma configuration and secrets files
+ */
+async function loadConfigurationAndSecrets(): Promise<{
+  config: LumaConfig;
+  secrets: LumaSecrets;
+}> {
   try {
-    config = await loadConfig();
-    secrets = await loadSecrets();
+    const config = await loadConfig();
+    const secrets = await loadSecrets();
     console.log("Configuration and secrets loaded successfully.");
+    return { config, secrets };
   } catch (error) {
     console.error("Failed to load or validate configuration/secrets:", error);
-    return;
+    throw error;
   }
+}
 
-  // 2. Identify target entries based on flags and names
+/**
+ * Determines which apps or services to deploy based on arguments and configuration
+ */
+function identifyTargetEntries(
+  entryNames: string[],
+  deployServicesFlag: boolean,
+  config: LumaConfig
+): (AppEntry | ServiceEntry)[] {
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
   let targetEntries: (AppEntry | ServiceEntry)[] = [];
 
   if (deployServicesFlag) {
-    // --services flag is present: Target services
     if (entryNames.length === 0) {
-      // No specific service names given with --services, target all services
       targetEntries = [...configuredServices];
       if (targetEntries.length === 0) {
         console.log("No services found in configuration to deploy.");
-        return;
+        return [];
       }
       console.log("Targeting all services for deployment.");
     } else {
-      // Specific names given with --services, filter only services
       entryNames.forEach((name) => {
         const service = configuredServices.find((s) => s.name === name);
         if (service) {
           targetEntries.push(service);
         } else {
-          console.warn(
-            `Service "${name}" not found in configuration or "${name}" is not a service. It will be ignored.`
-          );
+          console.warn(`Service "${name}" not found in configuration.`);
         }
       });
       if (targetEntries.length === 0) {
-        console.log(
-          "No valid services found for specified names with --services flag."
-        );
-        return;
+        console.log("No valid services found for specified names.");
+        return [];
       }
       console.log(
         "Targeting specified services for deployment:",
@@ -201,30 +231,25 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       );
     }
   } else {
-    // --services flag is NOT present: Target apps
     if (entryNames.length === 0) {
-      // No specific app names given, target all apps
       targetEntries = [...configuredApps];
       if (targetEntries.length === 0) {
-        console.log("No apps found in configuration to deploy by default.");
-        return;
+        console.log("No apps found in configuration to deploy.");
+        return [];
       }
-      console.log("Targeting all apps for deployment by default.");
+      console.log("Targeting all apps for deployment.");
     } else {
-      // Specific names given, filter only apps
       entryNames.forEach((name) => {
         const app = configuredApps.find((a) => a.name === name);
         if (app) {
           targetEntries.push(app);
         } else {
-          console.warn(
-            `App "${name}" not found in configuration or "${name}" is not an app. It will be ignored.`
-          );
+          console.warn(`App "${name}" not found in configuration.`);
         }
       });
       if (targetEntries.length === 0) {
         console.log("No valid apps found for specified names.");
-        return;
+        return [];
       }
       console.log(
         "Targeting specified apps for deployment:",
@@ -233,25 +258,18 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     }
   }
 
-  if (targetEntries.length === 0) {
-    console.log("No entries selected for deployment. Exiting.");
-    return;
-  }
+  return targetEntries;
+}
 
-  const releaseId = await generateReleaseId();
-  console.log(
-    `Generated Release ID for this run: ${releaseId} (used primarily for apps)`
-  );
-
-  const projectName = config.name;
-  const networkName = getProjectNetworkName(projectName);
-
-  // Create/ensure the project-specific network on each relevant server before deploying apps/services to it.
-  // This is a bit tricky because services and apps can target different sets of servers.
-  // For simplicity, we'll attempt to create the network on *all* servers involved in this deployment run.
-  // A more optimized approach might do this per-server, just before the first app/service deployment to it.
-
-  // Collect all unique server hostnames from the target entries
+/**
+ * Verifies that required networks and luma-proxy containers exist on target servers
+ */
+async function verifyInfrastructure(
+  targetEntries: (AppEntry | ServiceEntry)[],
+  config: LumaConfig,
+  secrets: LumaSecrets,
+  networkName: string
+): Promise<void> {
   const allTargetServers = new Set<string>();
   targetEntries.forEach((entry) => {
     entry.servers.forEach((server) => allTargetServers.add(server));
@@ -263,7 +281,6 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     ).join(", ")}`
   );
 
-  // Check if network exists and luma-proxy is running on all target servers
   let missingNetworkServers: string[] = [];
   let missingProxyServers: string[] = [];
 
@@ -279,9 +296,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
         serverHostname
       );
 
-      // Check if network exists instead of creating it
       const networkExists = await dockerClientRemote.networkExists(networkName);
-
       if (networkExists) {
         console.log(`  [${serverHostname}] Network "${networkName}" verified.`);
       } else {
@@ -291,13 +306,11 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
         missingNetworkServers.push(serverHostname);
       }
 
-      // Check if luma-proxy container is running using LumaProxyClient
       const proxyClient = new LumaProxyClient(
         dockerClientRemote,
         serverHostname
       );
       const proxyRunning = await proxyClient.isProxyRunning();
-
       if (proxyRunning) {
         console.log(`  [${serverHostname}] luma-proxy container is running.`);
       } else {
@@ -320,834 +333,640 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     }
   }
 
-  // Exit early if any server is missing the required network or proxy
   if (missingNetworkServers.length > 0 || missingProxyServers.length > 0) {
     if (missingNetworkServers.length > 0) {
       console.error(
-        `Error: Required network "${networkName}" is missing on the following servers: ${missingNetworkServers.join(
+        `Error: Required network "${networkName}" is missing on servers: ${missingNetworkServers.join(
           ", "
         )}`
       );
     }
-
     if (missingProxyServers.length > 0) {
       console.error(
-        `Error: Required luma-proxy container is not running on the following servers: ${missingProxyServers.join(
+        `Error: Required luma-proxy container is not running on servers: ${missingProxyServers.join(
           ", "
         )}`
       );
     }
-
     console.error(
-      `Please run \`luma setup\` to create the required network and start luma-proxy before deploying.`
+      `Please run \`luma setup\` to create the required network and start luma-proxy.`
     );
-    return;
+    throw new Error("Infrastructure verification failed");
+  }
+}
+
+/**
+ * Main deployment loop that processes all target entries
+ */
+async function deployEntries(context: DeploymentContext): Promise<void> {
+  for (const entry of context.targetEntries) {
+    const isApp = !context.deployServicesFlag;
+
+    if (isApp) {
+      await deployApp(entry as AppEntry, context);
+    } else {
+      await deployService(entry as ServiceEntry, context);
+    }
+  }
+}
+
+/**
+ * Deploys a single app to all its target servers
+ */
+async function deployApp(
+  appEntry: AppEntry,
+  context: DeploymentContext
+): Promise<void> {
+  const imageNameWithRelease = `${appEntry.image}:${context.releaseId}`;
+  console.log(
+    `Deploying app: ${appEntry.name} (release ${
+      context.releaseId
+    }) to servers: ${appEntry.servers.join(", ")}`
+  );
+
+  const imageReady = await buildOrTagAppImage(appEntry, imageNameWithRelease);
+  if (!imageReady) return;
+
+  await pushAppImage(appEntry, imageNameWithRelease, context.config);
+
+  for (const serverHostname of appEntry.servers) {
+    await deployAppToServer(appEntry, serverHostname, context);
+  }
+}
+
+/**
+ * Builds or tags a Docker image for an app entry
+ */
+async function buildOrTagAppImage(
+  appEntry: AppEntry,
+  imageNameWithRelease: string
+): Promise<boolean> {
+  if (appEntry.build) {
+    console.log(`  Building app ${appEntry.name}...`);
+    try {
+      const buildPlatform = appEntry.build.platform || "linux/amd64";
+      if (!appEntry.build.platform) {
+        console.log(`  No platform specified, defaulting to ${buildPlatform}`);
+      }
+
+      await DockerClient.build({
+        context: appEntry.build.context,
+        dockerfile: appEntry.build.dockerfile,
+        tags: [imageNameWithRelease],
+        buildArgs: appEntry.build.args,
+        platform: buildPlatform,
+        target: appEntry.build.target,
+      });
+      console.log(`  Successfully built and tagged ${imageNameWithRelease}`);
+      return true;
+    } catch (error) {
+      console.error(`  Failed to build app ${appEntry.name}:`, error);
+      return false;
+    }
+  } else {
+    console.log(
+      `  No build config for ${appEntry.name}. Tagging ${appEntry.image} as ${imageNameWithRelease}...`
+    );
+    try {
+      await DockerClient.tag(appEntry.image, imageNameWithRelease);
+      console.log(
+        `  Successfully tagged ${appEntry.image} as ${imageNameWithRelease}`
+      );
+      return true;
+    } catch (error) {
+      console.error(
+        `  Failed to tag pre-built image ${appEntry.image}:`,
+        error
+      );
+      return false;
+    }
+  }
+}
+
+/**
+ * Pushes an app image to the configured registry
+ */
+async function pushAppImage(
+  appEntry: AppEntry,
+  imageNameWithRelease: string,
+  config: LumaConfig
+): Promise<void> {
+  console.log(`  Pushing image ${imageNameWithRelease}...`);
+  try {
+    const registryToPush = appEntry.registry?.url || config.docker?.registry;
+    await DockerClient.push(imageNameWithRelease, registryToPush);
+    console.log(`  Successfully pushed ${imageNameWithRelease}`);
+  } catch (error) {
+    console.error(`  Failed to push image ${imageNameWithRelease}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Deploys an app to a specific server with full deployment lifecycle
+ */
+async function deployAppToServer(
+  appEntry: AppEntry,
+  serverHostname: string,
+  context: DeploymentContext
+): Promise<void> {
+  console.log(
+    `  Deploying app ${appEntry.name} to server ${serverHostname}...`
+  );
+  let sshClient: SSHClient | undefined;
+
+  try {
+    sshClient = await establishSSHConnection(
+      serverHostname,
+      context.config,
+      context.secrets
+    );
+    const dockerClientRemote = new DockerClient(sshClient, serverHostname);
+
+    await authenticateAndPullImage(
+      appEntry,
+      dockerClientRemote,
+      context,
+      `${appEntry.image}:${context.releaseId}`
+    );
+
+    const containerOptions = appEntryToContainerOptions(
+      appEntry,
+      context.releaseId,
+      context.secrets,
+      context.projectName
+    );
+    await createAndHealthCheckContainer(
+      containerOptions,
+      appEntry,
+      dockerClientRemote,
+      serverHostname
+    );
+
+    await cleanupOldContainers(
+      appEntry.name,
+      containerOptions.name,
+      dockerClientRemote,
+      serverHostname
+    );
+    await configureProxyForApp(
+      appEntry,
+      dockerClientRemote,
+      serverHostname,
+      context.projectName
+    );
+
+    console.log(`    [${serverHostname}] Pruning Docker resources...`);
+    await dockerClientRemote.prune();
+
+    console.log(
+      `    [${serverHostname}] App ${appEntry.name} deployed successfully.`
+    );
+  } catch (serverError) {
+    console.error(
+      `  [${serverHostname}] Failed to deploy app ${appEntry.name}:`,
+      serverError
+    );
+  } finally {
+    if (sshClient) {
+      await sshClient.close();
+    }
+  }
+}
+
+/**
+ * Deploys a single service to all its target servers
+ */
+async function deployService(
+  serviceEntry: ServiceEntry,
+  context: DeploymentContext
+): Promise<void> {
+  console.log(
+    `Deploying service: ${
+      serviceEntry.name
+    } to servers: ${serviceEntry.servers.join(", ")}`
+  );
+
+  for (const serverHostname of serviceEntry.servers) {
+    await deployServiceToServer(serviceEntry, serverHostname, context);
+  }
+}
+
+/**
+ * Deploys a service to a specific server by replacing the existing container
+ */
+async function deployServiceToServer(
+  serviceEntry: ServiceEntry,
+  serverHostname: string,
+  context: DeploymentContext
+): Promise<void> {
+  console.log(
+    `  Deploying service ${serviceEntry.name} to server ${serverHostname}...`
+  );
+  let sshClient: SSHClient | undefined;
+
+  try {
+    sshClient = await establishSSHConnection(
+      serverHostname,
+      context.config,
+      context.secrets
+    );
+    const dockerClientRemote = new DockerClient(sshClient, serverHostname);
+
+    await authenticateAndPullImage(
+      serviceEntry,
+      dockerClientRemote,
+      context,
+      serviceEntry.image
+    );
+
+    await replaceServiceContainer(
+      serviceEntry,
+      dockerClientRemote,
+      serverHostname,
+      context
+    );
+
+    console.log(`    [${serverHostname}] Pruning Docker resources...`);
+    await dockerClientRemote.prune();
+
+    console.log(
+      `    [${serverHostname}] Service ${serviceEntry.name} deployed successfully.`
+    );
+  } catch (serverError) {
+    console.error(
+      `  [${serverHostname}] Failed to deploy service ${serviceEntry.name}:`,
+      serverError
+    );
+  } finally {
+    if (sshClient) {
+      await sshClient.close();
+    }
+  }
+}
+
+/**
+ * Establishes an SSH connection to a server using configured credentials
+ */
+async function establishSSHConnection(
+  serverHostname: string,
+  config: LumaConfig,
+  secrets: LumaSecrets
+): Promise<SSHClient> {
+  const sshCreds = await getSSHCredentials(serverHostname, config, secrets);
+  if (!sshCreds.host) sshCreds.host = serverHostname;
+  const sshClient = await SSHClient.create(sshCreds as SSHClientOptions);
+  await sshClient.connect();
+  console.log(`    [${serverHostname}] SSH connection established.`);
+  return sshClient;
+}
+
+/**
+ * Handles registry authentication and pulls the specified image
+ */
+async function authenticateAndPullImage(
+  entry: AppEntry | ServiceEntry,
+  dockerClientRemote: DockerClient,
+  context: DeploymentContext,
+  imageToPull: string
+): Promise<void> {
+  const globalRegistryConfig = context.config.docker;
+  const entryRegistry = entry.registry;
+  let imageRegistry =
+    entryRegistry?.url || globalRegistryConfig?.registry || "docker.io";
+  let registryLoginPerformed = false;
+
+  if (entryRegistry?.username && entryRegistry?.password_secret) {
+    const password = context.secrets[entryRegistry.password_secret];
+    if (password) {
+      await performRegistryLogin(
+        dockerClientRemote,
+        imageRegistry,
+        entryRegistry.username,
+        password
+      );
+      registryLoginPerformed = true;
+    }
+  } else if (
+    globalRegistryConfig?.username &&
+    context.secrets.DOCKER_REGISTRY_PASSWORD
+  ) {
+    await performRegistryLogin(
+      dockerClientRemote,
+      imageRegistry,
+      globalRegistryConfig.username,
+      context.secrets.DOCKER_REGISTRY_PASSWORD
+    );
+    registryLoginPerformed = true;
   }
 
-  for (const entry of targetEntries) {
-    const globalRegistryConfig = config.docker;
-    const isApp =
-      configuredApps.some((app) => app.name === entry.name) &&
-      !deployServicesFlag;
-    // The above isApp check could be simplified if targetEntries is guaranteed to be homogenous
-    // For instance, after targeting, we know if we are in app-mode or service-mode.
-    // Let's refine isApp based on the deployServicesFlag for clarity
+  console.log(`    Pulling image ${imageToPull}...`);
+  const pullSuccess = await dockerClientRemote.pullImage(imageToPull);
 
-    // If deployServicesFlag is true, all entries in targetEntries *should* be services.
-    // If deployServicesFlag is false, all entries in targetEntries *should* be apps.
-    const currentEntryIsApp = !deployServicesFlag; // Simplified assumption after filtering
+  if (registryLoginPerformed) {
+    await dockerClientRemote.logout(imageRegistry);
+  }
 
-    if (currentEntryIsApp) {
-      const appEntry = entry as AppEntry;
-      const imageNameWithRelease = `${appEntry.image}:${releaseId}`;
-      const containerName = `${appEntry.name}-${releaseId}`;
-      const envVars = resolveEnvironmentVariables(appEntry, secrets);
-      const networkName = getProjectNetworkName(projectName);
+  if (!pullSuccess) {
+    throw new Error(`Failed to pull image ${imageToPull}`);
+  }
+}
+
+/**
+ * Performs Docker registry login with error handling for unencrypted warnings
+ */
+async function performRegistryLogin(
+  dockerClient: DockerClient,
+  registry: string,
+  username: string,
+  password: string
+): Promise<void> {
+  try {
+    await dockerClient.login(registry, username, password);
+    console.log(`    Successfully logged into registry`);
+  } catch (loginError) {
+    const errorMessage = String(loginError);
+    if (
+      errorMessage.includes("WARNING! Your password will be stored unencrypted")
+    ) {
+      console.log(`    Successfully logged into registry`);
+    } else {
+      console.error(`    Failed to login to registry:`, loginError);
+    }
+  }
+}
+
+/**
+ * Creates a container and performs health checks to ensure it's ready
+ */
+async function createAndHealthCheckContainer(
+  containerOptions: DockerContainerOptions,
+  appEntry: AppEntry,
+  dockerClient: DockerClient,
+  serverHostname: string
+): Promise<void> {
+  const containerExists = await dockerClient.containerExists(
+    containerOptions.name
+  );
+  if (containerExists) {
+    const containerRunning = await dockerClient.containerIsRunning(
+      containerOptions.name
+    );
+    if (containerRunning) {
       console.log(
-        `Deploying app: ${
-          appEntry.name
-        } (release ${releaseId}) to servers: ${appEntry.servers.join(", ")}`
+        `    [${serverHostname}] Container ${containerOptions.name} is already running. Skipping.`
       );
+      return;
+    } else {
+      await dockerClient.removeContainer(containerOptions.name);
+    }
+  }
 
-      let imageSuccessfullyBuiltOrTagged = false;
+  console.log(
+    `    [${serverHostname}] Starting new container ${containerOptions.name}...`
+  );
+  const createSuccess = await dockerClient.createContainer(containerOptions);
+  if (!createSuccess) {
+    throw new Error(`Failed to create container ${containerOptions.name}`);
+  }
 
-      // App Handling: Build, Tag, Push locally
-      if (appEntry.build) {
-        console.log(`  Building app ${appEntry.name}...`);
-        try {
-          // Ensure platform is set to avoid architecture mismatch during deployment
-          const buildPlatform = appEntry.build.platform || "linux/amd64"; // Default to amd64 if not specified
+  const isHealthy = await performHealthChecks(
+    containerOptions.name,
+    appEntry,
+    dockerClient,
+    serverHostname
+  );
+  if (!isHealthy) {
+    await dockerClient.stopContainer(containerOptions.name);
+    await dockerClient.removeContainer(containerOptions.name);
+    throw new Error(`Container ${containerOptions.name} failed health checks`);
+  }
+}
 
-          if (!appEntry.build.platform) {
-            console.log(
-              `  No platform specified, defaulting to ${buildPlatform} for cross-platform compatibility`
-            );
-          }
+/**
+ * Performs health checks on a container using the /up endpoint
+ */
+async function performHealthChecks(
+  containerName: string,
+  appEntry: AppEntry,
+  dockerClient: DockerClient,
+  serverHostname: string
+): Promise<boolean> {
+  console.log(
+    `    [${serverHostname}] Performing health checks for ${containerName}...`
+  );
 
-          await DockerClient.build({
-            context: appEntry.build.context,
-            dockerfile: appEntry.build.dockerfile,
-            tags: [imageNameWithRelease],
-            buildArgs: appEntry.build.args,
-            platform: buildPlatform, // Use the determined platform
-            target: appEntry.build.target, // Assuming target can be in build config
-          });
-          console.log(
-            `  Successfully built and tagged ${imageNameWithRelease}`
-          );
-          imageSuccessfullyBuiltOrTagged = true;
-        } catch (error) {
-          console.error(`  Failed to build app ${appEntry.name}:`, error);
-          continue; // Skip to next entry if build fails
-        }
-      } else {
-        // No build config, assume pre-built image. Tag it locally.
-        console.log(
-          `  No build config for ${appEntry.name}. Assuming pre-built image: ${appEntry.image}.`
-        );
-        console.log(
-          `  Tagging ${appEntry.image} as ${imageNameWithRelease}...`
-        );
-        try {
-          await DockerClient.tag(appEntry.image, imageNameWithRelease);
-          console.log(
-            `  Successfully tagged ${appEntry.image} as ${imageNameWithRelease}`
-          );
-          imageSuccessfullyBuiltOrTagged = true;
-        } catch (error) {
-          console.error(
-            `  Failed to tag pre-built image ${appEntry.image} for app ${appEntry.name}:`,
-            error
-          );
-          continue; // Skip to next entry if tagging fails
-        }
-      }
+  const hcConfig = appEntry.health_check || {};
+  const startPeriodSeconds = parseInt(hcConfig.start_period || "0s", 10);
 
-      if (!imageSuccessfullyBuiltOrTagged) continue; // Should not happen if logic above is correct
+  if (startPeriodSeconds > 0) {
+    console.log(
+      `    [${serverHostname}] Waiting for start period: ${startPeriodSeconds}s...`
+    );
+    await new Promise((resolve) =>
+      setTimeout(resolve, startPeriodSeconds * 1000)
+    );
+  }
 
-      // Push the image
-      console.log(`  Pushing image ${imageNameWithRelease}...`);
+  try {
+    const result = await dockerClient.checkContainerEndpoint(
+      containerName,
+      true,
+      appEntry.name
+    );
+    const [healthCheckPassed] = result as [boolean, string];
+
+    if (healthCheckPassed) {
+      console.log(
+        `    [${serverHostname}] Health check successful for ${containerName}`
+      );
+      return true;
+    } else {
+      console.error(
+        `    [${serverHostname}] Health check failed for ${containerName}`
+      );
+      return false;
+    }
+  } catch (error) {
+    console.error(
+      `    [${serverHostname}] Health check error for ${containerName}:`,
+      error
+    );
+    return false;
+  }
+}
+
+/**
+ * Removes old containers from previous deployments of the same app
+ */
+async function cleanupOldContainers(
+  appName: string,
+  currentContainerName: string,
+  dockerClient: DockerClient,
+  serverHostname: string
+): Promise<void> {
+  const previousContainers = await dockerClient.findContainersByPrefix(
+    `${appName}-`
+  );
+  const oldContainers = previousContainers.filter(
+    (name) =>
+      name !== currentContainerName && !name.startsWith("luma-hc-helper")
+  );
+
+  if (oldContainers.length > 0) {
+    console.log(
+      `    [${serverHostname}] Cleaning up ${
+        oldContainers.length
+      } old container(s): ${oldContainers.join(", ")}`
+    );
+
+    for (const oldContainer of oldContainers) {
       try {
-        // Determine registry for push
-        const registryToPush =
-          appEntry.registry?.url || config.docker?.registry;
-        await DockerClient.push(imageNameWithRelease, registryToPush);
+        await dockerClient.stopContainer(oldContainer);
+        await dockerClient.removeContainer(oldContainer);
         console.log(
-          `  Successfully pushed ${imageNameWithRelease} to ${
-            registryToPush || "default registry"
-          }`
+          `    [${serverHostname}] Removed old container ${oldContainer}`
         );
       } catch (error) {
-        console.error(
-          `  Failed to push image ${imageNameWithRelease} for app ${appEntry.name}:`,
+        console.warn(
+          `    [${serverHostname}] Could not remove old container ${oldContainer}:`,
           error
         );
-        continue; // Skip to next entry if push fails
-      }
-
-      // Per-server deployment for App
-      for (const serverHostname of appEntry.servers) {
-        console.log(
-          `  Deploying app ${appEntry.name} to server ${serverHostname}...`
-        );
-        let sshClient: SSHClient | undefined;
-        try {
-          const sshCreds = await getSSHCredentials(
-            serverHostname,
-            config,
-            secrets
-          );
-          if (!sshCreds.host) sshCreds.host = serverHostname;
-          sshClient = await SSHClient.create(sshCreds as SSHClientOptions);
-          await sshClient.connect();
-          console.log(`    [${serverHostname}] SSH connection established.`);
-          const dockerClientRemote = new DockerClient(
-            sshClient,
-            serverHostname
-          );
-
-          const containerOptions = appEntryToContainerOptions(
-            appEntry,
-            releaseId,
-            secrets,
-            projectName
-          );
-
-          const appRegistry = appEntry.registry;
-          let appImageRegistry =
-            appRegistry?.url || globalRegistryConfig?.registry || "docker.io";
-
-          let registryLoginPerformed = false;
-
-          if (appRegistry?.username && appRegistry?.password_secret) {
-            const password = secrets[appRegistry.password_secret];
-            if (password) {
-              console.log(
-                `    [${serverHostname}] Logging into app-specific registry: ${appImageRegistry}`
-              );
-              try {
-                await dockerClientRemote.login(
-                  appImageRegistry,
-                  appRegistry.username,
-                  password
-                );
-                console.log(
-                  `    [${serverHostname}] Successfully logged into registry`
-                );
-                registryLoginPerformed = true;
-              } catch (loginError) {
-                // Check if the error is just the unencrypted warning
-                const errorMessage =
-                  typeof loginError === "object" && loginError !== null
-                    ? String(loginError)
-                    : "Unknown error";
-
-                if (
-                  errorMessage.includes(
-                    "WARNING! Your password will be stored unencrypted"
-                  )
-                ) {
-                  // This is just a warning, not an actual error - login was successful
-                  console.log(
-                    `    [${serverHostname}] Successfully logged into registry`
-                  );
-                  registryLoginPerformed = true;
-                } else {
-                  // This is a real error
-                  console.error(
-                    `    [${serverHostname}] Failed to login to registry:`,
-                    loginError
-                  );
-                  // Continue anyway as the image might be public or pre-authenticated
-                }
-              }
-            } else {
-              console.warn(
-                `    [${serverHostname}] Secret ${appRegistry.password_secret} for app registry not found. Assuming public image or pre-existing login.`
-              );
-            }
-          } else if (
-            globalRegistryConfig?.username &&
-            secrets.DOCKER_REGISTRY_PASSWORD
-          ) {
-            // General DOCKER_REGISTRY_PASSWORD for global config
-            console.log(
-              `    [${serverHostname}] Logging into global Docker registry: ${
-                globalRegistryConfig.registry || "docker.io"
-              }`
-            );
-            try {
-              await dockerClientRemote.login(
-                appImageRegistry,
-                globalRegistryConfig.username,
-                secrets.DOCKER_REGISTRY_PASSWORD
-              );
-              console.log(
-                `    [${serverHostname}] Successfully logged into registry`
-              );
-              registryLoginPerformed = true;
-            } catch (loginError) {
-              // Check if the error is just the unencrypted warning
-              const errorMessage =
-                typeof loginError === "object" && loginError !== null
-                  ? String(loginError)
-                  : "Unknown error";
-
-              if (
-                errorMessage.includes(
-                  "WARNING! Your password will be stored unencrypted"
-                )
-              ) {
-                // This is just a warning, not an actual error - login was successful
-                console.log(
-                  `    [${serverHostname}] Successfully logged into registry`
-                );
-                registryLoginPerformed = true;
-              } else {
-                // This is a real error
-                console.error(
-                  `    [${serverHostname}] Failed to login to registry:`,
-                  loginError
-                );
-                // Continue anyway as the image might be public or pre-authenticated
-              }
-            }
-          } // Else: relying on pre-configured login on the server or public images
-
-          console.log(
-            `    [${serverHostname}] Pulling image ${imageNameWithRelease}...`
-          );
-          const pullSuccess = await dockerClientRemote.pullImage(
-            imageNameWithRelease
-          );
-
-          // Logout after pulling to avoid storing credentials
-          if (registryLoginPerformed) {
-            console.log(
-              `    [${serverHostname}] Logging out from registry to avoid storing credentials...`
-            );
-            await dockerClientRemote.logout(appImageRegistry);
-          }
-
-          if (!pullSuccess) {
-            console.error(
-              `    [${serverHostname}] Failed to pull image ${imageNameWithRelease}. Skipping deployment to this server.`
-            );
-            continue;
-          }
-
-          console.log(
-            `    [${serverHostname}] Starting new container ${containerName}...`
-          );
-
-          // Check if container with same name already exists and is running
-          const containerExists = await dockerClientRemote.containerExists(
-            containerName
-          );
-          if (containerExists) {
-            const containerRunning =
-              await dockerClientRemote.containerIsRunning(containerName);
-            if (containerRunning) {
-              console.log(
-                `    [${serverHostname}] Container ${containerName} is already running. Skipping deployment.`
-              );
-              // Continue with other servers/entries
-              continue;
-            } else {
-              // Container exists but not running - remove it first
-              console.log(
-                `    [${serverHostname}] Container ${containerName} exists but is not running. Removing it...`
-              );
-              await dockerClientRemote.removeContainer(containerName);
-            }
-          }
-
-          const createSuccessApp = await dockerClientRemote.createContainer(
-            containerOptions
-          );
-          if (!createSuccessApp) {
-            console.error(
-              `    [${serverHostname}] Failed to create container ${containerName}. Skipping further steps for this app on this server.`
-            );
-            continue;
-          }
-
-          let newAppIsHealthy = false;
-
-          // First, always check the /up endpoint as a required Luma check
-          console.log(
-            `    [${serverHostname}] Performing /up endpoint health check for ${containerName}...`
-          );
-
-          // Set up retry parameters with fixed values for the /up check
-          // Check every 1 second for up to 60 seconds
-          const upCheckMaxAttempts = 60;
-          const upCheckIntervalSeconds = 1;
-
-          // We'll still use the start period from config if available
-          const hcConfig = appEntry.health_check || {};
-          const startPeriodSeconds = parseInt(
-            hcConfig.start_period || "0s",
-            10
-          ); // Default 0s
-
-          if (startPeriodSeconds > 0) {
-            console.log(
-              `    [${serverHostname}] Waiting for start period: ${startPeriodSeconds}s...`
-            );
-            await new Promise((resolve) =>
-              setTimeout(resolve, startPeriodSeconds * 1000)
-            );
-          }
-
-          // Create a single reusable helper container for all health checks
-          console.log(
-            `    [${serverHostname}] Creating health check helper container...`
-          );
-
-          let helperContainerName = "";
-          let initialCheckResult = false;
-
-          try {
-            // Run health check with looping script inside container
-            console.log(
-              `    [${serverHostname}] Running health check for ${containerName} (will check for up to 60 seconds)...`
-            );
-
-            const result = (await dockerClientRemote.checkContainerEndpoint(
-              containerName,
-              true, // Create a reusable container
-              projectName // Pass projectName
-            )) as [boolean, string];
-
-            initialCheckResult = result[0];
-            helperContainerName = result[1];
-
-            console.log(
-              `    [${serverHostname}] Helper container name: ${helperContainerName}`
-            );
-
-            if (!helperContainerName) {
-              console.error(
-                `    [${serverHostname}] Failed to create valid helper container. Aborting health checks.`
-              );
-              newAppIsHealthy = false; // Cannot proceed with health checks
-            } else if (initialCheckResult) {
-              // Health check script succeeded
-              newAppIsHealthy = true;
-              console.log(
-                `    [${serverHostname}] /up endpoint check successful for ${containerName}`
-              );
-            } else {
-              // Health check script failed after 60 seconds
-              console.error(
-                `    [${serverHostname}] /up endpoint check failed after 60 seconds for ${containerName}`
-              );
-              newAppIsHealthy = false;
-            }
-
-            // Additionally, check Docker's built-in health check if configured
-            if (newAppIsHealthy && appEntry.health_check) {
-              // Use parameters from config for Docker's health check
-              const dockerHcRetries = hcConfig.retries || 3;
-              const dockerHcIntervalSeconds = parseInt(
-                hcConfig.interval || "10s",
-                10
-              );
-
-              console.log(
-                `    [${serverHostname}] Also checking Docker's built-in health status for ${containerName}...`
-              );
-
-              // Use Docker's built-in health check as an additional check
-              for (let i = 0; i < dockerHcRetries; i++) {
-                console.log(
-                  `    [${serverHostname}] Docker health check attempt ${
-                    i + 1
-                  }/${dockerHcRetries} for ${containerName}...`
-                );
-                const healthStatus =
-                  await dockerClientRemote.getContainerHealth(containerName);
-
-                if (healthStatus === "healthy") {
-                  console.log(
-                    `    [${serverHostname}] Docker reports container ${containerName} is healthy.`
-                  );
-                  break;
-                }
-
-                if (healthStatus === "unhealthy") {
-                  console.error(
-                    `    [${serverHostname}] Docker reports container ${containerName} is unhealthy. This is concerning but we'll continue since the /up check passed.`
-                  );
-                  break;
-                }
-
-                // If status is 'starting' or null, keep trying.
-                if (i < dockerHcRetries - 1) {
-                  await new Promise((resolve) =>
-                    setTimeout(resolve, dockerHcIntervalSeconds * 1000)
-                  );
-                }
-              }
-            }
-          } finally {
-            // Don't clean up the helper container so it can be reused for future deployments
-            // if (helperContainerName) {
-            //   console.log(
-            //     `    [${serverHostname}] Cleaning up health check helper container...`
-            //   );
-            //   await dockerClientRemote.cleanupHelperContainer(
-            //     helperContainerName
-            //   );
-            // }
-          }
-
-          if (!newAppIsHealthy) {
-            console.error(
-              `    [${serverHostname}] Container ${containerName} failed the required /up endpoint check. Deployment cannot proceed.`
-            );
-          }
-
-          if (!newAppIsHealthy) {
-            console.error(
-              `    [${serverHostname}] New container ${containerName} for app ${appEntry.name} did not become healthy. Stopping and removing it.`
-            );
-            try {
-              await dockerClientRemote.stopContainer(containerName);
-              await dockerClientRemote.removeContainer(containerName);
-              console.log(
-                `    [${serverHostname}] New unhealthy container ${containerName} stopped and removed.`
-              );
-            } catch (cleanupError) {
-              console.error(
-                `    [${serverHostname}] Error cleaning up unhealthy container ${containerName}:`,
-                cleanupError
-              );
-            }
-            continue; // Skip to next server or entry if health check failed
-          }
-
-          // If new app is healthy, proceed to stop old containers and track release
-          console.log(
-            `    [${serverHostname}] New app container ${containerName} is healthy. Proceeding with deployment finalization.`
-          );
-
-          // Find previous deployment containers for this app
-          console.log(
-            `    [${serverHostname}] Looking for previous deployments of ${appEntry.name}...`
-          );
-
-          const previousContainers =
-            await dockerClientRemote.findContainersByPrefix(
-              `${appEntry.name}-`
-            );
-
-          // Filter out the current container and any health check helper containers
-          const oldContainers = previousContainers.filter(
-            (name) =>
-              name !== containerName && !name.startsWith("luma-hc-helper")
-          );
-
-          if (oldContainers.length > 0) {
-            console.log(
-              `    [${serverHostname}] Found ${
-                oldContainers.length
-              } previous deployment(s) to clean up: ${oldContainers.join(", ")}`
-            );
-
-            // Stop and remove each old container
-            for (const oldContainer of oldContainers) {
-              console.log(
-                `    [${serverHostname}] Stopping and removing old container ${oldContainer}...`
-              );
-              try {
-                await dockerClientRemote.stopContainer(oldContainer);
-                await dockerClientRemote.removeContainer(oldContainer);
-                console.log(
-                  `    [${serverHostname}] Old container ${oldContainer} stopped and removed.`
-                );
-              } catch (stopOldError) {
-                console.warn(
-                  `    [${serverHostname}] Could not stop/remove old container ${oldContainer}. It might have already been stopped/removed.`,
-                  stopOldError
-                );
-              }
-            }
-          } else {
-            console.log(
-              `    [${serverHostname}] No previous deployments found for ${appEntry.name} to clean up.`
-            );
-          }
-
-          // Configure luma-proxy if app has proxy configuration
-          if (
-            appEntry.proxy &&
-            appEntry.proxy.hosts &&
-            appEntry.proxy.hosts.length > 0
-          ) {
-            console.log(
-              `    [${serverHostname}] Configuring luma-proxy for ${appEntry.name}...`
-            );
-
-            // Create LumaProxyClient instance
-            const proxyClient = new LumaProxyClient(
-              dockerClientRemote,
-              serverHostname
-            );
-
-            // Get proxy configuration
-            const hosts = appEntry.proxy.hosts;
-            const appPort = appEntry.proxy.app_port || 80; // Default to port 80 if not specified
-            const useSSL = appEntry.proxy.ssl || false;
-
-            console.log(
-              `    [${serverHostname}] Configuring proxy for ${hosts.length} host(s)`
-            );
-
-            // Use our LumaProxyClient to configure the proxy for all hosts at once
-            try {
-              const configSuccess = await proxyClient.deploy(
-                hosts,
-                appEntry.name, // Target container name
-                appPort,
-                projectName,
-                useSSL
-              );
-
-              if (!configSuccess) {
-                console.error(
-                  `    [${serverHostname}] Failed to configure luma-proxy for some hosts`
-                );
-              }
-            } catch (proxyError) {
-              console.error(
-                `    [${serverHostname}] Error configuring luma-proxy:`,
-                proxyError
-              );
-            }
-          }
-
-          // Prune for app server
-          console.log(`    [${serverHostname}] Pruning Docker resources...`);
-          await dockerClientRemote.prune();
-
-          console.log(
-            `    [${serverHostname}] App ${appEntry.name} (release ${releaseId}) deployed successfully to this server.`
-          );
-        } catch (serverError) {
-          console.error(
-            `  [${serverHostname}] Failed to deploy app ${appEntry.name} to server:`,
-            serverError
-          );
-        } finally {
-          if (sshClient) {
-            await sshClient.close();
-            console.log(`    [${serverHostname}] SSH connection closed.`);
-          }
-        }
-      }
-    } else {
-      // It's a Service
-      const serviceEntry = entry as ServiceEntry;
-      const containerNameForService = serviceEntry.name;
-      const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
-      const networkName = getProjectNetworkName(projectName);
-      console.log(
-        `Deploying service: ${
-          serviceEntry.name
-        } to servers: ${serviceEntry.servers.join(", ")}`
-      );
-
-      for (const serverHostname of serviceEntry.servers) {
-        console.log(
-          `  Deploying service ${serviceEntry.name} to server ${serverHostname}...`
-        );
-        let sshClient: SSHClient | undefined;
-        try {
-          const sshCreds = await getSSHCredentials(
-            serverHostname,
-            config,
-            secrets
-          );
-          if (!sshCreds.host) sshCreds.host = serverHostname;
-          sshClient = await SSHClient.create(sshCreds as SSHClientOptions);
-          await sshClient.connect();
-          console.log(`    [${serverHostname}] SSH connection established.`);
-          const dockerClientRemote = new DockerClient(
-            sshClient,
-            serverHostname
-          );
-          const imageToPull = serviceEntry.image;
-
-          const serviceContainerOptions = serviceEntryToContainerOptions(
-            serviceEntry,
-            secrets,
-            projectName
-          );
-
-          const serviceRegistry = serviceEntry.registry;
-          let serviceImageRegistry =
-            serviceRegistry?.url ||
-            globalRegistryConfig?.registry ||
-            "docker.io";
-
-          let registryLoginPerformed = false;
-
-          if (serviceRegistry?.username && serviceRegistry?.password_secret) {
-            const password = secrets[serviceRegistry.password_secret];
-            if (password) {
-              console.log(
-                `    [${serverHostname}] Logging into service-specific registry: ${serviceImageRegistry}`
-              );
-              try {
-                await dockerClientRemote.login(
-                  serviceImageRegistry,
-                  serviceRegistry.username,
-                  password
-                );
-                console.log(
-                  `    [${serverHostname}] Successfully logged into registry`
-                );
-                registryLoginPerformed = true;
-              } catch (loginError) {
-                // Check if the error is just the unencrypted warning
-                const errorMessage =
-                  typeof loginError === "object" && loginError !== null
-                    ? String(loginError)
-                    : "Unknown error";
-
-                if (
-                  errorMessage.includes(
-                    "WARNING! Your password will be stored unencrypted"
-                  )
-                ) {
-                  // This is just a warning, not an actual error - login was successful
-                  console.log(
-                    `    [${serverHostname}] Successfully logged into registry`
-                  );
-                  registryLoginPerformed = true;
-                } else {
-                  // This is a real error
-                  console.error(
-                    `    [${serverHostname}] Failed to login to registry:`,
-                    loginError
-                  );
-                  // Continue anyway as the image might be public or pre-authenticated
-                }
-              }
-            } else {
-              console.warn(
-                `    [${serverHostname}] Secret ${serviceRegistry.password_secret} for service registry not found. Assuming public image or pre-existing login.`
-              );
-            }
-          } else if (
-            globalRegistryConfig?.username &&
-            secrets.DOCKER_REGISTRY_PASSWORD
-          ) {
-            console.log(
-              `    [${serverHostname}] Logging into global Docker registry: ${
-                globalRegistryConfig.registry || "docker.io"
-              }`
-            );
-            try {
-              await dockerClientRemote.login(
-                serviceImageRegistry,
-                globalRegistryConfig.username,
-                secrets.DOCKER_REGISTRY_PASSWORD
-              );
-              console.log(
-                `    [${serverHostname}] Successfully logged into registry`
-              );
-              registryLoginPerformed = true;
-            } catch (loginError) {
-              // Check if the error is just the unencrypted warning
-              const errorMessage =
-                typeof loginError === "object" && loginError !== null
-                  ? String(loginError)
-                  : "Unknown error";
-
-              if (
-                errorMessage.includes(
-                  "WARNING! Your password will be stored unencrypted"
-                )
-              ) {
-                // This is just a warning, not an actual error - login was successful
-                console.log(
-                  `    [${serverHostname}] Successfully logged into registry`
-                );
-                registryLoginPerformed = true;
-              } else {
-                // This is a real error
-                console.error(
-                  `    [${serverHostname}] Failed to login to registry:`,
-                  loginError
-                );
-                // Continue anyway as the image might be public or pre-authenticated
-              }
-            }
-          } // Else: relying on pre-configured login on the server or public images
-
-          console.log(
-            `    [${serverHostname}] Pulling image ${imageToPull}...`
-          );
-          const pullServiceSuccess = await dockerClientRemote.pullImage(
-            imageToPull
-          );
-
-          // Logout after pulling to avoid storing credentials
-          if (registryLoginPerformed) {
-            console.log(
-              `    [${serverHostname}] Logging out from registry to avoid storing credentials...`
-            );
-            await dockerClientRemote.logout(serviceImageRegistry);
-          }
-
-          if (!pullServiceSuccess) {
-            console.error(
-              `    [${serverHostname}] Failed to pull image ${imageToPull}. Skipping deployment to this server.`
-            );
-            continue;
-          }
-
-          console.log(
-            `    [${serverHostname}] Stopping and removing old container ${containerNameForService} (if exists)...`
-          );
-          try {
-            await dockerClientRemote.stopContainer(containerNameForService); // Add ignoreNotFound option if possible
-            await dockerClientRemote.removeContainer(containerNameForService); // Add ignoreNotFound option
-          } catch (e) {
-            console.warn(
-              `    [${serverHostname}] Error stopping/removing old service container (may not exist):`,
-              e
-            );
-          }
-
-          console.log(
-            `    [${serverHostname}] Starting new service container ${containerNameForService}...`
-          );
-
-          // Check if the service container with the same name already exists and is running
-          const serviceContainerExists =
-            await dockerClientRemote.containerExists(containerNameForService);
-          if (serviceContainerExists) {
-            const serviceContainerRunning =
-              await dockerClientRemote.containerIsRunning(
-                containerNameForService
-              );
-
-            // For services, we'll still replace the existing container even if it's running
-            // But we'll log different messages based on state
-            if (serviceContainerRunning) {
-              console.log(
-                `    [${serverHostname}] Service container ${containerNameForService} is already running. Replacing it...`
-              );
-              await dockerClientRemote.stopContainer(containerNameForService);
-            } else {
-              console.log(
-                `    [${serverHostname}] Service container ${containerNameForService} exists but is not running. Removing it...`
-              );
-            }
-
-            try {
-              await dockerClientRemote.removeContainer(containerNameForService);
-            } catch (e) {
-              console.warn(
-                `    [${serverHostname}] Error removing existing service container:`,
-                e
-              );
-            }
-          }
-
-          const createServiceSuccess = await dockerClientRemote.createContainer(
-            serviceContainerOptions
-          );
-          if (!createServiceSuccess) {
-            console.error(
-              `    [${serverHostname}] Failed to create container ${containerNameForService}. Skipping further steps for this service on this server.`
-            );
-            continue;
-          }
-
-          // Prune for service server
-          console.log(`    [${serverHostname}] Pruning Docker resources...`);
-          await dockerClientRemote.prune();
-
-          console.log(
-            `    [${serverHostname}] Service ${serviceEntry.name} deployed successfully to this server.`
-          );
-        } catch (serverError) {
-          console.error(
-            `  [${serverHostname}] Failed to deploy service ${serviceEntry.name} to server:`,
-            serverError
-          );
-        } finally {
-          if (sshClient) {
-            await sshClient.close();
-            console.log(`    [${serverHostname}] SSH connection closed.`);
-          }
-        }
       }
     }
+  }
+}
+
+/**
+ * Configures luma-proxy routing for an app's hosts
+ */
+async function configureProxyForApp(
+  appEntry: AppEntry,
+  dockerClient: DockerClient,
+  serverHostname: string,
+  projectName: string
+): Promise<void> {
+  if (!appEntry.proxy?.hosts?.length) return;
+
+  console.log(
+    `    [${serverHostname}] Configuring luma-proxy for ${appEntry.name}...`
+  );
+
+  const proxyClient = new LumaProxyClient(dockerClient, serverHostname);
+  const hosts = appEntry.proxy.hosts;
+  const appPort = appEntry.proxy.app_port || 80;
+  const useSSL = appEntry.proxy.ssl || false;
+
+  for (const host of hosts) {
+    try {
+      const configSuccess = await proxyClient.configureProxy(
+        host,
+        appEntry.name,
+        appPort,
+        projectName,
+        useSSL
+      );
+
+      if (!configSuccess) {
+        console.error(
+          `    [${serverHostname}] Failed to configure proxy for host ${host}`
+        );
+      }
+    } catch (proxyError) {
+      console.error(
+        `    [${serverHostname}] Error configuring proxy for host ${host}:`,
+        proxyError
+      );
+    }
+  }
+}
+
+/**
+ * Replaces a service container by stopping the old one and creating a new one
+ */
+async function replaceServiceContainer(
+  serviceEntry: ServiceEntry,
+  dockerClient: DockerClient,
+  serverHostname: string,
+  context: DeploymentContext
+): Promise<void> {
+  const containerName = serviceEntry.name;
+
+  try {
+    await dockerClient.stopContainer(containerName);
+    await dockerClient.removeContainer(containerName);
+  } catch (e) {
+    console.warn(
+      `    [${serverHostname}] Error stopping/removing old service container:`,
+      e
+    );
+  }
+
+  const serviceContainerOptions = serviceEntryToContainerOptions(
+    serviceEntry,
+    context.secrets,
+    context.projectName
+  );
+
+  console.log(
+    `    [${serverHostname}] Starting new service container ${containerName}...`
+  );
+  const createSuccess = await dockerClient.createContainer(
+    serviceContainerOptions
+  );
+
+  if (!createSuccess) {
+    throw new Error(`Failed to create container ${containerName}`);
+  }
+}
+
+/**
+ * Main deployment command that orchestrates the entire deployment process
+ */
+export async function deployCommand(rawEntryNamesAndFlags: string[]) {
+  console.log("Deploy command initiated with args:", rawEntryNamesAndFlags);
+
+  try {
+    const { entryNames, forceFlag, deployServicesFlag } = parseDeploymentArgs(
+      rawEntryNamesAndFlags
+    );
+
+    await checkUncommittedChanges(forceFlag);
+
+    const { config, secrets } = await loadConfigurationAndSecrets();
+
+    const targetEntries = identifyTargetEntries(
+      entryNames,
+      deployServicesFlag,
+      config
+    );
+    if (targetEntries.length === 0) {
+      console.log("No entries selected for deployment. Exiting.");
+      return;
+    }
+
+    const releaseId = await generateReleaseId();
+    console.log(`Generated Release ID: ${releaseId}`);
+
+    const projectName = config.name;
+    const networkName = getProjectNetworkName(projectName);
+
+    await verifyInfrastructure(targetEntries, config, secrets, networkName);
+
+    const context: DeploymentContext = {
+      config,
+      secrets,
+      targetEntries,
+      releaseId,
+      projectName,
+      networkName,
+      forceFlag,
+      deployServicesFlag,
+    };
+
+    await deployEntries(context);
+  } catch (error) {
+    console.error("Deployment failed:", error);
+    process.exit(1);
   }
 }
