@@ -3,6 +3,10 @@ import { LumaConfig, LumaSecrets } from "../config/types";
 import { SSHClient, getSSHCredentials } from "../ssh";
 import { DockerClient } from "../docker";
 import { setupLumaProxy, LUMA_PROXY_NAME } from "../setup-proxy/index";
+import { Logger } from "../utils/logger";
+
+// Module-level logger
+let logger: Logger;
 
 // Convert object or array format to a normalized array of entries with names
 function normalizeConfigEntries(
@@ -27,144 +31,177 @@ async function setupServer(
   config: LumaConfig,
   secrets: LumaSecrets
 ) {
-  console.log(`Setting up server: ${serverHostname}...`);
-
-  const sshCredentials = await getSSHCredentials(
-    serverHostname,
-    config,
-    secrets
-  );
-  if (!sshCredentials.username) {
-    console.error(
-      `[${serverHostname}] Could not determine SSH username. Skipping.`
-    );
-    return;
-  }
-
-  // Early exit if using root
-  if (sshCredentials.username === "root") {
-    console.error(
-      `[${serverHostname}] Using root for SSH access is not recommended.`
-    );
-    console.error(
-      `[${serverHostname}] Please see https://github.com/elitan/luma for security best practices.`
-    );
-    return;
-  }
-
-  console.log(
-    `[${serverHostname}] Resolved SSH username: ${sshCredentials.username}`
-  );
-  if (sshCredentials.identity) {
-    console.log(
-      `[${serverHostname}] Using SSH key path: ${sshCredentials.identity}`
-    );
-  } else if (sshCredentials.password) {
-    console.log(`[${serverHostname}] Using SSH password (not displayed).`);
-  } else {
-    console.log(
-      `[${serverHostname}] No specific key or password configured; attempting agent/default key authentication.`
-    );
-  }
-
-  // Add ssh2 debug logging
-  const sshClientOptions = {
-    ...sshCredentials,
-    host: serverHostname,
-    username: sshCredentials.username as string,
-    debug: (message: string) => {
-      console.log(`[${serverHostname}] SSH_DEBUG: ${message}`);
-    },
-  };
-
-  const loggableSshClientOptions = {
-    ...sshCredentials,
-    password: sshCredentials.password ? "***hidden***" : undefined,
-    debug: "debug-function",
-  };
-  console.log(
-    `[${serverHostname}] SSHClient options:`,
-    JSON.stringify(loggableSshClientOptions, null, 2)
-  );
-
-  const sshClient = await SSHClient.create(sshClientOptions);
+  const stepStart = Date.now();
+  let sshClient: SSHClient | undefined;
 
   try {
+    logger.server(serverHostname);
+
+    const sshCredentials = await getSSHCredentials(
+      serverHostname,
+      config,
+      secrets,
+      logger.verbose
+    );
+
+    if (!sshCredentials.username) {
+      logger.serverStepError(
+        `Could not determine SSH username`,
+        undefined,
+        true
+      );
+      return;
+    }
+
+    // Early exit if using root
+    if (sshCredentials.username === "root") {
+      logger.serverStepError(
+        `Using root for SSH access is not recommended`,
+        undefined,
+        true
+      );
+      logger.verboseLog(
+        `Please see https://github.com/elitan/luma for security best practices.`
+      );
+      return;
+    }
+
+    logger.verboseLog(`Resolved SSH username: ${sshCredentials.username}`);
+    if (sshCredentials.identity) {
+      logger.verboseLog(`Using SSH key path: ${sshCredentials.identity}`);
+    } else if (sshCredentials.password) {
+      logger.verboseLog(`Using SSH password (not displayed).`);
+    } else {
+      logger.verboseLog(
+        `No specific key or password configured; attempting agent/default key authentication.`
+      );
+    }
+
+    const sshClientOptions = {
+      ...sshCredentials,
+      host: serverHostname,
+      username: sshCredentials.username as string,
+      debug: logger.verbose
+        ? (message: string) => {
+            logger.verboseLog(`SSH_DEBUG: ${message}`);
+          }
+        : undefined,
+    };
+
+    if (logger.verbose) {
+      const loggableSshClientOptions = {
+        ...sshCredentials,
+        password: sshCredentials.password ? "***hidden***" : undefined,
+        debug: "debug-function",
+      };
+      logger.verboseLog(
+        `SSHClient options: ${JSON.stringify(
+          loggableSshClientOptions,
+          null,
+          2
+        )}`
+      );
+    }
+
+    sshClient = await SSHClient.create(sshClientOptions);
     await sshClient.connect();
 
     // Create Docker client
-    const dockerClient = new DockerClient(sshClient, serverHostname);
+    const dockerClient = new DockerClient(
+      sshClient,
+      serverHostname,
+      logger.verbose
+    );
 
-    // 1. Check if Docker is installed
-    console.log(`[${serverHostname}] Checking Docker installation...`);
+    // Step 1: Check Docker installation
+    const dockerStart = Date.now();
+    logger.serverStep("Checking Docker installation");
     const dockerInstalled = await dockerClient.checkInstallation();
 
     // Install Docker if not installed
     if (!dockerInstalled) {
-      console.log(`[${serverHostname}] Will attempt to install Docker...`);
+      logger.verboseLog(`Will attempt to install Docker...`);
       const installSuccess = await dockerClient.install();
       if (!installSuccess) {
-        console.log(
-          `[${serverHostname}] Please install Docker manually. See https://github.com/elitan/luma for server setup instructions.`
+        logger.serverStepError(`Docker installation failed`, undefined, true);
+        logger.verboseLog(
+          `Please install Docker manually. See https://github.com/elitan/luma for server setup instructions.`
         );
-        return; // Early exit if installation failed
+        return;
       }
     }
+    const dockerDuration = Date.now() - dockerStart;
+    logger.serverStepComplete(
+      `Docker ${dockerInstalled ? "verified" : "installed"}`,
+      dockerDuration
+    );
 
-    // 2. Log into Docker registry
-    const dockerRegistry = config.docker?.registry || "docker.io"; // Default to Docker Hub
+    // Step 2: Docker registry authentication
+    const registryStart = Date.now();
+    logger.serverStep("Configuring Docker registry");
+
+    const dockerRegistry = config.docker?.registry || "docker.io";
     const dockerUsername = config.docker?.username;
-    const dockerPassword = secrets.DOCKER_REGISTRY_PASSWORD; // Assuming this key exists in secrets
+    const dockerPassword = secrets.DOCKER_REGISTRY_PASSWORD;
 
-    console.log(
-      `[${serverHostname}] Using Docker registry: ${dockerRegistry} (default: docker.io)`
+    logger.verboseLog(
+      `Using Docker registry: ${dockerRegistry} (default: docker.io)`
     );
 
     if (dockerUsername && dockerPassword) {
       await dockerClient.login(dockerRegistry, dockerUsername, dockerPassword);
+      logger.verboseLog(`Successfully logged into Docker registry`);
     } else {
-      console.warn(
-        `[${serverHostname}] Docker registry username or password not configured/found in secrets. Skipping Docker login.`
+      logger.verboseLog(
+        `Docker registry username or password not configured/found in secrets. Skipping Docker login.`
       );
-      console.warn(
-        `[${serverHostname}] Please ensure DOCKER_REGISTRY_PASSWORD is in .luma/secrets and docker.username is in luma.yml if login is required.`
+      logger.verboseLog(
+        `Please ensure DOCKER_REGISTRY_PASSWORD is in .luma/secrets and docker.username is in luma.yml if login is required.`
       );
     }
+    const registryDuration = Date.now() - registryStart;
+    logger.serverStepComplete(`Docker registry configured`, registryDuration);
 
-    // 3. Require a project name for network creation
+    // Step 3: Create project network
     if (!config.name) {
-      console.error(
-        `[${serverHostname}] Project name is required in luma.yml (add 'name: your_project_name').`
+      logger.serverStepError(
+        `Project name is required in luma.yml`,
+        undefined,
+        true
       );
-      console.error(
-        `[${serverHostname}] The project name is used to create a unique Docker network for your services.`
+      logger.verboseLog(
+        `The project name is used to create a unique Docker network for your services.`
       );
       throw new Error(
         `Project name not specified in configuration. Please add 'name: your_project_name' to your luma.yml file.`
       );
     }
 
-    // 4. Create a dedicated Docker network for all Luma containers
+    const networkStart = Date.now();
+    logger.serverStep("Creating project network");
     const networkName = `${config.name}-network`;
     await dockerClient.createNetwork({ name: networkName });
+    const networkDuration = Date.now() - networkStart;
+    logger.serverStepComplete(`Network ${networkName} ready`, networkDuration);
 
-    // 5. Check if Luma Proxy is running and set it up if not
-    console.log(`[${serverHostname}] Checking Luma Proxy status...`);
-    const proxySetupResult = await setupLumaProxy(serverHostname, sshClient);
+    // Step 4: Setup Luma Proxy
+    const proxyStart = Date.now();
+    logger.serverStep("Setting up Luma Proxy");
+    const proxySetupResult = await setupLumaProxy(
+      serverHostname,
+      sshClient,
+      logger.verbose
+    );
 
     if (!proxySetupResult) {
-      console.warn(
-        `[${serverHostname}] Failed to set up Luma Proxy. Some services may not work correctly.`
-      );
+      logger.serverStepError(`Failed to set up Luma Proxy`, undefined);
+      logger.verboseLog(`Some services may not work correctly.`);
     } else {
-      console.log(`[${serverHostname}] Luma Proxy is ready.`);
+      logger.verboseLog(`Luma Proxy is ready.`);
 
       // Connect Luma Proxy to the project network
-      console.log(
-        `[${serverHostname}] Connecting Luma Proxy to the project network...`
-      );
+      logger.verboseLog(`Connecting Luma Proxy to the project network...`);
       try {
-        // Verify that the proxy container actually exists before attempting to connect it to the network
         const proxyExists = await dockerClient.containerExists(LUMA_PROXY_NAME);
 
         if (!proxyExists) {
@@ -179,31 +216,32 @@ async function setupServer(
         const networks = JSON.parse(networkOutput.trim());
 
         if (networks && networks[networkName]) {
-          console.log(
-            `[${serverHostname}] Luma Proxy is already connected to network: ${networkName}`
+          logger.verboseLog(
+            `Luma Proxy is already connected to network: ${networkName}`
           );
         } else {
-          // Connect to the network
           const connectCmd = `docker network connect ${networkName} ${LUMA_PROXY_NAME}`;
           await sshClient.exec(connectCmd);
-          console.log(
-            `[${serverHostname}] Successfully connected Luma Proxy to network: ${networkName}`
+          logger.verboseLog(
+            `Successfully connected Luma Proxy to network: ${networkName}`
           );
         }
       } catch (error) {
-        console.error(
-          `[${serverHostname}] Failed to connect Luma Proxy to network: ${error}`
-        );
-        console.warn(
-          `[${serverHostname}] Some services may not be accessible through the proxy.`
+        logger.verboseLog(`Failed to connect Luma Proxy to network: ${error}`);
+        logger.verboseLog(
+          `Some services may not be accessible through the proxy.`
         );
       }
     }
-
-    // 6. Start the services assigned to this server
-    console.log(
-      `[${serverHostname}] Starting services assigned to this server...`
+    const proxyDuration = Date.now() - proxyStart;
+    logger.serverStepComplete(
+      `Luma Proxy ${proxySetupResult ? "configured" : "failed"}`,
+      proxyDuration
     );
+
+    // Step 5: Setup services
+    const servicesStart = Date.now();
+    logger.serverStep("Setting up services");
 
     const servicesOnThisServer = Object.entries(config.services || {})
       .filter(
@@ -213,10 +251,10 @@ async function setupServer(
       .map(([name, service]) => ({ name, ...service }));
 
     if (servicesOnThisServer.length === 0) {
-      console.log(`[${serverHostname}] No services found for this server.`);
+      logger.verboseLog(`No services found for this server`);
     } else {
-      console.log(
-        `[${serverHostname}] Found ${servicesOnThisServer.length} services to start.`
+      logger.verboseLog(
+        `Found ${servicesOnThisServer.length} services to start`
       );
 
       // Handle service-specific registry logins
@@ -226,21 +264,18 @@ async function setupServer(
       >();
 
       for (const service of servicesOnThisServer) {
-        // Check if this service has a specific registry configuration
         if (
           service.registry &&
           typeof service.registry === "object" &&
           service.registry.username
         ) {
-          // Use service registry URL if provided, otherwise fall back to global registry, which defaults to Docker Hub
           const serviceRegistry = service.registry.url || dockerRegistry;
           const serviceUsername = service.registry.username;
 
-          console.log(
-            `[${serverHostname}] Service ${service.name} uses registry: ${serviceRegistry}`
+          logger.verboseLog(
+            `Service ${service.name} uses registry: ${serviceRegistry}`
           );
 
-          // Check if registry has a password in secrets
           if (
             service.registry.password_secret &&
             !serviceRegistryMap.has(serviceRegistry)
@@ -254,8 +289,8 @@ async function setupServer(
                 password: servicePassword,
               });
             } else {
-              console.warn(
-                `[${serverHostname}] Service ${service.name}: Secret ${service.registry.password_secret} not found in .luma/secrets. Skipping registry login.`
+              logger.verboseLog(
+                `Service ${service.name}: Secret ${service.registry.password_secret} not found in .luma/secrets. Skipping registry login.`
               );
             }
           }
@@ -273,9 +308,7 @@ async function setupServer(
 
       // Start services
       for (const service of servicesOnThisServer) {
-        console.log(
-          `[${serverHostname}] Setting up service: ${service.name}...`
-        );
+        logger.verboseLog(`Setting up service: ${service.name}...`);
 
         try {
           // Pull the latest image
@@ -300,73 +333,80 @@ async function setupServer(
             );
 
             if (containerRunning) {
-              console.log(
-                `[${serverHostname}] Container ${containerOptions.name} is already running. Setup command does not restart existing containers.`
+              logger.verboseLog(
+                `Container ${containerOptions.name} is already running. Setup command does not restart existing containers.`
               );
-              continue; // Skip to the next service
+              continue;
             } else {
-              console.log(
-                `[${serverHostname}] Container ${containerOptions.name} exists but is not running. Starting it...`
+              logger.verboseLog(
+                `Container ${containerOptions.name} exists but is not running. Starting it...`
               );
               await dockerClient.startContainer(containerOptions.name);
-              continue; // Skip to the next service
+              continue;
             }
           }
 
           // Create new container
-          console.log(
-            `[${serverHostname}] Creating new container: ${containerOptions.name}`
-          );
+          logger.verboseLog(`Creating new container: ${containerOptions.name}`);
           await dockerClient.createContainer(containerOptions);
         } catch (error) {
-          console.error(
-            `[${serverHostname}] Failed to start service ${service.name}: ${error}`
-          );
+          logger.error(`Failed to start service ${service.name}`, error);
         }
       }
     }
+    const servicesDuration = Date.now() - servicesStart;
+    logger.serverStepComplete(`Services configured`, servicesDuration, true);
 
-    console.log(`[${serverHostname}] Setup steps completed.`);
+    await sshClient.close();
   } catch (error: any) {
     const portForError = config.ssh?.port || 22;
-    console.error(
-      `[${serverHostname}] Error during server setup (connecting to ${
-        sshCredentials.username
-      }@${serverHostname}:${portForError}): ${error.message || error}`
+    logger.serverStepError(
+      `Error during server setup (connecting to ${sshCredentials.username}@${serverHostname}:${portForError})`,
+      error,
+      true
     );
+
     if (
       error.level === "client-authentication" ||
       (error.message &&
         error.message.includes("All configured authentication methods failed"))
     ) {
-      console.error(`[${serverHostname}] Authentication failure. Please verify:
-          1. SSH key path ('identity') in Luma config/secrets is correct and accessible.
-          2. If using a password, it's correct in Luma secrets.
-          3. SSH agent (if used) is configured correctly with the right keys.
-          4. The user '${sshCredentials.username}' is allowed to SSH to '${serverHostname}'.`);
+      logger.verboseLog(`Authentication failure. Please verify:
+        1. SSH key path ('identity') in Luma config/secrets is correct and accessible.
+        2. If using a password, it's correct in Luma secrets.
+        3. SSH agent (if used) is configured correctly with the right keys.
+        4. The user '${sshCredentials.username}' is allowed to SSH to '${serverHostname}'.`);
     } else if (error.code === "ECONNREFUSED") {
-      console.error(
-        `[${serverHostname}] Connection refused. Ensure an SSH server is running on '${serverHostname}' and accessible on port ${portForError}. Check firewalls.`
+      logger.verboseLog(
+        `Connection refused. Ensure an SSH server is running on '${serverHostname}' and accessible on port ${portForError}. Check firewalls.`
       );
     } else if (
       error.code === "ETIMEDOUT" ||
       (error.message && error.message.toLowerCase().includes("timeout"))
     ) {
-      console.error(
-        `[${serverHostname}] Connection timed out. Check network connectivity to '${serverHostname}', server load, and any firewalls.`
+      logger.verboseLog(
+        `Connection timed out. Check network connectivity to '${serverHostname}', server load, and any firewalls.`
       );
     } else if (error.message && error.message.includes("ENOTFOUND")) {
-      console.error(
-        `[${serverHostname}] Hostname not found. Ensure '${serverHostname}' is a valid and resolvable hostname.`
+      logger.verboseLog(
+        `Hostname not found. Ensure '${serverHostname}' is a valid and resolvable hostname.`
       );
     }
   } finally {
-    await sshClient.close();
+    await sshClient?.close();
   }
 }
 
-export async function setupCommand(serviceNames?: string[]) {
+export async function setupCommand(
+  serviceNames?: string[],
+  verbose: boolean = false
+) {
   try {
+    // Initialize logger with verbose flag
+    logger = new Logger({ verbose });
+
+    logger.setupStart("Starting infrastructure setup");
+
     const config = await loadConfig();
     const secrets = await loadSecrets();
 
@@ -374,24 +414,24 @@ export async function setupCommand(serviceNames?: string[]) {
     let servicesToSetup: Array<any> = [];
 
     if (serviceNames && serviceNames.length > 0) {
-      console.log(`Targeting services: ${serviceNames.join(", ")}`);
+      logger.verboseLog(`Targeting services: ${serviceNames.join(", ")}`);
       serviceNames.forEach((name) => {
         const service = configuredServices.find((s) => s.name === name);
         if (service) {
           servicesToSetup.push(service);
         } else {
-          console.warn(
+          logger.warn(
             `Service "${name}" not found in configuration. Skipping.`
           );
         }
       });
     } else {
-      console.log("Targeting all services for setup.");
+      logger.verboseLog("Targeting all services for setup.");
       servicesToSetup = configuredServices;
     }
 
     if (servicesToSetup.length === 0) {
-      console.log("No services to set up.");
+      logger.info("No services to set up.");
       return;
     }
 
@@ -400,7 +440,7 @@ export async function setupCommand(serviceNames?: string[]) {
       if (service.servers && service.servers.length > 0) {
         service.servers.forEach((server: string) => uniqueServers.add(server));
       } else {
-        console.warn(
+        logger.warn(
           `Service "${
             service.name || "Unknown Service"
           }" has no servers defined. Skipping.`
@@ -409,23 +449,22 @@ export async function setupCommand(serviceNames?: string[]) {
     });
 
     if (uniqueServers.size === 0) {
-      console.log("No target servers found for the specified services.");
+      logger.info("No target servers found for the specified services.");
       return;
     }
 
-    console.log(
-      `Identified unique target servers: ${Array.from(uniqueServers).join(
-        ", "
-      )}`
+    logger.phase(`🔄 Setting up ${uniqueServers.size} server(s)`);
+    logger.verboseLog(
+      `Target servers: ${Array.from(uniqueServers).join(", ")}`
     );
 
     for (const serverHostname of uniqueServers) {
       await setupServer(serverHostname, config, secrets);
     }
 
-    console.log("Setup command finished.");
+    logger.setupComplete();
   } catch (error) {
-    console.error("Failed to execute setup command:", error);
-    // Optionally, exit with error code: process.exit(1);
+    logger.setupFailed(error);
+    process.exit(1);
   }
 }

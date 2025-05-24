@@ -12,13 +12,16 @@ const DEFAULT_LUMA_PROXY_IMAGE = "elitan/luma-proxy:latest";
  */
 export async function setupLumaProxy(
   serverHostname: string,
-  sshClient: SSHClient
+  sshClient: SSHClient,
+  verbose: boolean = false
 ): Promise<boolean> {
   try {
-    console.log(`[${serverHostname}] Checking Luma proxy status...`);
+    if (verbose) {
+      console.log(`[${serverHostname}] Checking Luma proxy status...`);
+    }
 
     // Get SSH client from Docker client (reusing existing SSH connection)
-    const dockerClient = new DockerClient(sshClient, serverHostname);
+    const dockerClient = new DockerClient(sshClient, serverHostname, verbose);
 
     // Get config to check for custom proxy image
     const config = await loadConfig();
@@ -34,43 +37,50 @@ export async function setupLumaProxy(
       );
 
       if (proxyRunning) {
-        console.log(`[${serverHostname}] Luma proxy is already running.`);
+        if (verbose) {
+          console.log(`[${serverHostname}] Luma proxy is already running.`);
+        }
         return true;
       } else {
-        console.log(
-          `[${serverHostname}] Luma proxy exists but is not running. Starting it...`
-        );
+        if (verbose) {
+          console.log(
+            `[${serverHostname}] Luma proxy exists but is not running. Starting it...`
+          );
+        }
         await dockerClient.startContainer(LUMA_PROXY_NAME);
         return true;
       }
     }
 
     // If we get here, the proxy doesn't exist and needs to be created
-    console.log(`[${serverHostname}] Setting up Luma proxy...`);
+    if (verbose) {
+      console.log(`[${serverHostname}] Setting up Luma proxy...`);
+      console.log(
+        `[${serverHostname}] Force pulling latest Luma proxy image from registry...`
+      );
+      console.log(
+        `[${serverHostname}] Force pulling latest image ${proxyImage}...`
+      );
+    }
 
-    // Force pull the latest image from remote registry
-    console.log(
-      `[${serverHostname}] Force pulling latest Luma proxy image from registry...`
-    );
-    console.log(
-      `[${serverHostname}] Force pulling latest image ${proxyImage}...`
-    );
     const pullResult = await dockerClient.forcePullImage(proxyImage);
 
     if (!pullResult) {
       console.error(
         `[${serverHostname}] Failed to pull Luma proxy image. Aborting setup.`
       );
-      console.error(
-        `[${serverHostname}] If you are seeing "pull access denied" errors, you may need to use a different proxy image.`
-      );
-      console.error(
-        `[${serverHostname}] You can configure a custom proxy image in your luma.yml file:`
-      );
-      console.error(`[${serverHostname}] proxy:`);
-      console.error(
-        `[${serverHostname}]   image: "your-registry.com/your-proxy-image:tag"`
-      );
+      if (verbose) {
+        console.error(
+          `[${serverHostname}] If you are seeing "pull access denied" errors, you may need to use a different proxy image.`
+        );
+        console.error(
+          `[${serverHostname}] You can configure a custom proxy image in your luma.yml file:`
+        );
+        console.error(`[${serverHostname}] proxy:`);
+        console.error(
+          `[${serverHostname}]   image: "your-registry.com/your-proxy-image:tag"`
+        );
+      }
       return false;
     }
 
@@ -117,7 +127,11 @@ export async function setupLumaProxy(
       return false;
     }
 
-    console.log(`[${serverHostname}] Luma proxy has been successfully set up.`);
+    if (verbose) {
+      console.log(
+        `[${serverHostname}] Luma proxy has been successfully set up.`
+      );
+    }
     return true;
   } catch (error) {
     console.error(`[${serverHostname}] Failed to set up Luma proxy: ${error}`);

@@ -57,7 +57,7 @@ async function hasUncommittedChanges(): Promise<boolean> {
     const status = execSync("git status --porcelain").toString().trim();
     return status.length > 0;
   } catch (error) {
-    logger.verbose(
+    logger.verboseLog(
       "Failed to check git status. Assuming no uncommitted changes."
     );
     return false;
@@ -275,7 +275,7 @@ async function verifyInfrastructure(
     entry.servers.forEach((server) => allTargetServers.add(server));
   });
 
-  logger.verbose(
+  logger.verboseLog(
     `Checking infrastructure on servers: ${Array.from(allTargetServers).join(
       ", "
     )}`
@@ -316,7 +316,7 @@ async function verifyInfrastructure(
         missingProxyServers.push(serverHostname);
       }
     } catch (networkError) {
-      logger.verbose(`Error verifying ${serverHostname}: ${networkError}`);
+      logger.verboseLog(`Error verifying ${serverHostname}: ${networkError}`);
       missingNetworkServers.push(serverHostname);
       missingProxyServers.push(serverHostname);
     } finally {
@@ -436,11 +436,13 @@ async function buildOrTagAppImage(
   verbose: boolean = false
 ): Promise<boolean> {
   if (appEntry.build) {
-    logger.verbose(`Building app ${appEntry.name}...`);
+    logger.verboseLog(`Building app ${appEntry.name}...`);
     try {
       const buildPlatform = appEntry.build.platform || "linux/amd64";
       if (!appEntry.build.platform) {
-        logger.verbose(`No platform specified, defaulting to ${buildPlatform}`);
+        logger.verboseLog(
+          `No platform specified, defaulting to ${buildPlatform}`
+        );
       }
 
       await DockerClient.build({
@@ -452,17 +454,21 @@ async function buildOrTagAppImage(
         target: appEntry.build.target,
         verbose: verbose,
       });
-      logger.verbose(`Successfully built and tagged ${imageNameWithRelease}`);
+      logger.verboseLog(
+        `Successfully built and tagged ${imageNameWithRelease}`
+      );
       return true;
     } catch (error) {
       logger.error(`Failed to build app ${appEntry.name}`, error);
       return false;
     }
   } else {
-    logger.verbose(`Tagging ${appEntry.image} as ${imageNameWithRelease}...`);
+    logger.verboseLog(
+      `Tagging ${appEntry.image} as ${imageNameWithRelease}...`
+    );
     try {
       await DockerClient.tag(appEntry.image, imageNameWithRelease, verbose);
-      logger.verbose(
+      logger.verboseLog(
         `Successfully tagged ${appEntry.image} as ${imageNameWithRelease}`
       );
       return true;
@@ -482,11 +488,11 @@ async function pushAppImage(
   config: LumaConfig,
   verbose: boolean = false
 ): Promise<void> {
-  logger.verbose(`Pushing image ${imageNameWithRelease}...`);
+  logger.verboseLog(`Pushing image ${imageNameWithRelease}...`);
   try {
     const registryToPush = appEntry.registry?.url || config.docker?.registry;
     await DockerClient.push(imageNameWithRelease, registryToPush, verbose);
-    logger.verbose(`Successfully pushed ${imageNameWithRelease}`);
+    logger.verboseLog(`Successfully pushed ${imageNameWithRelease}`);
   } catch (error) {
     logger.error(`Failed to push image ${imageNameWithRelease}`, error);
     throw error;
@@ -512,7 +518,7 @@ async function deployAppToServer(
   const stepStart = Date.now();
 
   try {
-    logger.verbose(`Deploying ${appEntry.name} to ${serverHostname}`);
+    logger.verboseLog(`Deploying ${appEntry.name} to ${serverHostname}`);
 
     const sshClient = await establishSSHConnection(
       serverHostname,
@@ -586,7 +592,7 @@ async function deployService(
   serviceEntry: ServiceEntry,
   context: DeploymentContext
 ): Promise<void> {
-  logger.verbose(
+  logger.verboseLog(
     `Deploying service: ${
       serviceEntry.name
     } to servers: ${serviceEntry.servers.join(", ")}`
@@ -605,7 +611,7 @@ async function deployServiceToServer(
   serverHostname: string,
   context: DeploymentContext
 ): Promise<void> {
-  logger.verbose(
+  logger.verboseLog(
     `Deploying service ${serviceEntry.name} to server ${serverHostname}`
   );
   let sshClient: SSHClient | undefined;
@@ -637,10 +643,10 @@ async function deployServiceToServer(
       context
     );
 
-    logger.verbose(`Pruning Docker resources on ${serverHostname}`);
+    logger.verboseLog(`Pruning Docker resources on ${serverHostname}`);
     await dockerClientRemote.prune();
 
-    logger.verbose(
+    logger.verboseLog(
       `Service ${serviceEntry.name} deployed successfully to ${serverHostname}`
     );
   } catch (serverError) {
@@ -673,7 +679,7 @@ async function establishSSHConnection(
   if (!sshCreds.host) sshCreds.host = serverHostname;
   const sshClient = await SSHClient.create(sshCreds as SSHClientOptions);
   await sshClient.connect();
-  logger.verbose(`SSH connection established to ${serverHostname}`);
+  logger.verboseLog(`SSH connection established to ${serverHostname}`);
   return sshClient;
 }
 
@@ -716,7 +722,7 @@ async function authenticateAndPullImage(
     registryLoginPerformed = true;
   }
 
-  logger.verbose(`Pulling image ${imageToPull}...`);
+  logger.verboseLog(`Pulling image ${imageToPull}...`);
   const pullSuccess = await dockerClientRemote.pullImage(imageToPull);
 
   if (registryLoginPerformed) {
@@ -739,13 +745,13 @@ async function performRegistryLogin(
 ): Promise<void> {
   try {
     await dockerClient.login(registry, username, password);
-    logger.verbose(`Successfully logged into registry`);
+    logger.verboseLog(`Successfully logged into registry`);
   } catch (loginError) {
     const errorMessage = String(loginError);
     if (
       errorMessage.includes("WARNING! Your password will be stored unencrypted")
     ) {
-      logger.verbose(`Successfully logged into registry`);
+      logger.verboseLog(`Successfully logged into registry`);
     } else {
       logger.error(`Failed to login to registry`, loginError);
     }
@@ -764,7 +770,7 @@ async function configureProxyForApp(
 ): Promise<void> {
   if (!appEntry.proxy?.hosts?.length) return;
 
-  logger.verbose(`Configuring luma-proxy for ${appEntry.name}`);
+  logger.verboseLog(`Configuring luma-proxy for ${appEntry.name}`);
 
   const proxyClient = new LumaProxyClient(
     dockerClient,
@@ -786,7 +792,7 @@ async function configureProxyForApp(
       if (!configSuccess) {
         logger.error(`Failed to configure proxy for host ${host}`);
       } else {
-        logger.verbose(
+        logger.verboseLog(
           `Configured proxy for ${host} → ${appEntry.name}:${appPort}`
         );
       }
@@ -822,7 +828,7 @@ async function replaceServiceContainer(
     context.projectName
   );
 
-  logger.verbose(
+  logger.verboseLog(
     `Starting new service container ${containerName} on ${serverHostname}`
   );
   const createSuccess = await dockerClient.createContainer(

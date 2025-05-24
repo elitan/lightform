@@ -11,6 +11,36 @@ export class Logger {
     this.isVerbose = options.verbose || false;
   }
 
+  // Getter for verbose mode
+  get verbose(): boolean {
+    return this.isVerbose;
+  }
+
+  // Setup-specific methods
+  setupStart(message: string) {
+    console.log(`🔧 ${message}\n`);
+    this.startTime = Date.now();
+  }
+
+  setupComplete() {
+    const totalDuration = Date.now() - this.startTime;
+    console.log(
+      `\n✅ Setup completed successfully in ${this.formatDuration(
+        totalDuration
+      )}`
+    );
+  }
+
+  setupFailed(error?: any) {
+    const totalDuration = Date.now() - this.startTime;
+    console.log(
+      `\n❌ Setup failed after ${this.formatDuration(totalDuration)}`
+    );
+    if (this.isVerbose && error) {
+      console.error(`Error details: ${error}`);
+    }
+  }
+
   // Main phase headers
   deploymentStart(releaseId: string) {
     console.log(`🚀 Starting deployment with release ${releaseId}\n`);
@@ -121,7 +151,7 @@ export class Logger {
   }
 
   // Verbose logging (only shown if verbose mode is enabled)
-  verbose(message: string) {
+  verboseLog(message: string) {
     if (this.isVerbose) {
       console.log(`   ${message}`);
     }

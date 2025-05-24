@@ -7,6 +7,10 @@ import {
 } from "../config/types";
 import { DockerClient } from "../docker";
 import { SSHClient, getSSHCredentials } from "../ssh";
+import { Logger } from "../utils/logger";
+
+// Module-level logger
+let logger: Logger;
 
 interface AppStatus {
   name: string;
@@ -50,12 +54,21 @@ async function getAppStatusOnServer(
   let sshClient: SSHClient | undefined;
 
   try {
-    const sshCreds = await getSSHCredentials(serverHostname, config, secrets);
+    const sshCreds = await getSSHCredentials(
+      serverHostname,
+      config,
+      secrets,
+      logger.verbose
+    );
     if (!sshCreds.host) sshCreds.host = serverHostname;
     sshClient = await SSHClient.create(sshCreds);
     await sshClient.connect();
 
-    const dockerClient = new DockerClient(sshClient, serverHostname);
+    const dockerClient = new DockerClient(
+      sshClient,
+      serverHostname,
+      logger.verbose
+    );
 
     // Get active color
     const activeColor = await dockerClient.getCurrentActiveColor(appEntry.name);
@@ -92,9 +105,8 @@ async function getAppStatusOnServer(
       runningContainers,
     };
   } catch (error) {
-    console.warn(
-      `Failed to get status for ${appEntry.name} on ${serverHostname}:`,
-      error
+    logger.verboseLog(
+      `Failed to get status for ${appEntry.name} on ${serverHostname}: ${error}`
     );
     return {
       activeColor: null,
@@ -184,36 +196,58 @@ function displayAppStatus(appStatus: AppStatus): void {
     ? `(${appStatus.activeColor} active)`
     : "(no active version)";
 
-  console.log(`\n📱 App: ${appStatus.name}`);
+  console.log(`  └─ 📱 ${appStatus.name}`);
   console.log(
-    `   Status: ${statusIcon} ${appStatus.status.toUpperCase()} ${versionDisplay}`
+    `     ├─ Status: ${statusIcon} ${appStatus.status.toUpperCase()} ${versionDisplay}`
   );
 
   if (appStatus.replicas.total > 0) {
     console.log(
-      `   Replicas: ${appStatus.replicas.running}/${appStatus.replicas.total} running`
+      `     ├─ Replicas: ${appStatus.replicas.running}/${appStatus.replicas.total} running`
     );
 
     if (appStatus.replicas.blue > 0 || appStatus.replicas.green > 0) {
       console.log(
-        `   Versions: ${appStatus.replicas.blue} blue, ${appStatus.replicas.green} green`
+        `     ├─ Versions: ${appStatus.replicas.blue} blue, ${appStatus.replicas.green} green`
       );
     }
   }
 
-  console.log(`   Servers: ${appStatus.servers.join(", ")}`);
+  console.log(
+    `     ${
+      appStatus.lastDeployed ? "├─" : "└─"
+    } Servers: ${appStatus.servers.join(", ")}`
+  );
 
   if (appStatus.lastDeployed) {
-    console.log(`   Last deployed: ${appStatus.lastDeployed}`);
+    console.log(`     └─ Last deployed: ${appStatus.lastDeployed}`);
   }
+
+  console.log(); // Add spacing between apps
+}
+
+/**
+ * Displays service information in a formatted way
+ */
+function displayServiceStatus(service: ServiceEntry): void {
+  console.log(`  └─ 🔧 ${service.name}`);
+  console.log(`     ├─ Image: ${service.image}`);
+  console.log(`     └─ Servers: ${service.servers.join(", ")}`);
+  console.log(); // Add spacing between services
 }
 
 /**
  * Main status command function
  */
-export async function statusCommand(args: string[]): Promise<void> {
+export async function statusCommand(
+  args: string[],
+  verbose: boolean = false
+): Promise<void> {
   try {
-    console.log("📊 Luma Deployment Status\n");
+    // Initialize logger with verbose flag
+    logger = new Logger({ verbose });
+
+    logger.phase("📊 Checking deployment status");
 
     const config = await loadConfig();
     const secrets = await loadSecrets();
@@ -233,31 +267,34 @@ export async function statusCommand(args: string[]): Promise<void> {
       );
 
       if (filteredApps.length === 0 && filteredServices.length === 0) {
-        console.log(
+        logger.error(
           `No apps or services found with names: ${requestedNames.join(", ")}`
         );
         return;
       }
 
-      // Show status for requested items
-      for (const app of filteredApps) {
-        const appStatus = await getAppStatus(app, config, secrets);
-        displayAppStatus(appStatus);
+      // Show status for requested apps
+      if (filteredApps.length > 0) {
+        console.log(`📱 Apps (${filteredApps.length}):`);
+        for (const app of filteredApps) {
+          const appStatus = await getAppStatus(app, config, secrets);
+          displayAppStatus(appStatus);
+        }
       }
 
-      // Services don't use zero-downtime deployment, so just show basic info
-      for (const service of filteredServices) {
-        console.log(`\n🔧 Service: ${service.name}`);
-        console.log(`   Servers: ${service.servers.join(", ")}`);
-        console.log(`   Image: ${service.image}`);
+      // Show status for requested services
+      if (filteredServices.length > 0) {
+        console.log(`🔧 Services (${filteredServices.length}):`);
+        for (const service of filteredServices) {
+          displayServiceStatus(service);
+        }
       }
     } else {
       // Show status for all apps
       if (apps.length === 0) {
-        console.log("No apps configured.");
+        logger.info("No apps configured.");
       } else {
-        console.log(`Found ${apps.length} app(s):\n`);
-
+        console.log(`📱 Apps (${apps.length}):`);
         for (const app of apps) {
           const appStatus = await getAppStatus(app, config, secrets);
           displayAppStatus(appStatus);
@@ -266,20 +303,21 @@ export async function statusCommand(args: string[]): Promise<void> {
 
       // Show basic service info
       if (services.length > 0) {
-        console.log(`\n🔧 Services (${services.length}):`);
+        console.log(`🔧 Services (${services.length}):`);
         for (const service of services) {
-          console.log(
-            `   ${service.name}: ${service.image} on ${service.servers.join(
-              ", "
-            )}`
-          );
+          displayServiceStatus(service);
         }
+      }
+
+      if (apps.length === 0 && services.length === 0) {
+        logger.info("No apps or services configured.");
+        return;
       }
     }
 
-    console.log("\n✨ Status check complete!");
+    console.log("✨ Status check complete!");
   } catch (error) {
-    console.error("Failed to get status:", error);
+    logger.error("Failed to get status", error);
     process.exit(1);
   }
 }
