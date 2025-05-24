@@ -123,10 +123,24 @@ func (s *Server) handleHTTPSRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the target URL
-	targetURL, err := url.Parse("http://" + targetService.Target)
+	// Check if service is healthy
+	if !targetService.Healthy {
+		log.Printf("Service %s is unhealthy, returning 503", targetService.Name)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintf(w, "Luma Proxy: Service temporarily unavailable")
+		return
+	}
+
+	// Route to network alias (Docker handles load balancing for blue-green deployments)
+	s.routeToTarget(w, r, targetService)
+}
+
+// routeToTarget routes requests to the service target (network alias)
+func (s *Server) routeToTarget(w http.ResponseWriter, r *http.Request, service models.Service) {
+	// Parse the target URL (network alias:port)
+	targetURL, err := url.Parse("http://" + service.Target)
 	if err != nil {
-		log.Printf("Error parsing target URL for service %s: %v", targetService.Name, err)
+		log.Printf("Error parsing target URL for service %s: %v", service.Name, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, "Luma Proxy: Error routing request")
 		return
@@ -138,8 +152,8 @@ func (s *Server) handleHTTPSRequest(w http.ResponseWriter, r *http.Request) {
 	// Update the request's Host header to match the target's host
 	r.Host = targetURL.Host
 
-	// Proxy the request
-	log.Printf("HTTPS: Routing request to service %s at %s", targetService.Name, targetService.Target)
+	// Proxy the request to network alias (Docker load balances to active containers)
+	log.Printf("HTTPS: Routing request to %s (zero-downtime deployment ready)", service.Target)
 	proxy.ServeHTTP(w, r)
 }
 

@@ -56,6 +56,10 @@ func (c *RunCmd) Execute() error {
 	// Create service manager
 	serviceManager := service.NewManager(cfg)
 
+	// Start health check routine for monitoring targets
+	log.Printf("Starting background health check routine...")
+	serviceManager.StartHealthCheckRoutine()
+
 	// Create and start proxy server
 	server := proxy.NewServer(*c.port, serviceManager, cfg.Certs)
 	log.Printf("Starting proxy server with HTTPS on port %s", *c.port)

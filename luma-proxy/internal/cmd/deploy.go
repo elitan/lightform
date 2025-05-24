@@ -71,7 +71,7 @@ func (c *DeployCmd) Execute() error {
 	// Create service manager
 	serviceManager := service.NewManager(cfg)
 
-	// Configure the route
+	// Configure the route (automatically uses blue-green for network alias targets)
 	if err := serviceManager.Deploy(*c.host, *c.target, projectName); err != nil {
 		return err
 	}
