@@ -7,21 +7,30 @@ import { SSHClient } from "../ssh";
 export class LumaProxyClient {
   private dockerClient: DockerClient;
   private serverHostname?: string;
+  private verbose: boolean = false;
 
   /**
    * Create a new LumaProxyClient
    * @param dockerClient An initialized DockerClient for the target server
    * @param serverHostname The hostname of the server (for logging purposes)
+   * @param verbose Whether to enable verbose logging
    */
-  constructor(dockerClient: DockerClient, serverHostname?: string) {
+  constructor(
+    dockerClient: DockerClient,
+    serverHostname?: string,
+    verbose: boolean = false
+  ) {
     this.dockerClient = dockerClient;
     this.serverHostname = serverHostname;
+    this.verbose = verbose;
   }
 
   /**
-   * Log a message with server hostname prefix
+   * Log a message with server hostname prefix (only in verbose mode)
    */
   private log(message: string): void {
+    if (!this.verbose) return;
+
     if (this.serverHostname) {
       console.log(`[${this.serverHostname}] ${message}`);
     } else {

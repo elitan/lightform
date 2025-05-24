@@ -15,6 +15,7 @@ export interface SSHClientOptions {
   password?: string;
   passphrase?: string; // For encrypted private keys
   agent?: string; // SSH agent socket path
+  verbose?: boolean;
   // proxy?: SSHConfig['proxy']; // Assuming proxy config is part of SSHConfig, will verify later
 }
 
@@ -22,12 +23,14 @@ export class SSHClient {
   private ssh: SSH2Promise;
   private connectOptions: ConnectConfig;
   public readonly host: string;
+  private verbose: boolean;
 
   private constructor(connectOptions: ConnectConfig) {
     this.connectOptions = connectOptions;
     // SSH2Promise constructor expects the config directly
     this.ssh = new SSH2Promise(this.connectOptions);
     this.host = connectOptions.host!;
+    this.verbose = connectOptions.verbose || false;
   }
 
   public static async create(options: SSHClientOptions): Promise<SSHClient> {
@@ -72,7 +75,9 @@ export class SSHClient {
   async connect(): Promise<void> {
     try {
       await this.ssh.connect();
-      console.log(`SSH connection established to ${this.host}`);
+      if (this.verbose) {
+        console.log(`SSH connection established to ${this.host}`);
+      }
     } catch (err) {
       console.error(`SSH connection failed to ${this.host}:`, err);
       throw err;
@@ -94,18 +99,24 @@ export class SSHClient {
           .replace(/cat > .*?<< ['"]?EOF/g, "cat > ***REDACTED*** << EOF")
       : command;
 
+    if (this.verbose) {
+      console.log(`[${this.host}] Executing: ${sanitizedCommand}`);
+    }
+
     try {
       const result = await this.ssh.exec(command);
       if (typeof result === "string") {
         return result;
       }
-      console.warn(
-        `Unexpected exec result type on ${
-          this.host
-        } for command "${sanitizedCommand}": ${typeof result}`
-      );
+      if (this.verbose) {
+        console.warn(
+          `Unexpected exec result type on ${
+            this.host
+          } for command "${sanitizedCommand}": ${typeof result}`
+        );
+      }
       return String(result);
-    } catch (err) {
+    } catch (err: any) {
       // Check if error has stdout/stderr (common for exec errors)
       const execError = err as {
         stdout?: string;
@@ -114,39 +125,42 @@ export class SSHClient {
         code?: number | string;
       };
 
-      // Sanitize error outputs
-      if (execError.stderr && isSensitiveCommand) {
-        const sanitizedStderr = this.sanitizeErrorOutput(execError.stderr);
+      // Only show detailed error info in verbose mode
+      if (this.verbose) {
+        // Sanitize error outputs
+        if (execError.stderr && isSensitiveCommand) {
+          const sanitizedStderr = this.sanitizeErrorOutput(execError.stderr);
+          console.error(
+            `Command "${sanitizedCommand}" on ${this.host} failed with stderr:\n${sanitizedStderr}`
+          );
+        } else if (execError.stderr) {
+          console.error(
+            `Command "${sanitizedCommand}" on ${this.host} failed with stderr:\n${execError.stderr}`
+          );
+        }
+
+        if (execError.stdout && isSensitiveCommand) {
+          const sanitizedStdout = this.sanitizeErrorOutput(execError.stdout);
+          console.warn(
+            `Command "${sanitizedCommand}" on ${this.host} had stdout despite error:\n${sanitizedStdout}`
+          );
+        } else if (execError.stdout) {
+          console.warn(
+            `Command "${sanitizedCommand}" on ${this.host} had stdout despite error:\n${execError.stdout}`
+          );
+        }
+
+        // Sanitize the error message
+        const errorMessage = execError.message || String(err);
+        const sanitizedError = isSensitiveCommand
+          ? this.sanitizeErrorOutput(errorMessage)
+          : errorMessage;
+
         console.error(
-          `Command "${sanitizedCommand}" on ${this.host} failed with stderr:\n${sanitizedStderr}`
-        );
-      } else if (execError.stderr) {
-        console.error(
-          `Command "${sanitizedCommand}" on ${this.host} failed with stderr:\n${execError.stderr}`
+          `Error executing command "${sanitizedCommand}" on ${this.host}:`,
+          sanitizedError
         );
       }
-
-      if (execError.stdout && isSensitiveCommand) {
-        const sanitizedStdout = this.sanitizeErrorOutput(execError.stdout);
-        console.warn(
-          `Command "${sanitizedCommand}" on ${this.host} had stdout despite error:\n${sanitizedStdout}`
-        );
-      } else if (execError.stdout) {
-        console.warn(
-          `Command "${sanitizedCommand}" on ${this.host} had stdout despite error:\n${execError.stdout}`
-        );
-      }
-
-      // Sanitize the error message
-      const errorMessage = execError.message || String(err);
-      const sanitizedError = isSensitiveCommand
-        ? this.sanitizeErrorOutput(errorMessage)
-        : errorMessage;
-
-      console.error(
-        `Error executing command "${sanitizedCommand}" on ${this.host}:`,
-        sanitizedError
-      );
 
       throw err;
     }
@@ -178,7 +192,15 @@ export class SSHClient {
   }
 
   async close(): Promise<void> {
-    await this.ssh.close();
-    console.log(`SSH connection closed to ${this.host}`);
+    try {
+      await this.ssh.close();
+      if (this.verbose) {
+        console.log(`SSH connection closed to ${this.host}`);
+      }
+    } catch (err) {
+      if (this.verbose) {
+        console.error(`Error closing SSH connection to ${this.host}:`, err);
+      }
+    }
   }
 }

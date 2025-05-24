@@ -10,7 +10,8 @@ import * as os from "os";
 export async function getSSHCredentials(
   serverHostname: string,
   config: LumaConfig,
-  secrets: LumaSecrets
+  secrets: LumaSecrets,
+  verbose: boolean = false
 ): Promise<Partial<SSHClientOptions>> {
   const sshUser = config.ssh?.username || "root"; // Default to root, though setup warns against it
   const sshPort = config.ssh?.port || 22;
@@ -18,6 +19,7 @@ export async function getSSHCredentials(
     username: sshUser,
     host: serverHostname,
     port: sshPort,
+    verbose: verbose,
   };
 
   // Check for server-specific key path in secrets
@@ -26,9 +28,11 @@ export async function getSSHCredentials(
     .toUpperCase()}`;
   const serverSpecificKeyPath = secrets[serverSpecificKeyEnvVar];
   if (serverSpecificKeyPath) {
-    console.log(
-      `[${serverHostname}] Attempting SSH with server-specific key from secrets (${serverSpecificKeyEnvVar}): ${serverSpecificKeyPath}`
-    );
+    if (verbose) {
+      console.log(
+        `[${serverHostname}] Attempting SSH with server-specific key from secrets (${serverSpecificKeyEnvVar}): ${serverSpecificKeyPath}`
+      );
+    }
     sshOptions.identity = serverSpecificKeyPath;
     return sshOptions;
   }
@@ -36,9 +40,11 @@ export async function getSSHCredentials(
   // Check for default key path in secrets
   const defaultKeyPath = secrets.DEFAULT_SSH_KEY_PATH;
   if (defaultKeyPath) {
-    console.log(
-      `[${serverHostname}] Attempting SSH with default key path from secrets (DEFAULT_SSH_KEY_PATH): ${defaultKeyPath}`
-    );
+    if (verbose) {
+      console.log(
+        `[${serverHostname}] Attempting SSH with default key path from secrets (DEFAULT_SSH_KEY_PATH): ${defaultKeyPath}`
+      );
+    }
     sshOptions.identity = defaultKeyPath;
     return sshOptions;
   }
@@ -49,9 +55,11 @@ export async function getSSHCredentials(
     .toUpperCase()}`;
   const serverSpecificPassword = secrets[serverSpecificPasswordEnvVar];
   if (serverSpecificPassword) {
-    console.log(
-      `[${serverHostname}] Attempting SSH with server-specific password from secrets (${serverSpecificPasswordEnvVar}).`
-    );
+    if (verbose) {
+      console.log(
+        `[${serverHostname}] Attempting SSH with server-specific password from secrets (${serverSpecificPasswordEnvVar}).`
+      );
+    }
     sshOptions.password = serverSpecificPassword;
     return sshOptions;
   }
@@ -59,16 +67,20 @@ export async function getSSHCredentials(
   // Check for default password in secrets
   const defaultPassword = secrets.DEFAULT_SSH_PASSWORD;
   if (defaultPassword) {
-    console.log(
-      `[${serverHostname}] Attempting SSH with default password from secrets (DEFAULT_SSH_PASSWORD).`
-    );
+    if (verbose) {
+      console.log(
+        `[${serverHostname}] Attempting SSH with default password from secrets (DEFAULT_SSH_PASSWORD).`
+      );
+    }
     sshOptions.password = defaultPassword;
     return sshOptions;
   }
 
   // Try to find common SSH key files in the user's home directory
   const homeDir = os.homedir();
-  console.log(`[${serverHostname}] Home directory resolved as: ${homeDir}`);
+  if (verbose) {
+    console.log(`[${serverHostname}] Home directory resolved as: ${homeDir}`);
+  }
 
   // Check for common SSH key files
   try {
@@ -82,14 +94,16 @@ export async function getSSHCredentials(
     for (const keyPath of keyPaths) {
       if (fs.existsSync(keyPath)) {
         sshOptions.identity = keyPath;
-        console.log(
-          `[${serverHostname}] Explicitly using SSH key at: ${keyPath}`
-        );
+        if (verbose) {
+          console.log(
+            `[${serverHostname}] Explicitly using SSH key at: ${keyPath}`
+          );
+        }
         break; // Stop after finding the first existing key
       }
     }
 
-    if (!sshOptions.identity) {
+    if (!sshOptions.identity && verbose) {
       console.log(
         `[${serverHostname}] No SSH keys found at standard locations: ${keyPaths.join(
           ", "
@@ -97,15 +111,19 @@ export async function getSSHCredentials(
       );
     }
   } catch (error) {
-    console.error(
-      `[${serverHostname}] Error checking for default SSH keys:`,
-      error
-    );
+    if (verbose) {
+      console.error(
+        `[${serverHostname}] Error checking for default SSH keys:`,
+        error
+      );
+    }
   }
 
-  console.log(
-    `[${serverHostname}] No specific SSH key or password found in Luma secrets. Attempting agent-based authentication or found key file.`
-  );
+  if (verbose) {
+    console.log(
+      `[${serverHostname}] No specific SSH key or password found in Luma secrets. Attempting agent-based authentication or found key file.`
+    );
+  }
 
   return sshOptions;
 }

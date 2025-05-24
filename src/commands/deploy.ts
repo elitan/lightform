@@ -17,6 +17,10 @@ import { generateReleaseId, getProjectNetworkName } from "../utils"; // Changed 
 import { execSync } from "child_process";
 import { LumaProxyClient } from "../proxy";
 import { performBlueGreenDeployment } from "./blue-green";
+import { Logger } from "../utils/logger";
+
+// Module-level logger that gets configured when deployCommand runs
+let logger: Logger;
 
 /**
  * Resolves environment variables for a container from plain and secret sources
@@ -36,8 +40,8 @@ function resolveEnvironmentVariables(
       if (secrets[secretKey] !== undefined) {
         envVars[secretKey] = secrets[secretKey];
       } else {
-        console.warn(
-          `Secret key "${secretKey}" for entry "${entry.name}" not found in loaded secrets. It will not be set as an environment variable.`
+        logger.warn(
+          `Secret key "${secretKey}" for entry "${entry.name}" not found in loaded secrets`
         );
       }
     }
@@ -53,7 +57,7 @@ async function hasUncommittedChanges(): Promise<boolean> {
     const status = execSync("git status --porcelain").toString().trim();
     return status.length > 0;
   } catch (error) {
-    console.warn(
+    logger.verbose(
       "Failed to check git status. Assuming no uncommitted changes."
     );
     return false;
@@ -141,12 +145,14 @@ interface DeploymentContext {
   networkName: string;
   forceFlag: boolean;
   deployServicesFlag: boolean;
+  verboseFlag: boolean;
 }
 
 interface ParsedArgs {
   entryNames: string[];
   forceFlag: boolean;
   deployServicesFlag: boolean;
+  verboseFlag: boolean;
 }
 
 /**
@@ -155,12 +161,14 @@ interface ParsedArgs {
 function parseDeploymentArgs(rawEntryNamesAndFlags: string[]): ParsedArgs {
   const forceFlag = rawEntryNamesAndFlags.includes("--force");
   const deployServicesFlag = rawEntryNamesAndFlags.includes("--services");
+  const verboseFlag = rawEntryNamesAndFlags.includes("--verbose");
 
   const entryNames = rawEntryNamesAndFlags.filter(
-    (name) => name !== "--services" && name !== "--force"
+    (name) =>
+      name !== "--services" && name !== "--force" && name !== "--verbose"
   );
 
-  return { entryNames, forceFlag, deployServicesFlag };
+  return { entryNames, forceFlag, deployServicesFlag, verboseFlag };
 }
 
 /**
@@ -168,8 +176,8 @@ function parseDeploymentArgs(rawEntryNamesAndFlags: string[]): ParsedArgs {
  */
 async function checkUncommittedChanges(forceFlag: boolean): Promise<void> {
   if (!forceFlag && (await hasUncommittedChanges())) {
-    console.error(
-      "ERROR: Uncommitted changes detected in working directory. Deployment aborted for safety.\n" +
+    logger.error(
+      "Uncommitted changes detected in working directory. Deployment aborted for safety.\n" +
         "Please commit your changes before deploying, or use --force to deploy anyway."
     );
     throw new Error("Uncommitted changes detected");
@@ -186,10 +194,9 @@ async function loadConfigurationAndSecrets(): Promise<{
   try {
     const config = await loadConfig();
     const secrets = await loadSecrets();
-    console.log("Configuration and secrets loaded successfully.");
     return { config, secrets };
   } catch (error) {
-    console.error("Failed to load or validate configuration/secrets:", error);
+    logger.error("Failed to load configuration/secrets", error);
     throw error;
   }
 }
@@ -210,53 +217,43 @@ function identifyTargetEntries(
     if (entryNames.length === 0) {
       targetEntries = [...configuredServices];
       if (targetEntries.length === 0) {
-        console.log("No services found in configuration to deploy.");
+        logger.warn("No services found in configuration");
         return [];
       }
-      console.log("Targeting all services for deployment.");
     } else {
       entryNames.forEach((name) => {
         const service = configuredServices.find((s) => s.name === name);
         if (service) {
           targetEntries.push(service);
         } else {
-          console.warn(`Service "${name}" not found in configuration.`);
+          logger.warn(`Service "${name}" not found in configuration`);
         }
       });
       if (targetEntries.length === 0) {
-        console.log("No valid services found for specified names.");
+        logger.warn("No valid services found for specified names");
         return [];
       }
-      console.log(
-        "Targeting specified services for deployment:",
-        targetEntries.map((e) => e.name).join(", ")
-      );
     }
   } else {
     if (entryNames.length === 0) {
       targetEntries = [...configuredApps];
       if (targetEntries.length === 0) {
-        console.log("No apps found in configuration to deploy.");
+        logger.warn("No apps found in configuration");
         return [];
       }
-      console.log("Targeting all apps for deployment.");
     } else {
       entryNames.forEach((name) => {
         const app = configuredApps.find((a) => a.name === name);
         if (app) {
           targetEntries.push(app);
         } else {
-          console.warn(`App "${name}" not found in configuration.`);
+          logger.warn(`App "${name}" not found in configuration`);
         }
       });
       if (targetEntries.length === 0) {
-        console.log("No valid apps found for specified names.");
+        logger.warn("No valid apps found for specified names");
         return [];
       }
-      console.log(
-        "Targeting specified apps for deployment:",
-        targetEntries.map((e) => e.name).join(", ")
-      );
     }
   }
 
@@ -270,17 +267,18 @@ async function verifyInfrastructure(
   targetEntries: (AppEntry | ServiceEntry)[],
   config: LumaConfig,
   secrets: LumaSecrets,
-  networkName: string
+  networkName: string,
+  verbose: boolean = false
 ): Promise<void> {
   const allTargetServers = new Set<string>();
   targetEntries.forEach((entry) => {
     entry.servers.forEach((server) => allTargetServers.add(server));
   });
 
-  console.log(
-    `Verifying luma-proxy container and project network "${networkName}" on target servers: ${Array.from(
-      allTargetServers
-    ).join(", ")}`
+  logger.verbose(
+    `Checking infrastructure on servers: ${Array.from(allTargetServers).join(
+      ", "
+    )}`
   );
 
   let missingNetworkServers: string[] = [];
@@ -289,22 +287,23 @@ async function verifyInfrastructure(
   for (const serverHostname of Array.from(allTargetServers)) {
     let sshClientNetwork: SSHClient | undefined;
     try {
-      const sshCreds = await getSSHCredentials(serverHostname, config, secrets);
+      const sshCreds = await getSSHCredentials(
+        serverHostname,
+        config,
+        secrets,
+        verbose
+      );
       if (!sshCreds.host) sshCreds.host = serverHostname;
       sshClientNetwork = await SSHClient.create(sshCreds as SSHClientOptions);
       await sshClientNetwork.connect();
       const dockerClientRemote = new DockerClient(
         sshClientNetwork,
-        serverHostname
+        serverHostname,
+        verbose
       );
 
       const networkExists = await dockerClientRemote.networkExists(networkName);
-      if (networkExists) {
-        console.log(`  [${serverHostname}] Network "${networkName}" verified.`);
-      } else {
-        console.error(
-          `  [${serverHostname}] Network "${networkName}" does not exist. Please run \`luma setup\` first.`
-        );
+      if (!networkExists) {
         missingNetworkServers.push(serverHostname);
       }
 
@@ -313,19 +312,11 @@ async function verifyInfrastructure(
         serverHostname
       );
       const proxyRunning = await proxyClient.isProxyRunning();
-      if (proxyRunning) {
-        console.log(`  [${serverHostname}] luma-proxy container is running.`);
-      } else {
-        console.error(
-          `  [${serverHostname}] luma-proxy container is not running. Please run \`luma setup\` first.`
-        );
+      if (!proxyRunning) {
         missingProxyServers.push(serverHostname);
       }
     } catch (networkError) {
-      console.error(
-        `  [${serverHostname}] Error verifying network and proxy:`,
-        networkError
-      );
+      logger.verbose(`Error verifying ${serverHostname}: ${networkError}`);
       missingNetworkServers.push(serverHostname);
       missingProxyServers.push(serverHostname);
     } finally {
@@ -337,21 +328,21 @@ async function verifyInfrastructure(
 
   if (missingNetworkServers.length > 0 || missingProxyServers.length > 0) {
     if (missingNetworkServers.length > 0) {
-      console.error(
-        `Error: Required network "${networkName}" is missing on servers: ${missingNetworkServers.join(
+      logger.error(
+        `Required network "${networkName}" is missing on servers: ${missingNetworkServers.join(
           ", "
         )}`
       );
     }
     if (missingProxyServers.length > 0) {
-      console.error(
-        `Error: Required luma-proxy container is not running on servers: ${missingProxyServers.join(
+      logger.error(
+        `Required luma-proxy container is not running on servers: ${missingProxyServers.join(
           ", "
         )}`
       );
     }
-    console.error(
-      `Please run \`luma setup\` to create the required network and start luma-proxy.`
+    logger.error(
+      "Please run `luma setup` to create the required infrastructure"
     );
     throw new Error("Infrastructure verification failed");
   }
@@ -361,38 +352,78 @@ async function verifyInfrastructure(
  * Main deployment loop that processes all target entries
  */
 async function deployEntries(context: DeploymentContext): Promise<void> {
-  for (const entry of context.targetEntries) {
-    const isApp = !context.deployServicesFlag;
+  const isApp = !context.deployServicesFlag;
 
-    if (isApp) {
-      await deployApp(entry as AppEntry, context);
-    } else {
+  if (isApp) {
+    // Build phase for apps
+    logger.phase("📦 Building & Pushing Images");
+    for (const entry of context.targetEntries) {
+      const appEntry = entry as AppEntry;
+      await buildAndPushApp(appEntry, context);
+    }
+
+    // Deploy phase for apps
+    logger.phase("🔄 Deploying to Servers");
+    for (const entry of context.targetEntries) {
+      const appEntry = entry as AppEntry;
+      await deployAppToServers(appEntry, context);
+    }
+  } else {
+    // Deploy phase for services
+    logger.phase("🔄 Deploying Services");
+    for (const entry of context.targetEntries) {
       await deployService(entry as ServiceEntry, context);
     }
   }
 }
 
 /**
- * Deploys a single app to all its target servers
+ * Builds and pushes an app image (build phase)
  */
-async function deployApp(
+async function buildAndPushApp(
   appEntry: AppEntry,
   context: DeploymentContext
 ): Promise<void> {
   const imageNameWithRelease = `${appEntry.image}:${context.releaseId}`;
-  console.log(
-    `Deploying app: ${appEntry.name} (release ${
-      context.releaseId
-    }) to servers: ${appEntry.servers.join(", ")}`
-  );
+  const stepStart = Date.now();
 
-  const imageReady = await buildOrTagAppImage(appEntry, imageNameWithRelease);
-  if (!imageReady) return;
+  try {
+    const imageReady = await buildOrTagAppImage(
+      appEntry,
+      imageNameWithRelease,
+      context.verboseFlag
+    );
+    if (!imageReady) throw new Error("Image build failed");
 
-  await pushAppImage(appEntry, imageNameWithRelease, context.config);
+    await pushAppImage(
+      appEntry,
+      imageNameWithRelease,
+      context.config,
+      context.verboseFlag
+    );
 
-  for (const serverHostname of appEntry.servers) {
-    await deployAppToServer(appEntry, serverHostname, context);
+    const duration = Date.now() - stepStart;
+    logger.stepComplete(`${appEntry.name} → ${imageNameWithRelease}`, duration);
+  } catch (error) {
+    logger.stepError(`${appEntry.name} → ${imageNameWithRelease}`, error);
+    throw error;
+  }
+}
+
+/**
+ * Deploys an app to all its servers (deployment phase)
+ */
+async function deployAppToServers(
+  appEntry: AppEntry,
+  context: DeploymentContext
+): Promise<void> {
+  logger.server(appEntry.servers.join(", "));
+
+  for (let i = 0; i < appEntry.servers.length; i++) {
+    const serverHostname = appEntry.servers[i];
+    const isLastServer = i === appEntry.servers.length - 1;
+
+    await deployAppToServer(appEntry, serverHostname, context, isLastServer);
   }
 }
 
@@ -401,14 +432,15 @@ async function deployApp(
  */
 async function buildOrTagAppImage(
   appEntry: AppEntry,
-  imageNameWithRelease: string
+  imageNameWithRelease: string,
+  verbose: boolean = false
 ): Promise<boolean> {
   if (appEntry.build) {
-    console.log(`  Building app ${appEntry.name}...`);
+    logger.verbose(`Building app ${appEntry.name}...`);
     try {
       const buildPlatform = appEntry.build.platform || "linux/amd64";
       if (!appEntry.build.platform) {
-        console.log(`  No platform specified, defaulting to ${buildPlatform}`);
+        logger.verbose(`No platform specified, defaulting to ${buildPlatform}`);
       }
 
       await DockerClient.build({
@@ -418,28 +450,24 @@ async function buildOrTagAppImage(
         buildArgs: appEntry.build.args,
         platform: buildPlatform,
         target: appEntry.build.target,
+        verbose: verbose,
       });
-      console.log(`  Successfully built and tagged ${imageNameWithRelease}`);
+      logger.verbose(`Successfully built and tagged ${imageNameWithRelease}`);
       return true;
     } catch (error) {
-      console.error(`  Failed to build app ${appEntry.name}:`, error);
+      logger.error(`Failed to build app ${appEntry.name}`, error);
       return false;
     }
   } else {
-    console.log(
-      `  No build config for ${appEntry.name}. Tagging ${appEntry.image} as ${imageNameWithRelease}...`
-    );
+    logger.verbose(`Tagging ${appEntry.image} as ${imageNameWithRelease}...`);
     try {
-      await DockerClient.tag(appEntry.image, imageNameWithRelease);
-      console.log(
-        `  Successfully tagged ${appEntry.image} as ${imageNameWithRelease}`
+      await DockerClient.tag(appEntry.image, imageNameWithRelease, verbose);
+      logger.verbose(
+        `Successfully tagged ${appEntry.image} as ${imageNameWithRelease}`
       );
       return true;
     } catch (error) {
-      console.error(
-        `  Failed to tag pre-built image ${appEntry.image}:`,
-        error
-      );
+      logger.error(`Failed to tag pre-built image ${appEntry.image}`, error);
       return false;
     }
   }
@@ -451,15 +479,16 @@ async function buildOrTagAppImage(
 async function pushAppImage(
   appEntry: AppEntry,
   imageNameWithRelease: string,
-  config: LumaConfig
+  config: LumaConfig,
+  verbose: boolean = false
 ): Promise<void> {
-  console.log(`  Pushing image ${imageNameWithRelease}...`);
+  logger.verbose(`Pushing image ${imageNameWithRelease}...`);
   try {
     const registryToPush = appEntry.registry?.url || config.docker?.registry;
-    await DockerClient.push(imageNameWithRelease, registryToPush);
-    console.log(`  Successfully pushed ${imageNameWithRelease}`);
+    await DockerClient.push(imageNameWithRelease, registryToPush, verbose);
+    logger.verbose(`Successfully pushed ${imageNameWithRelease}`);
   } catch (error) {
-    console.error(`  Failed to push image ${imageNameWithRelease}:`, error);
+    logger.error(`Failed to push image ${imageNameWithRelease}`, error);
     throw error;
   }
 }
@@ -477,29 +506,42 @@ function buildImageName(appEntry: AppEntry, releaseId: string): string {
 async function deployAppToServer(
   appEntry: AppEntry,
   serverHostname: string,
-  context: DeploymentContext
+  context: DeploymentContext,
+  isLastServer: boolean = false
 ): Promise<void> {
+  const stepStart = Date.now();
+
   try {
-    console.log(`\n🚀 Deploying ${appEntry.name} to ${serverHostname}...`);
+    logger.verbose(`Deploying ${appEntry.name} to ${serverHostname}`);
 
     const sshClient = await establishSSHConnection(
       serverHostname,
       context.config,
-      context.secrets
+      context.secrets,
+      context.verboseFlag
     );
 
-    const dockerClient = new DockerClient(sshClient, serverHostname);
+    const dockerClient = new DockerClient(
+      sshClient,
+      serverHostname,
+      context.verboseFlag
+    );
 
     const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
 
+    // Step 1: Pull image
+    const pullStart = Date.now();
     await authenticateAndPullImage(
       appEntry,
       dockerClient,
       context,
       imageNameWithRelease
     );
+    const pullDuration = Date.now() - pullStart;
+    logger.serverStepComplete(`Pulling image`, pullDuration);
 
-    // Perform zero-downtime deployment
+    // Step 2: Zero-downtime deployment
+    const deployStart = Date.now();
     const deploymentResult = await performBlueGreenDeployment({
       appEntry,
       releaseId: context.releaseId,
@@ -508,30 +550,31 @@ async function deployAppToServer(
       networkName: context.networkName,
       dockerClient,
       serverHostname,
+      verbose: context.verboseFlag,
     });
 
     if (!deploymentResult.success) {
       await sshClient.close();
       throw new Error(deploymentResult.error || "Deployment failed");
     }
+    const deployDuration = Date.now() - deployStart;
+    logger.serverStepComplete(`Zero-downtime deployment`, deployDuration);
 
-    // Configure proxy if needed
+    // Step 3: Configure proxy
+    const proxyStart = Date.now();
     await configureProxyForApp(
       appEntry,
       dockerClient,
       serverHostname,
-      context.projectName
+      context.projectName,
+      context.verboseFlag
     );
+    const proxyDuration = Date.now() - proxyStart;
+    logger.serverStepComplete(`Configuring proxy`, proxyDuration, isLastServer);
 
     await sshClient.close();
-    console.log(
-      `✅ ${appEntry.name} deployed successfully to ${serverHostname}`
-    );
   } catch (error) {
-    console.error(
-      `❌ Failed to deploy ${appEntry.name} to ${serverHostname}:`,
-      error
-    );
+    logger.serverStepError(`${serverHostname}`, error, isLastServer);
     throw error;
   }
 }
@@ -543,7 +586,7 @@ async function deployService(
   serviceEntry: ServiceEntry,
   context: DeploymentContext
 ): Promise<void> {
-  console.log(
+  logger.verbose(
     `Deploying service: ${
       serviceEntry.name
     } to servers: ${serviceEntry.servers.join(", ")}`
@@ -562,8 +605,8 @@ async function deployServiceToServer(
   serverHostname: string,
   context: DeploymentContext
 ): Promise<void> {
-  console.log(
-    `  Deploying service ${serviceEntry.name} to server ${serverHostname}...`
+  logger.verbose(
+    `Deploying service ${serviceEntry.name} to server ${serverHostname}`
   );
   let sshClient: SSHClient | undefined;
 
@@ -571,9 +614,14 @@ async function deployServiceToServer(
     sshClient = await establishSSHConnection(
       serverHostname,
       context.config,
-      context.secrets
+      context.secrets,
+      context.verboseFlag
     );
-    const dockerClientRemote = new DockerClient(sshClient, serverHostname);
+    const dockerClientRemote = new DockerClient(
+      sshClient,
+      serverHostname,
+      context.verboseFlag
+    );
 
     await authenticateAndPullImage(
       serviceEntry,
@@ -589,15 +637,15 @@ async function deployServiceToServer(
       context
     );
 
-    console.log(`    [${serverHostname}] Pruning Docker resources...`);
+    logger.verbose(`Pruning Docker resources on ${serverHostname}`);
     await dockerClientRemote.prune();
 
-    console.log(
-      `    [${serverHostname}] Service ${serviceEntry.name} deployed successfully.`
+    logger.verbose(
+      `Service ${serviceEntry.name} deployed successfully to ${serverHostname}`
     );
   } catch (serverError) {
-    console.error(
-      `  [${serverHostname}] Failed to deploy service ${serviceEntry.name}:`,
+    logger.error(
+      `Failed to deploy service ${serviceEntry.name} to ${serverHostname}`,
       serverError
     );
   } finally {
@@ -613,13 +661,19 @@ async function deployServiceToServer(
 async function establishSSHConnection(
   serverHostname: string,
   config: LumaConfig,
-  secrets: LumaSecrets
+  secrets: LumaSecrets,
+  verbose: boolean = false
 ): Promise<SSHClient> {
-  const sshCreds = await getSSHCredentials(serverHostname, config, secrets);
+  const sshCreds = await getSSHCredentials(
+    serverHostname,
+    config,
+    secrets,
+    verbose
+  );
   if (!sshCreds.host) sshCreds.host = serverHostname;
   const sshClient = await SSHClient.create(sshCreds as SSHClientOptions);
   await sshClient.connect();
-  console.log(`    [${serverHostname}] SSH connection established.`);
+  logger.verbose(`SSH connection established to ${serverHostname}`);
   return sshClient;
 }
 
@@ -662,7 +716,7 @@ async function authenticateAndPullImage(
     registryLoginPerformed = true;
   }
 
-  console.log(`    Pulling image ${imageToPull}...`);
+  logger.verbose(`Pulling image ${imageToPull}...`);
   const pullSuccess = await dockerClientRemote.pullImage(imageToPull);
 
   if (registryLoginPerformed) {
@@ -685,15 +739,15 @@ async function performRegistryLogin(
 ): Promise<void> {
   try {
     await dockerClient.login(registry, username, password);
-    console.log(`    Successfully logged into registry`);
+    logger.verbose(`Successfully logged into registry`);
   } catch (loginError) {
     const errorMessage = String(loginError);
     if (
       errorMessage.includes("WARNING! Your password will be stored unencrypted")
     ) {
-      console.log(`    Successfully logged into registry`);
+      logger.verbose(`Successfully logged into registry`);
     } else {
-      console.error(`    Failed to login to registry:`, loginError);
+      logger.error(`Failed to login to registry`, loginError);
     }
   }
 }
@@ -705,15 +759,18 @@ async function configureProxyForApp(
   appEntry: AppEntry,
   dockerClient: DockerClient,
   serverHostname: string,
-  projectName: string
+  projectName: string,
+  verbose: boolean = false
 ): Promise<void> {
   if (!appEntry.proxy?.hosts?.length) return;
 
-  console.log(
-    `    [${serverHostname}] Configuring luma-proxy for ${appEntry.name}...`
-  );
+  logger.verbose(`Configuring luma-proxy for ${appEntry.name}`);
 
-  const proxyClient = new LumaProxyClient(dockerClient, serverHostname);
+  const proxyClient = new LumaProxyClient(
+    dockerClient,
+    serverHostname,
+    verbose
+  );
   const hosts = appEntry.proxy.hosts;
   const appPort = appEntry.proxy.app_port || 80;
 
@@ -727,15 +784,14 @@ async function configureProxyForApp(
       );
 
       if (!configSuccess) {
-        console.error(
-          `    [${serverHostname}] Failed to configure proxy for host ${host}`
+        logger.error(`Failed to configure proxy for host ${host}`);
+      } else {
+        logger.verbose(
+          `Configured proxy for ${host} → ${appEntry.name}:${appPort}`
         );
       }
     } catch (proxyError) {
-      console.error(
-        `    [${serverHostname}] Error configuring proxy for host ${host}:`,
-        proxyError
-      );
+      logger.error(`Error configuring proxy for host ${host}`, proxyError);
     }
   }
 }
@@ -755,9 +811,8 @@ async function replaceServiceContainer(
     await dockerClient.stopContainer(containerName);
     await dockerClient.removeContainer(containerName);
   } catch (e) {
-    console.warn(
-      `    [${serverHostname}] Error stopping/removing old service container:`,
-      e
+    logger.warn(
+      `Error stopping/removing old service container on ${serverHostname}: ${e}`
     );
   }
 
@@ -767,8 +822,8 @@ async function replaceServiceContainer(
     context.projectName
   );
 
-  console.log(
-    `    [${serverHostname}] Starting new service container ${containerName}...`
+  logger.verbose(
+    `Starting new service container ${containerName} on ${serverHostname}`
   );
   const createSuccess = await dockerClient.createContainer(
     serviceContainerOptions
@@ -783,16 +838,23 @@ async function replaceServiceContainer(
  * Main deployment command that orchestrates the entire deployment process
  */
 export async function deployCommand(rawEntryNamesAndFlags: string[]) {
-  console.log("Deploy command initiated with args:", rawEntryNamesAndFlags);
-
   try {
-    const { entryNames, forceFlag, deployServicesFlag } = parseDeploymentArgs(
-      rawEntryNamesAndFlags
-    );
+    const { entryNames, forceFlag, deployServicesFlag, verboseFlag } =
+      parseDeploymentArgs(rawEntryNamesAndFlags);
 
+    // Set logger verbose mode
+    logger = new Logger({ verbose: verboseFlag });
+
+    // Generate release ID first for the startup message
+    const releaseId = await generateReleaseId();
+    logger.deploymentStart(releaseId);
+
+    // Check git status
+    logger.phase("✅ Configuration loaded");
     await checkUncommittedChanges(forceFlag);
 
     const { config, secrets } = await loadConfigurationAndSecrets();
+    logger.phase("✅ Git status verified");
 
     const targetEntries = identifyTargetEntries(
       entryNames,
@@ -800,17 +862,22 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       config
     );
     if (targetEntries.length === 0) {
-      console.log("No entries selected for deployment. Exiting.");
+      logger.error("No entries selected for deployment");
       return;
     }
-
-    const releaseId = await generateReleaseId();
-    console.log(`Generated Release ID: ${releaseId}`);
 
     const projectName = config.name;
     const networkName = getProjectNetworkName(projectName);
 
-    await verifyInfrastructure(targetEntries, config, secrets, networkName);
+    // Verify infrastructure
+    logger.phase("✅ Infrastructure ready");
+    await verifyInfrastructure(
+      targetEntries,
+      config,
+      secrets,
+      networkName,
+      verboseFlag
+    );
 
     const context: DeploymentContext = {
       config,
@@ -821,11 +888,27 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       networkName,
       forceFlag,
       deployServicesFlag,
+      verboseFlag,
     };
 
     await deployEntries(context);
+
+    // Collect URLs for final output
+    const urls: string[] = [];
+    if (!deployServicesFlag) {
+      for (const entry of targetEntries) {
+        const appEntry = entry as AppEntry;
+        if (appEntry.proxy?.hosts) {
+          for (const host of appEntry.proxy.hosts) {
+            urls.push(`https://${host}`);
+          }
+        }
+      }
+    }
+
+    logger.deploymentComplete(urls);
   } catch (error) {
-    console.error("Deployment failed:", error);
+    logger.deploymentFailed(error);
     process.exit(1);
   }
 }

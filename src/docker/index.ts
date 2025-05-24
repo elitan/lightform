@@ -36,21 +36,30 @@ export interface DockerBuildOptions {
   buildArgs?: Record<string, string>;
   target?: string;
   platform?: string;
+  verbose?: boolean;
 }
 
 export class DockerClient {
   private sshClient?: SSHClient;
   private serverHostname?: string;
+  private verbose: boolean = false;
 
-  constructor(sshClient?: SSHClient, serverHostname?: string) {
+  constructor(
+    sshClient?: SSHClient,
+    serverHostname?: string,
+    verbose: boolean = false
+  ) {
     this.sshClient = sshClient;
     this.serverHostname = serverHostname;
+    this.verbose = verbose;
   }
 
   /**
    * Log a message with server hostname prefix or general log if no server context
    */
   private log(message: string): void {
+    if (!this.verbose) return;
+
     if (this.serverHostname) {
       console.log(`[${this.serverHostname}] ${message}`);
     } else {
@@ -62,6 +71,8 @@ export class DockerClient {
    * Log a warning with server hostname prefix or general warning if no server context
    */
   private logWarn(message: string): void {
+    if (!this.verbose) return;
+
     if (this.serverHostname) {
       console.warn(`[${this.serverHostname}] ${message}`);
     } else {
@@ -116,18 +127,23 @@ export class DockerClient {
    * Execute a command locally
    */
   private static async _runLocalCommand(
-    command: string
+    command: string,
+    verbose: boolean = false
   ): Promise<{ stdout: string; stderr: string }> {
-    console.log(`Executing local command: ${command}`);
+    if (verbose) {
+      console.log(`Executing local command: ${command}`);
+    }
     try {
       const { stdout, stderr } = await execAsync(command);
-      if (stderr) {
+      if (stderr && verbose) {
         // Docker often prints non-error info to stderr, so log it but don't always throw
         console.warn(`Local command stderr: ${stderr}`);
       }
       return { stdout, stderr };
     } catch (error) {
-      console.error(`Local command failed: ${command}`, error);
+      if (verbose) {
+        console.error(`Local command failed: ${command}`, error);
+      }
       throw error;
     }
   }
@@ -157,34 +173,54 @@ export class DockerClient {
     }
     buildCommand += ` \"${options.context}\"`;
 
-    console.log(`Attempting to build image with command: ${buildCommand}`);
-    await DockerClient._runLocalCommand(buildCommand);
-    console.log("Docker build process completed.");
+    if (options.verbose) {
+      console.log(`Attempting to build image with command: ${buildCommand}`);
+    }
+    await DockerClient._runLocalCommand(buildCommand, options.verbose);
+    if (options.verbose) {
+      console.log("Docker build process completed.");
+    }
   }
 
-  static async tag(sourceImage: string, targetImage: string): Promise<void> {
+  static async tag(
+    sourceImage: string,
+    targetImage: string,
+    verbose: boolean = false
+  ): Promise<void> {
     const command = `docker tag \"${sourceImage}\" \"${targetImage}\"`;
-    console.log(`Attempting to tag image: ${command}`);
-    await DockerClient._runLocalCommand(command);
-    console.log(
-      `Successfully tagged \"${sourceImage}\" as \"${targetImage}\".`
-    );
+    if (verbose) {
+      console.log(`Attempting to tag image: ${command}`);
+    }
+    await DockerClient._runLocalCommand(command, verbose);
+    if (verbose) {
+      console.log(
+        `Successfully tagged \"${sourceImage}\" as \"${targetImage}\".`
+      );
+    }
   }
 
-  static async push(imageName: string, registry?: string): Promise<void> {
+  static async push(
+    imageName: string,
+    registry?: string,
+    verbose: boolean = false
+  ): Promise<void> {
     // If a specific registry (not Docker Hub) is provided, the imageName should already include it for push.
     // However, Docker CLI push can take the full image name including registry.
     // Example: my.registry.com/namespace/image:tag
     // If registry param is just hostname, it assumes official library image if no user/org part.
     // For simplicity, ensure imageName is the full path if not Docker Hub.
     const command = `docker push \"${imageName}\"`;
-    console.log(`Attempting to push image: ${command}`);
-    await DockerClient._runLocalCommand(command);
-    console.log(
-      `Successfully pushed \"${imageName}\"${
-        registry ? " to " + registry : ""
-      }.`
-    );
+    if (verbose) {
+      console.log(`Attempting to push image: ${command}`);
+    }
+    await DockerClient._runLocalCommand(command, verbose);
+    if (verbose) {
+      console.log(
+        `Successfully pushed \"${imageName}\"${
+          registry ? " to " + registry : ""
+        }.`
+      );
+    }
   }
 
   // --- Instance methods for Remote Docker Operations (via SSH) ---

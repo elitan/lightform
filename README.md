@@ -44,9 +44,58 @@ bun src/index.ts setup
 bun src/index.ts setup my-service1 my-service2
 ```
 
+### `deploy`
+
+Deploys your applications and services to target servers. The deploy command provides a clean, hierarchical output showing the progress of each phase.
+
+**Basic usage:**
+
+```bash
+# Deploy all apps
+bun src/index.ts deploy
+
+# Deploy specific apps
+bun src/index.ts deploy my-webapp my-worker
+
+# Deploy all services
+bun src/index.ts deploy --services
+
+# Deploy specific services
+bun src/index.ts deploy --services my-database my-cache
+```
+
+**Flags:**
+
+- `--force`: Skip Git status checks and deploy even with uncommitted changes
+- `--services`: Deploy services instead of apps
+- `--verbose`: Show detailed logging for debugging
+
+**Example output:**
+
+```
+🚀 Starting deployment with release 5a13fe6
+
+✅ Configuration loaded
+✅ Git status verified
+✅ Infrastructure ready
+
+📦 Building & Pushing Images
+  └─ web → elitan/luma-test-web:5a13fe6 ✅ (2.1s)
+
+🔄 Deploying to Servers
+  └─ 157.180.25.101
+     ├─ Pulling image ✅ (1.3s)
+     ├─ Zero-downtime deployment ✅ (3.8s)
+     └─ Configuring proxy ✅ (0.5s)
+
+✅ Deployment completed successfully in 7.7s
+
+🌐 Your app is live at:
+  └─ https://test.eliasson.me
+```
+
 ### Other Commands
 
-- `deploy`: (To be implemented) Deploys your services.
 - `redeploy`: (To be implemented) Redeploys services, potentially without rebuilding.
 - `rollback`: (To be implemented) Rolls back to a previous deployment.
 

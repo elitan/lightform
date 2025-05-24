@@ -9,6 +9,7 @@ export interface BlueGreenDeploymentOptions {
   networkName: string;
   dockerClient: DockerClient;
   serverHostname: string;
+  verbose?: boolean;
 }
 
 export interface BlueGreenDeploymentResult {
@@ -103,11 +104,14 @@ async function performBlueGreenHealthChecks(
   appEntry: AppEntry,
   dockerClient: DockerClient,
   serverHostname: string,
-  projectName: string
+  projectName: string,
+  verbose?: boolean
 ): Promise<boolean> {
-  console.log(
-    `    [${serverHostname}] Performing health checks on ${containerNames.length} containers...`
-  );
+  if (verbose) {
+    console.log(
+      `    [${serverHostname}] Performing health checks on ${containerNames.length} containers...`
+    );
+  }
 
   const appPort = appEntry.proxy?.app_port || 80;
   const healthPromises = containerNames.map(async (containerName) => {
@@ -132,21 +136,27 @@ async function performBlueGreenHealthChecks(
       const [healthCheckPassed] = result as [boolean, string];
 
       if (healthCheckPassed) {
-        console.log(
-          `    [${serverHostname}] Health check passed for ${containerName}`
-        );
+        if (verbose) {
+          console.log(
+            `    [${serverHostname}] Health check passed for ${containerName}`
+          );
+        }
         return true;
       } else {
-        console.error(
-          `    [${serverHostname}] Health check failed for ${containerName}`
-        );
+        if (verbose) {
+          console.error(
+            `    [${serverHostname}] Health check failed for ${containerName}`
+          );
+        }
         return false;
       }
     } catch (error) {
-      console.error(
-        `    [${serverHostname}] Health check error for ${containerName}:`,
-        error
-      );
+      if (verbose) {
+        console.error(
+          `    [${serverHostname}] Health check error for ${containerName}:`,
+          error
+        );
+      }
       return false;
     }
   });
@@ -155,13 +165,17 @@ async function performBlueGreenHealthChecks(
   const allHealthy = healthResults.every((result) => result === true);
 
   if (allHealthy) {
-    console.log(
-      `    [${serverHostname}] All ${containerNames.length} containers passed health checks ✓`
-    );
+    if (verbose) {
+      console.log(
+        `    [${serverHostname}] All ${containerNames.length} containers passed health checks ✓`
+      );
+    }
   } else {
-    console.error(
-      `    [${serverHostname}] Health checks failed for some containers`
-    );
+    if (verbose) {
+      console.error(
+        `    [${serverHostname}] Health checks failed for some containers`
+      );
+    }
   }
 
   return allHealthy;
@@ -173,24 +187,31 @@ async function performBlueGreenHealthChecks(
 async function cleanupFailedDeployment(
   containerNames: string[],
   dockerClient: DockerClient,
-  serverHostname: string
+  serverHostname: string,
+  verbose?: boolean
 ): Promise<void> {
-  console.log(
-    `    [${serverHostname}] Cleaning up failed deployment containers...`
-  );
+  if (verbose) {
+    console.log(
+      `    [${serverHostname}] Cleaning up failed deployment containers...`
+    );
+  }
 
   for (const containerName of containerNames) {
     try {
       await dockerClient.stopContainer(containerName);
       await dockerClient.removeContainer(containerName);
-      console.log(
-        `    [${serverHostname}] Removed failed container ${containerName}`
-      );
+      if (verbose) {
+        console.log(
+          `    [${serverHostname}] Removed failed container ${containerName}`
+        );
+      }
     } catch (error) {
-      console.warn(
-        `    [${serverHostname}] Could not remove container ${containerName}:`,
-        error
-      );
+      if (verbose) {
+        console.warn(
+          `    [${serverHostname}] Could not remove container ${containerName}:`,
+          error
+        );
+      }
     }
   }
 }
@@ -209,11 +230,14 @@ export async function performBlueGreenDeployment(
     networkName,
     dockerClient,
     serverHostname,
+    verbose = false,
   } = options;
 
-  console.log(
-    `    [${serverHostname}] Starting zero-downtime deployment for ${appEntry.name}...`
-  );
+  if (verbose) {
+    console.log(
+      `    [${serverHostname}] Starting zero-downtime deployment for ${appEntry.name}...`
+    );
+  }
 
   try {
     // Step 1: Determine deployment color
@@ -222,7 +246,9 @@ export async function performBlueGreenDeployment(
     );
     const newColor = currentActiveColor === "blue" ? "green" : "blue";
 
-    console.log(`    [${serverHostname}] Deploying new version...`);
+    if (verbose) {
+      console.log(`    [${serverHostname}] Deploying new version...`);
+    }
 
     // Step 2: Generate container names for new deployment
     const replicas = appEntry.replicas || 1;
@@ -232,11 +258,13 @@ export async function performBlueGreenDeployment(
       replicas
     );
 
-    console.log(
-      `    [${serverHostname}] Creating ${replicas} container(s): ${newContainerNames.join(
-        ", "
-      )}`
-    );
+    if (verbose) {
+      console.log(
+        `    [${serverHostname}] Creating ${replicas} container(s): ${newContainerNames.join(
+          ", "
+        )}`
+      );
+    }
 
     // Step 3: Create new containers
     const deployedContainers: string[] = [];
@@ -253,9 +281,11 @@ export async function performBlueGreenDeployment(
         containerName
       );
 
-      console.log(
-        `    [${serverHostname}] Creating container ${containerName}...`
-      );
+      if (verbose) {
+        console.log(
+          `    [${serverHostname}] Creating container ${containerName}...`
+        );
+      }
 
       const success = await dockerClient.createContainerWithLabels(
         containerOptions,
@@ -270,7 +300,8 @@ export async function performBlueGreenDeployment(
         await cleanupFailedDeployment(
           deployedContainers,
           dockerClient,
-          serverHostname
+          serverHostname,
+          verbose
         );
         return {
           success: false,
@@ -289,14 +320,16 @@ export async function performBlueGreenDeployment(
       appEntry,
       dockerClient,
       serverHostname,
-      projectName
+      projectName,
+      verbose
     );
 
     if (!allHealthy) {
       await cleanupFailedDeployment(
         deployedContainers,
         dockerClient,
-        serverHostname
+        serverHostname,
+        verbose
       );
       return {
         success: false,
@@ -307,9 +340,11 @@ export async function performBlueGreenDeployment(
     }
 
     // Step 5: Switch network alias (zero-downtime transition)
-    console.log(
-      `    [${serverHostname}] Switching traffic to new version (zero downtime)...`
-    );
+    if (verbose) {
+      console.log(
+        `    [${serverHostname}] Switching traffic to new version (zero downtime)...`
+      );
+    }
 
     const aliasSwitch = await dockerClient.switchNetworkAlias(
       appEntry.name,
@@ -321,7 +356,8 @@ export async function performBlueGreenDeployment(
       await cleanupFailedDeployment(
         deployedContainers,
         dockerClient,
-        serverHostname
+        serverHostname,
+        verbose
       );
       return {
         success: false,
@@ -349,31 +385,39 @@ export async function performBlueGreenDeployment(
       }
 
       if (oldActiveContainers.length > 0) {
-        console.log(
-          `    [${serverHostname}] Gracefully shutting down ${oldActiveContainers.length} old containers...`
-        );
+        if (verbose) {
+          console.log(
+            `    [${serverHostname}] Gracefully shutting down ${oldActiveContainers.length} old containers...`
+          );
+        }
         await dockerClient.gracefulShutdown(oldActiveContainers, 30);
 
         // Remove old containers
         for (const containerName of oldActiveContainers) {
           try {
             await dockerClient.removeContainer(containerName);
-            console.log(
-              `    [${serverHostname}] Removed old container ${containerName}`
-            );
+            if (verbose) {
+              console.log(
+                `    [${serverHostname}] Removed old container ${containerName}`
+              );
+            }
           } catch (error) {
-            console.warn(
-              `    [${serverHostname}] Could not remove old container ${containerName}:`,
-              error
-            );
+            if (verbose) {
+              console.warn(
+                `    [${serverHostname}] Could not remove old container ${containerName}:`,
+                error
+              );
+            }
           }
         }
       }
     }
 
-    console.log(
-      `    [${serverHostname}] Zero-downtime deployment completed successfully ✅`
-    );
+    if (verbose) {
+      console.log(
+        `    [${serverHostname}] Zero-downtime deployment completed successfully ✅`
+      );
+    }
 
     return {
       success: true,
@@ -381,7 +425,9 @@ export async function performBlueGreenDeployment(
       deployedContainers,
     };
   } catch (error) {
-    console.error(`    [${serverHostname}] Deployment failed:`, error);
+    if (verbose) {
+      console.error(`    [${serverHostname}] Deployment failed:`, error);
+    }
     return {
       success: false,
       newColor: "blue",
