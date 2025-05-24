@@ -26,6 +26,7 @@ export interface DockerContainerOptions {
   volumes?: string[];
   envVars?: Record<string, string>;
   restart?: string;
+  labels?: Record<string, string>;
 }
 
 export interface DockerBuildOptions {
@@ -477,6 +478,13 @@ EOF`);
     try {
       // Build the docker run command
       let cmd = `run -d --name ${options.name}`;
+
+      // Add labels if specified
+      if (options.labels) {
+        Object.entries(options.labels).forEach(([key, value]) => {
+          cmd += ` --label ${key}="${value}"`;
+        });
+      }
 
       // Add network if specified
       if (options.network) {
@@ -1090,7 +1098,7 @@ EOF`);
   /**
    * Determines the current active color (blue/green) for an app
    * @param appName Name of the app
-   * @returns 'blue', 'green', or null if no active containers found
+   * @returns 'blue', 'green', or null if no containers exist
    */
   async getCurrentActiveColor(
     appName: string
@@ -1100,9 +1108,46 @@ EOF`);
         `luma.app=${appName}`
       );
 
+      if (containers.length === 0) {
+        return null; // No containers exist
+      }
+
+      // First, try to find containers explicitly marked as active
       for (const containerName of containers) {
         const labels = await this.getContainerLabels(containerName);
         if (labels["luma.active"] === "true") {
+          return labels["luma.color"] as "blue" | "green";
+        }
+      }
+
+      // If no containers are marked as active, check which containers have the main network alias
+      // This handles the case where containers exist but active labels aren't set
+      for (const containerName of containers) {
+        try {
+          // Check if this container has the main network alias (indicating it's active)
+          const inspectOutput = await this.execRemote(
+            `inspect ${containerName} --format "{{json .NetworkSettings.Networks}}"`
+          );
+          const networks = JSON.parse(inspectOutput);
+
+          // Look for the main app alias in any network
+          for (const networkData of Object.values(networks) as any[]) {
+            if (networkData.Aliases && networkData.Aliases.includes(appName)) {
+              const labels = await this.getContainerLabels(containerName);
+              return labels["luma.color"] as "blue" | "green";
+            }
+          }
+        } catch (error) {
+          // Continue checking other containers if one fails
+          continue;
+        }
+      }
+
+      // If we still can't determine active color, return the color of the first running container
+      for (const containerName of containers) {
+        const isRunning = await this.containerIsRunning(containerName);
+        if (isRunning) {
+          const labels = await this.getContainerLabels(containerName);
           return labels["luma.color"] as "blue" | "green";
         }
       }
@@ -1230,37 +1275,22 @@ EOF`);
 
   /**
    * Updates container labels to mark them as active/inactive
+   * Note: Docker doesn't support updating labels after container creation,
+   * so this function is a no-op. Labels are set correctly during creation.
    * @param appName Name of the app
    * @param activeColor The color to mark as active
-   * @returns true if successful
+   * @returns true (always successful since labels are set during creation)
    */
   async updateActiveLabels(
     appName: string,
     activeColor: "blue" | "green"
   ): Promise<boolean> {
-    try {
-      this.log(`Updating active labels for ${appName} to ${activeColor}`);
-
-      const containers = await this.findContainersByLabel(
-        `luma.app=${appName}`
-      );
-
-      for (const containerName of containers) {
-        const labels = await this.getContainerLabels(containerName);
-        const containerColor = labels["luma.color"];
-        const shouldBeActive = containerColor === activeColor;
-
-        // Update the active label
-        await this.execRemote(
-          `update --label-add luma.active=${shouldBeActive} ${containerName}`
-        );
-      }
-
-      return true;
-    } catch (error) {
-      this.logError(`Failed to update active labels for ${appName}: ${error}`);
-      return false;
-    }
+    this.log(
+      `Active labels for ${appName} are set correctly during container creation`
+    );
+    // Docker doesn't support updating labels after creation
+    // Labels are already set correctly in createContainerWithLabels()
+    return true;
   }
 
   /**
