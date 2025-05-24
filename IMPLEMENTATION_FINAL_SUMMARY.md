@@ -124,19 +124,25 @@ $ luma status blog
 📱 App: blog
    Status: ✅ RUNNING (blue active)
    Replicas: 2/2 running
-   Colors: 2 blue, 0 green
+   Versions: 2 blue, 0 green
+   Servers: server1
 ```
 
 ### During Deployment
 
 ```bash
 $ luma deploy blog
-[server] Starting blue-green deployment for blog...
-[server] Current active: blue, deploying: green
-[server] Deploying 2 replica(s): blog-green-1, blog-green-2
-[server] Health checks: ✓ 2/2 replicas healthy
-[server] Switching traffic to green containers...
-[server] Blue-green deployment completed successfully ✅
+🚀 Deploying blog to server1...
+[server1] Starting zero-downtime deployment for blog...
+[server1] Deploying new version...
+[server1] Creating 2 container(s): blog-green-1, blog-green-2
+[server1] Creating container blog-green-1...
+[server1] Creating container blog-green-2...
+[server1] Health checks: ✓ 2/2 replicas healthy
+[server1] Switching traffic to new version (zero downtime)...
+[server1] Gracefully shutting down 2 old containers...
+[server1] Zero-downtime deployment completed successfully ✅
+✅ blog deployed successfully to server1
 ```
 
 ### After Deployment
@@ -146,7 +152,8 @@ $ luma status blog
 📱 App: blog
    Status: ✅ RUNNING (green active)
    Replicas: 2/2 running
-   Colors: 0 blue, 2 green
+   Versions: 0 blue, 2 green
+   Servers: server1
 ```
 
 ## 🎯 Achievements

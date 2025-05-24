@@ -1127,79 +1127,39 @@ EOF`);
   }
 
   /**
-   * Creates a container with blue-green deployment labels
-   * @param options Container options
-   * @param appName Name of the app
+   * Creates a container with zero-downtime deployment labels
+   * @param options Standard container options
+   * @param appName Application name
    * @param color Color for this deployment (blue/green)
-   * @param replicaIndex Index of the replica (1-based)
-   * @param isActive Whether this container should be marked as active
-   * @returns true if successful
+   * @param replicaIndex Replica index (1-based)
+   * @param active Whether this container is currently active
+   * @returns true if container was created successfully
    */
   async createContainerWithLabels(
     options: DockerContainerOptions,
     appName: string,
     color: "blue" | "green",
     replicaIndex: number,
-    isActive: boolean = false
+    active: boolean
   ): Promise<boolean> {
     try {
-      let cmd = "run -d";
+      // Add zero-downtime deployment labels
+      const extendedOptions = {
+        ...options,
+        labels: {
+          ...options.labels,
+          "luma.app": appName,
+          "luma.color": color,
+          "luma.replica": replicaIndex.toString(),
+          "luma.active": active.toString(),
+          "luma.managed": "true",
+        },
+      };
 
-      // Add blue-green deployment labels
-      cmd += ` --label luma.app=${appName}`;
-      cmd += ` --label luma.color=${color}`;
-      cmd += ` --label luma.replica=${replicaIndex}`;
-      cmd += ` --label luma.active=${isActive}`;
-
-      // Add name
-      cmd += ` --name ${options.name}`;
-
-      // Add network if specified
-      if (options.network) {
-        cmd += ` --network ${options.network}`;
-      }
-
-      // Add network alias if specified - but use temporary alias during deployment
-      if (options.networkAlias && !isActive) {
-        cmd += ` --network-alias ${options.networkAlias}-${color}-temp`;
-      } else if (options.networkAlias && isActive) {
-        cmd += ` --network-alias ${options.networkAlias}`;
-      }
-
-      // Add ports if specified
-      if (options.ports && options.ports.length > 0) {
-        options.ports.forEach((port) => {
-          cmd += ` -p ${port}`;
-        });
-      }
-
-      // Add volumes if specified
-      if (options.volumes && options.volumes.length > 0) {
-        options.volumes.forEach((volume) => {
-          cmd += ` -v ${volume}`;
-        });
-      }
-
-      // Add environment variables if specified
-      if (options.envVars) {
-        Object.entries(options.envVars).forEach(([key, value]) => {
-          cmd += ` -e ${key}="${value}"`;
-        });
-      }
-
-      // Add restart policy if specified
-      if (options.restart) {
-        cmd += ` --restart ${options.restart}`;
-      }
-
-      // Add the image
-      cmd += ` ${options.image}`;
-
-      this.log(`Creating container with blue-green labels: ${options.name}`);
-      await this.execRemote(cmd);
-      return true;
+      this.log(`Creating container: ${options.name}`);
+      return await this.createContainer(extendedOptions);
     } catch (error) {
-      this.logError(`Failed to create container ${options.name}: ${error}`);
+      this.logError(`Failed to create container with labels: ${error}`);
       return false;
     }
   }

@@ -196,7 +196,7 @@ async function cleanupFailedDeployment(
 }
 
 /**
- * Main blue-green deployment function
+ * Main zero-downtime deployment function
  */
 export async function performBlueGreenDeployment(
   options: BlueGreenDeploymentOptions
@@ -212,7 +212,7 @@ export async function performBlueGreenDeployment(
   } = options;
 
   console.log(
-    `    [${serverHostname}] Starting blue-green deployment for ${appEntry.name}...`
+    `    [${serverHostname}] Starting zero-downtime deployment for ${appEntry.name}...`
   );
 
   try {
@@ -222,11 +222,7 @@ export async function performBlueGreenDeployment(
     );
     const newColor = currentActiveColor === "blue" ? "green" : "blue";
 
-    console.log(
-      `    [${serverHostname}] Current active: ${
-        currentActiveColor || "none"
-      }, deploying: ${newColor}`
-    );
+    console.log(`    [${serverHostname}] Deploying new version...`);
 
     // Step 2: Generate container names for new deployment
     const replicas = appEntry.replicas || 1;
@@ -237,7 +233,7 @@ export async function performBlueGreenDeployment(
     );
 
     console.log(
-      `    [${serverHostname}] Deploying ${replicas} replica(s): ${newContainerNames.join(
+      `    [${serverHostname}] Creating ${replicas} container(s): ${newContainerNames.join(
         ", "
       )}`
     );
@@ -312,7 +308,7 @@ export async function performBlueGreenDeployment(
 
     // Step 5: Switch network alias (zero-downtime transition)
     console.log(
-      `    [${serverHostname}] Switching traffic to ${newColor} containers...`
+      `    [${serverHostname}] Switching traffic to new version (zero downtime)...`
     );
 
     const aliasSwitch = await dockerClient.switchNetworkAlias(
@@ -376,7 +372,7 @@ export async function performBlueGreenDeployment(
     }
 
     console.log(
-      `    [${serverHostname}] Blue-green deployment completed successfully ✅`
+      `    [${serverHostname}] Zero-downtime deployment completed successfully ✅`
     );
 
     return {
@@ -385,10 +381,7 @@ export async function performBlueGreenDeployment(
       deployedContainers,
     };
   } catch (error) {
-    console.error(
-      `    [${serverHostname}] Blue-green deployment failed:`,
-      error
-    );
+    console.error(`    [${serverHostname}] Deployment failed:`, error);
     return {
       success: false,
       newColor: "blue",

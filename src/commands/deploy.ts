@@ -465,74 +465,74 @@ async function pushAppImage(
 }
 
 /**
- * Deploys an app to a specific server using blue-green deployment strategy
+ * Builds the full image name with release ID
+ */
+function buildImageName(appEntry: AppEntry, releaseId: string): string {
+  return `${appEntry.image}:${releaseId}`;
+}
+
+/**
+ * Deploys an app to a specific server using zero-downtime deployment
  */
 async function deployAppToServer(
   appEntry: AppEntry,
   serverHostname: string,
   context: DeploymentContext
 ): Promise<void> {
-  console.log(
-    `  Deploying app ${appEntry.name} to server ${serverHostname} (${
-      appEntry.replicas || 1
-    } replicas)...`
-  );
-  let sshClient: SSHClient | undefined;
-
   try {
-    sshClient = await establishSSHConnection(
+    console.log(`\n🚀 Deploying ${appEntry.name} to ${serverHostname}...`);
+
+    const sshClient = await establishSSHConnection(
       serverHostname,
       context.config,
       context.secrets
     );
-    const dockerClientRemote = new DockerClient(sshClient, serverHostname);
+
+    const dockerClient = new DockerClient(sshClient, serverHostname);
+
+    const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
 
     await authenticateAndPullImage(
       appEntry,
-      dockerClientRemote,
+      dockerClient,
       context,
-      `${appEntry.image}:${context.releaseId}`
+      imageNameWithRelease
     );
 
-    // Perform blue-green deployment
+    // Perform zero-downtime deployment
     const deploymentResult = await performBlueGreenDeployment({
       appEntry,
       releaseId: context.releaseId,
       secrets: context.secrets,
       projectName: context.projectName,
       networkName: context.networkName,
-      dockerClient: dockerClientRemote,
+      dockerClient,
       serverHostname,
     });
 
     if (!deploymentResult.success) {
-      throw new Error(deploymentResult.error || "Blue-green deployment failed");
+      await sshClient.close();
+      throw new Error(deploymentResult.error || "Deployment failed");
     }
 
-    // Configure proxy for the app (this works with network aliases)
+    // Configure proxy if needed
     await configureProxyForApp(
       appEntry,
-      dockerClientRemote,
+      dockerClient,
       serverHostname,
       context.projectName
     );
 
-    console.log(`    [${serverHostname}] Pruning Docker resources...`);
-    await dockerClientRemote.prune();
-
+    await sshClient.close();
     console.log(
-      `    [${serverHostname}] App ${appEntry.name} deployed successfully with zero downtime ✅`
+      `✅ ${appEntry.name} deployed successfully to ${serverHostname}`
     );
-  } catch (serverError) {
+  } catch (error) {
     console.error(
-      `  [${serverHostname}] Failed to deploy app ${appEntry.name}:`,
-      serverError
+      `❌ Failed to deploy ${appEntry.name} to ${serverHostname}:`,
+      error
     );
-    throw serverError; // Re-throw to ensure deployment failure is handled properly
-  } finally {
-    if (sshClient) {
-      await sshClient.close();
-    }
+    throw error;
   }
 }
 

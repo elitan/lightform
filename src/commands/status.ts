@@ -180,13 +180,13 @@ function displayAppStatus(appStatus: AppStatus): void {
     unknown: "❓",
   }[appStatus.status];
 
-  const colorDisplay = appStatus.activeColor
-    ? `(active: ${appStatus.activeColor})`
-    : "(no active color)";
+  const versionDisplay = appStatus.activeColor
+    ? `(${appStatus.activeColor} active)`
+    : "(no active version)";
 
   console.log(`\n📱 App: ${appStatus.name}`);
   console.log(
-    `   Status: ${statusIcon} ${appStatus.status.toUpperCase()} ${colorDisplay}`
+    `   Status: ${statusIcon} ${appStatus.status.toUpperCase()} ${versionDisplay}`
   );
 
   if (appStatus.replicas.total > 0) {
@@ -196,7 +196,7 @@ function displayAppStatus(appStatus: AppStatus): void {
 
     if (appStatus.replicas.blue > 0 || appStatus.replicas.green > 0) {
       console.log(
-        `   Colors: ${appStatus.replicas.blue} blue, ${appStatus.replicas.green} green`
+        `   Versions: ${appStatus.replicas.blue} blue, ${appStatus.replicas.green} green`
       );
     }
   }
@@ -245,7 +245,7 @@ export async function statusCommand(args: string[]): Promise<void> {
         displayAppStatus(appStatus);
       }
 
-      // Services don't use blue-green deployment, so just show basic info
+      // Services don't use zero-downtime deployment, so just show basic info
       for (const service of filteredServices) {
         console.log(`\n🔧 Service: ${service.name}`);
         console.log(`   Servers: ${service.servers.join(", ")}`);
