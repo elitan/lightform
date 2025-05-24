@@ -3,13 +3,16 @@
 import { initCommand } from "./commands/init";
 import { setupCommand } from "./commands/setup";
 import { deployCommand } from "./commands/deploy";
+import { statusCommand } from "./commands/status";
 
 async function main() {
   const args = Bun.argv.slice(2); // Remove 'bun' and 'src/index.ts' from args
 
   if (args.length === 0) {
     console.log("Luma CLI - Please provide a command.");
-    console.log("Available commands: init, setup, deploy, redeploy, rollback");
+    console.log(
+      "Available commands: init, setup, deploy, status, redeploy, rollback"
+    );
     // TODO: Add more detailed help/usage instructions
     return;
   }
@@ -26,11 +29,14 @@ async function main() {
     case "deploy":
       await deployCommand(args.slice(1));
       break;
-    // TODO: Add cases for other commands (setup, deploy, etc.)
+    case "status":
+      await statusCommand(args.slice(1));
+      break;
+    // TODO: Add cases for other commands (redeploy, rollback, etc.)
     default:
       console.log(`Unknown command: ${command}`);
       console.log(
-        "Available commands: init, setup, deploy, redeploy, rollback"
+        "Available commands: init, setup, deploy, status, redeploy, rollback"
       );
       break;
   }

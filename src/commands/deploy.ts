@@ -16,6 +16,7 @@ import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh"; // Upda
 import { generateReleaseId, getProjectNetworkName } from "../utils"; // Changed path and added getProjectNetworkName
 import { execSync } from "child_process";
 import { LumaProxyClient } from "../proxy";
+import { performBlueGreenDeployment } from "./blue-green";
 
 /**
  * Resolves environment variables for a container from plain and secret sources
@@ -464,7 +465,7 @@ async function pushAppImage(
 }
 
 /**
- * Deploys an app to a specific server with full deployment lifecycle
+ * Deploys an app to a specific server using blue-green deployment strategy
  */
 async function deployAppToServer(
   appEntry: AppEntry,
@@ -472,7 +473,9 @@ async function deployAppToServer(
   context: DeploymentContext
 ): Promise<void> {
   console.log(
-    `  Deploying app ${appEntry.name} to server ${serverHostname}...`
+    `  Deploying app ${appEntry.name} to server ${serverHostname} (${
+      appEntry.replicas || 1
+    } replicas)...`
   );
   let sshClient: SSHClient | undefined;
 
@@ -491,28 +494,22 @@ async function deployAppToServer(
       `${appEntry.image}:${context.releaseId}`
     );
 
-    const containerOptions = appEntryToContainerOptions(
+    // Perform blue-green deployment
+    const deploymentResult = await performBlueGreenDeployment({
       appEntry,
-      context.releaseId,
-      context.secrets,
-      context.projectName
-    );
-
-    await createAndHealthCheckContainer(
-      containerOptions,
-      appEntry,
-      dockerClientRemote,
+      releaseId: context.releaseId,
+      secrets: context.secrets,
+      projectName: context.projectName,
+      networkName: context.networkName,
+      dockerClient: dockerClientRemote,
       serverHostname,
-      context.projectName
-    );
+    });
 
-    await cleanupOldContainers(
-      appEntry.name,
-      containerOptions.name,
-      dockerClientRemote,
-      serverHostname
-    );
+    if (!deploymentResult.success) {
+      throw new Error(deploymentResult.error || "Blue-green deployment failed");
+    }
 
+    // Configure proxy for the app (this works with network aliases)
     await configureProxyForApp(
       appEntry,
       dockerClientRemote,
@@ -524,13 +521,14 @@ async function deployAppToServer(
     await dockerClientRemote.prune();
 
     console.log(
-      `    [${serverHostname}] App ${appEntry.name} deployed successfully.`
+      `    [${serverHostname}] App ${appEntry.name} deployed successfully with zero downtime ✅`
     );
   } catch (serverError) {
     console.error(
       `  [${serverHostname}] Failed to deploy app ${appEntry.name}:`,
       serverError
     );
+    throw serverError; // Re-throw to ensure deployment failure is handled properly
   } finally {
     if (sshClient) {
       await sshClient.close();
@@ -696,157 +694,6 @@ async function performRegistryLogin(
       console.log(`    Successfully logged into registry`);
     } else {
       console.error(`    Failed to login to registry:`, loginError);
-    }
-  }
-}
-
-/**
- * Creates a container and performs health checks to ensure it's ready
- */
-async function createAndHealthCheckContainer(
-  containerOptions: DockerContainerOptions,
-  appEntry: AppEntry,
-  dockerClient: DockerClient,
-  serverHostname: string,
-  projectName: string
-): Promise<void> {
-  const containerExists = await dockerClient.containerExists(
-    containerOptions.name
-  );
-  if (containerExists) {
-    const containerRunning = await dockerClient.containerIsRunning(
-      containerOptions.name
-    );
-    if (containerRunning) {
-      console.log(
-        `    [${serverHostname}] Container ${containerOptions.name} is already running. Skipping.`
-      );
-      return;
-    } else {
-      await dockerClient.removeContainer(containerOptions.name);
-    }
-  }
-
-  console.log(
-    `    [${serverHostname}] Starting new container ${containerOptions.name}...`
-  );
-  const createSuccess = await dockerClient.createContainer(containerOptions);
-  if (!createSuccess) {
-    throw new Error(`Failed to create container ${containerOptions.name}`);
-  }
-
-  const isHealthy = await performHealthChecks(
-    containerOptions.name,
-    appEntry,
-    dockerClient,
-    serverHostname,
-    projectName
-  );
-  if (!isHealthy) {
-    await dockerClient.stopContainer(containerOptions.name);
-    await dockerClient.removeContainer(containerOptions.name);
-    throw new Error(`Container ${containerOptions.name} failed health checks`);
-  }
-}
-
-/**
- * Performs health checks on a container using the /up endpoint
- */
-async function performHealthChecks(
-  containerName: string,
-  appEntry: AppEntry,
-  dockerClient: DockerClient,
-  serverHostname: string,
-  projectName: string
-): Promise<boolean> {
-  console.log(
-    `    [${serverHostname}] Performing health checks for ${containerName}...`
-  );
-
-  const hcConfig = appEntry.health_check || {};
-  const startPeriodSeconds = parseInt(hcConfig.start_period || "0s", 10);
-
-  if (startPeriodSeconds > 0) {
-    console.log(
-      `    [${serverHostname}] Waiting for start period: ${startPeriodSeconds}s...`
-    );
-    await new Promise((resolve) =>
-      setTimeout(resolve, startPeriodSeconds * 1000)
-    );
-  }
-
-  try {
-    // Extract the correct app port from proxy configuration
-    const appPort = appEntry.proxy?.app_port || 80;
-    console.log(
-      `    [${serverHostname}] Using app port ${appPort} for health check`
-    );
-
-    const result = await dockerClient.checkContainerEndpoint(
-      containerName,
-      true,
-      projectName,
-      appPort
-    );
-    const [healthCheckPassed] = result as [boolean, string];
-
-    if (healthCheckPassed) {
-      console.log(
-        `    [${serverHostname}] Health check successful for ${containerName}`
-      );
-      return true;
-    } else {
-      console.error(
-        `    [${serverHostname}] Health check failed for ${containerName}`
-      );
-      return false;
-    }
-  } catch (error) {
-    console.error(
-      `    [${serverHostname}] Health check error for ${containerName}:`,
-      error
-    );
-    return false;
-  }
-}
-
-/**
- * Removes old containers from previous deployments of the same app
- */
-async function cleanupOldContainers(
-  appName: string,
-  currentContainerName: string,
-  dockerClient: DockerClient,
-  serverHostname: string
-): Promise<void> {
-  const previousContainers = await dockerClient.findContainersByPrefix(
-    `${appName}-`
-  );
-  const oldContainers = previousContainers.filter(
-    (name) =>
-      name !== currentContainerName && !name.startsWith("luma-hc-helper")
-  );
-
-  if (oldContainers.length > 0) {
-    console.log(
-      `    [${serverHostname}] Cleaning up ${
-        oldContainers.length
-      } old container(s): ${oldContainers.join(", ")}`
-    );
-
-    for (const oldContainer of oldContainers) {
-      try {
-        await dockerClient.stopContainer(oldContainer);
-        await dockerClient.removeContainer(oldContainer);
-        console.log(
-          `    [${serverHostname}] Removed old container ${oldContainer}`
-        );
-      } catch (error) {
-        console.warn(
-          `    [${serverHostname}] Could not remove old container ${oldContainer}:`,
-          error
-        );
-      }
     }
   }
 }

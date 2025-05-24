@@ -66,6 +66,11 @@ export type GlobalProxyOptions = z.infer<typeof GlobalProxyOptionsSchema>;
 export const AppEntryWithoutNameSchema = z.object({
   image: z.string(),
   servers: z.array(z.string()), // For now, simple array of hostnames/IPs
+  replicas: z
+    .number()
+    .min(1)
+    .default(1)
+    .describe("Number of replicas to deploy for this app. Defaults to 1."),
   build: z
     .object({
       context: z.string(),
@@ -79,8 +84,8 @@ export const AppEntryWithoutNameSchema = z.object({
   volumes: z.array(z.string()).optional(), // e.g., ["mydata:/data/db"]
   environment: z
     .object({
-      plain: z.array(z.string()).optional(), // Use array format for environment variables
-      secret: z.array(z.string()).optional(), // Array of secret keys to pull from LumaSecrets
+      plain: z.array(z.string()).optional(), // Array format for environment variables like ["KEY=VALUE"]
+      secret: z.array(z.string()).optional(),
     })
     .optional(),
   registry: z // Optional per-app registry override
@@ -110,7 +115,7 @@ export const ServiceEntryWithoutNameSchema = z.object({
   volumes: z.array(z.string()).optional(),
   environment: z
     .object({
-      plain: z.array(z.string()).optional(), // Use array format for environment variables
+      plain: z.array(z.string()).optional(), // Array format for environment variables
       secret: z.array(z.string()).optional(),
     })
     .optional(),
