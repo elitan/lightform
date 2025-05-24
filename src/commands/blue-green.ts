@@ -266,6 +266,36 @@ export async function performBlueGreenDeployment(
       );
     }
 
+    // Step 2.5: Clean up any existing containers with the target color names
+    // This handles cases where previous deployments failed and left containers behind
+    if (verbose) {
+      console.log(
+        `    [${serverHostname}] Cleaning up existing ${newColor} containers...`
+      );
+    }
+
+    for (const containerName of newContainerNames) {
+      try {
+        const exists = await dockerClient.containerExists(containerName);
+        if (exists) {
+          if (verbose) {
+            console.log(
+              `    [${serverHostname}] Removing existing container ${containerName}...`
+            );
+          }
+          await dockerClient.stopContainer(containerName);
+          await dockerClient.removeContainer(containerName);
+        }
+      } catch (error) {
+        if (verbose) {
+          console.warn(
+            `    [${serverHostname}] Could not remove existing container ${containerName}: ${error}`
+          );
+        }
+        // Continue despite cleanup errors - createContainer will give a more specific error if needed
+      }
+    }
+
     // Step 3: Create new containers
     const deployedContainers: string[] = [];
 
