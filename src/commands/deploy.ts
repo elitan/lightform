@@ -363,20 +363,18 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
     }
     logger.phaseComplete("Building & Pushing Images");
 
-    // Deploy phase for apps
-    logger.phase("Deploying to Servers");
+    // Deploy phase for apps - no phase logging since server steps are self-explanatory
     for (const entry of context.targetEntries) {
       const appEntry = entry as AppEntry;
       await deployAppToServers(appEntry, context);
     }
-    logger.phaseComplete("Deploying to Servers");
   } else {
     // Deploy phase for services
     logger.phase("Deploying Services");
     for (const entry of context.targetEntries) {
       await deployService(entry as ServiceEntry, context);
     }
-    logger.phaseComplete("Deploying Services");
+    logger.phaseComplete("Service deployment complete");
   }
 }
 

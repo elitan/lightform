@@ -6,20 +6,19 @@ Zero-downtime deployments for your own servers.
 
 ```
 ❯ luma deploy
-Using Git SHA for release ID: 5729458
-Starting deployment with release 5729458
+Using Git SHA for release ID: 9d8209a
+Starting deployment with release 9d8209a
 
-[✓] Configuration loaded (12ms)
-[✓] Git status verified (2ms)
-[✓] Infrastructure ready (1.3s)
-[✓] web → elitan/luma-test-web:5729458 (3.4s)
-[✓] Building & Pushing Images (3.4s)
+[✓] Configuration loaded (0ms)
+[✓] Git status verified (3ms)
+[✓] Infrastructure ready (1.2s)
+[✓] web → elitan/luma-test-web:9d8209a (3.3s)
+[✓] Building & Pushing Images (3.3s)
   └─ 157.180.25.101
-     ├─ [✓] Pulling image (2.7s)
-     ├─ [✓] Zero-downtime deployment (3.1s)
-     └─ [✓] Configuring proxy (508ms)
-[✓] Deploying to Servers (509ms)
-[✓] Deployment completed successfully in 11.2s
+     ├─ [✓] Pulling image (2.5s)
+     ├─ [✓] Zero-downtime deployment (1.4s)
+     └─ [✓] Configuring proxy (319ms)
+[✓] Deployment completed successfully in 8.8s
 
 Your app is live at:
   └─ https://test.eliasson.me
