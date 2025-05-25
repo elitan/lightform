@@ -79,7 +79,7 @@ function appEntryToContainerOptions(
   projectName: string
 ): DockerContainerOptions {
   const imageNameWithRelease = buildImageName(appEntry, releaseId);
-  const containerName = `${appEntry.name}-${releaseId}`;
+  const containerName = `${projectName}-${appEntry.name}-${releaseId}`;
   const envVars = resolveEnvironmentVariables(appEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
 

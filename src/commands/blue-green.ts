@@ -20,20 +20,21 @@ export interface BlueGreenDeploymentResult {
 }
 
 /**
- * Generates blue-green container names based on app name, color, and replica count
+ * Generates blue-green container names based on project name, app name, color, and replica count
  */
 function generateContainerNames(
+  projectName: string,
   appName: string,
   color: "blue" | "green",
   replicas: number
 ): string[] {
   if (replicas === 1) {
-    return [`${appName}-${color}`];
+    return [`${projectName}-${appName}-${color}`];
   }
 
   const names: string[] = [];
   for (let i = 1; i <= replicas; i++) {
-    names.push(`${appName}-${color}-${i}`);
+    names.push(`${projectName}-${appName}-${color}-${i}`);
   }
   return names;
 }
@@ -271,6 +272,7 @@ export async function performBlueGreenDeployment(
     // Step 2: Generate container names for new deployment
     const replicas = appEntry.replicas || 1;
     const newContainerNames = generateContainerNames(
+      projectName,
       appEntry.name,
       newColor,
       replicas
