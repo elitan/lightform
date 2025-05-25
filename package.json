@@ -1,7 +1,7 @@
 {
   "name": "@elitan/luma",
   "description": "Zero-downtime deployments for your own servers.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "Elitan",
   "license": "MIT",
   "repository": {
