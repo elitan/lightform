@@ -930,7 +930,7 @@ EOF`);
     projectName: string,
     secrets: LumaSecrets
   ): DockerContainerOptions {
-    const containerName = `luma-${projectName}-${service.name}`;
+    const containerName = `${projectName}-${service.name}`;
     const options: DockerContainerOptions = {
       name: containerName,
       image: service.image,
@@ -938,13 +938,20 @@ EOF`);
       ports: service.ports,
       volumes: service.volumes,
       envVars: {},
+      labels: {
+        "luma.managed": "true",
+        "luma.project": projectName,
+        "luma.type": "service",
+        "luma.service": service.name,
+      },
     };
 
     // Add environment variables
     if (service.environment?.plain) {
-      for (const [key, value] of Object.entries(service.environment.plain)) {
-        if (key && value !== undefined) {
-          options.envVars![key] = value;
+      for (const envVar of service.environment.plain) {
+        const [key, ...valueParts] = envVar.split("=");
+        if (key && valueParts.length > 0) {
+          options.envVars![key] = valueParts.join("=");
         }
       }
     }
@@ -1360,6 +1367,110 @@ EOF`);
     } catch (error) {
       this.logError(`Failed during graceful shutdown: ${error}`);
       return false;
+    }
+  }
+
+  /**
+   * Find all containers managed by Luma for a specific project
+   * @param projectName The project name to filter by
+   * @returns Array of container names belonging to the project
+   */
+  async findProjectContainers(projectName: string): Promise<string[]> {
+    try {
+      return await this.findContainersByLabel(`luma.project=${projectName}`);
+    } catch (error) {
+      this.logError(
+        `Failed to find containers for project ${projectName}: ${error}`
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Find all app containers for a specific project
+   * @param projectName The project name to filter by
+   * @returns Array of container names for apps in the project
+   */
+  async findProjectAppContainers(projectName: string): Promise<string[]> {
+    try {
+      const result = await this.execRemote(
+        `ps -a --filter "label=luma.project=${projectName}" --filter "label=luma.type=app" --format "{{.Names}}"`
+      );
+      if (!result.trim()) {
+        return [];
+      }
+      return result.trim().split("\n");
+    } catch (error) {
+      this.logError(
+        `Failed to find app containers for project ${projectName}: ${error}`
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Find all service containers for a specific project
+   * @param projectName The project name to filter by
+   * @returns Array of container names for services in the project
+   */
+  async findProjectServiceContainers(projectName: string): Promise<string[]> {
+    try {
+      const result = await this.execRemote(
+        `ps -a --filter "label=luma.project=${projectName}" --filter "label=luma.type=service" --format "{{.Names}}"`
+      );
+      if (!result.trim()) {
+        return [];
+      }
+      return result.trim().split("\n");
+    } catch (error) {
+      this.logError(
+        `Failed to find service containers for project ${projectName}: ${error}`
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get detailed information about a project's containers
+   * @param projectName The project name to analyze
+   * @returns Object with apps and services currently deployed
+   */
+  async getProjectCurrentState(projectName: string): Promise<{
+    apps: Record<string, string[]>; // app name -> container names
+    services: Record<string, string>; // service name -> container name
+  }> {
+    const state = {
+      apps: {} as Record<string, string[]>,
+      services: {} as Record<string, string>,
+    };
+
+    try {
+      const allContainers = await this.findProjectContainers(projectName);
+
+      for (const containerName of allContainers) {
+        const labels = await this.getContainerLabels(containerName);
+
+        if (labels["luma.type"] === "app" && labels["luma.app"]) {
+          const appName = labels["luma.app"];
+          if (!state.apps[appName]) {
+            state.apps[appName] = [];
+          }
+          state.apps[appName].push(containerName);
+        } else if (
+          labels["luma.type"] === "service" &&
+          labels["luma.service"]
+        ) {
+          const serviceName = labels["luma.service"];
+          state.services[serviceName] = containerName;
+        }
+      }
+
+      return state;
+    } catch (error) {
+      this.logError(
+        `Failed to get current state for project ${projectName}: ${error}`
+      );
+      return state;
     }
   }
 }

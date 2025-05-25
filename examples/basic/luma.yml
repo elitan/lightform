@@ -32,7 +32,7 @@ services:
     servers:
       - 157.180.25.101
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       plain:
         - POSTGRES_PASSWORD=postgres

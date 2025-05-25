@@ -30,11 +30,16 @@ function resolveEnvironmentVariables(
   secrets: LumaSecrets
 ): Record<string, string> {
   const envVars: Record<string, string> = {};
+
   if (entry.environment?.plain) {
-    for (const [key, value] of Object.entries(entry.environment.plain)) {
-      envVars[key] = value;
+    for (const envVar of entry.environment.plain) {
+      const [key, ...valueParts] = envVar.split("=");
+      if (key && valueParts.length > 0) {
+        envVars[key] = valueParts.join("=");
+      }
     }
   }
+
   if (entry.environment?.secret) {
     for (const secretKey of entry.environment.secret) {
       if (secrets[secretKey] !== undefined) {
@@ -101,7 +106,7 @@ function serviceEntryToContainerOptions(
   secrets: LumaSecrets,
   projectName: string
 ): DockerContainerOptions {
-  const containerName = serviceEntry.name; // Services use their simple name
+  const containerName = `${projectName}-${serviceEntry.name}`; // Project-prefixed names
   const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
 
@@ -113,6 +118,12 @@ function serviceEntryToContainerOptions(
     envVars: envVars,
     network: networkName, // Assumes network is named project_name-network
     restart: "unless-stopped", // Default restart policy for services
+    labels: {
+      "luma.managed": "true",
+      "luma.project": projectName,
+      "luma.type": "service",
+      "luma.service": serviceEntry.name,
+    },
   };
 }
 
@@ -387,11 +398,21 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
       await deployAppToServers(appEntry, context);
     }
   } else {
-    // Deploy phase for services
+    // Deploy phase for services with reconciliation
     logger.phase("Deploying Services");
-    for (const entry of context.targetEntries) {
-      await deployService(entry as ServiceEntry, context);
+
+    // Get all unique servers that need service deployment
+    const allServiceServers = new Set<string>();
+    context.targetEntries.forEach((entry) => {
+      const serviceEntry = entry as ServiceEntry;
+      serviceEntry.servers.forEach((server) => allServiceServers.add(server));
+    });
+
+    // Deploy to each server with reconciliation
+    for (const serverHostname of Array.from(allServiceServers)) {
+      await deployServicesWithReconciliation(context, serverHostname);
     }
+
     logger.phaseComplete("Service deployment complete");
   }
 }
@@ -618,21 +639,42 @@ async function deployService(
   );
 
   for (const serverHostname of serviceEntry.servers) {
-    await deployServiceToServer(serviceEntry, serverHostname, context);
+    let sshClient: SSHClient | undefined;
+
+    try {
+      sshClient = await establishSSHConnection(
+        serverHostname,
+        context.config,
+        context.secrets,
+        context.verboseFlag
+      );
+      const dockerClient = new DockerClient(
+        sshClient,
+        serverHostname,
+        context.verboseFlag
+      );
+
+      await deployServiceDirectly(
+        serviceEntry,
+        dockerClient,
+        serverHostname,
+        context
+      );
+    } finally {
+      if (sshClient) {
+        await sshClient.close();
+      }
+    }
   }
 }
 
 /**
- * Deploys a service to a specific server by replacing the existing container
+ * Deploys services with state reconciliation to a specific server
  */
-async function deployServiceToServer(
-  serviceEntry: ServiceEntry,
-  serverHostname: string,
-  context: DeploymentContext
+async function deployServicesWithReconciliation(
+  context: DeploymentContext,
+  serverHostname: string
 ): Promise<void> {
-  logger.verboseLog(
-    `Deploying service ${serviceEntry.name} to server ${serverHostname}`
-  );
   let sshClient: SSHClient | undefined;
 
   try {
@@ -642,28 +684,82 @@ async function deployServiceToServer(
       context.secrets,
       context.verboseFlag
     );
-    const dockerClientRemote = new DockerClient(
+    const dockerClient = new DockerClient(
       sshClient,
       serverHostname,
       context.verboseFlag
     );
 
+    // Step 1: Plan state reconciliation
+    const reconciliationPlan = await planStateReconciliation(
+      context,
+      dockerClient,
+      serverHostname
+    );
+
+    // Step 2: Remove orphaned services first
+    await removeOrphanedServices(
+      reconciliationPlan.servicesToRemove,
+      dockerClient,
+      serverHostname,
+      context.projectName
+    );
+
+    // Step 3: Deploy/update desired services
+    const servicesToDeploy = context.targetEntries.filter((entry) => {
+      const serviceEntry = entry as ServiceEntry;
+      return serviceEntry.servers.includes(serverHostname);
+    });
+
+    for (const entry of servicesToDeploy) {
+      const serviceEntry = entry as ServiceEntry;
+      await deployServiceDirectly(
+        serviceEntry,
+        dockerClient,
+        serverHostname,
+        context
+      );
+    }
+  } catch (error) {
+    logger.error(`Failed to deploy services to ${serverHostname}: ${error}`);
+    throw error;
+  } finally {
+    if (sshClient) {
+      await sshClient.close();
+    }
+  }
+}
+
+/**
+ * Deploys a service directly to a specific server (low-level function)
+ */
+async function deployServiceDirectly(
+  serviceEntry: ServiceEntry,
+  dockerClient: DockerClient,
+  serverHostname: string,
+  context: DeploymentContext
+): Promise<void> {
+  logger.verboseLog(
+    `Deploying service ${serviceEntry.name} to server ${serverHostname}`
+  );
+
+  try {
     await authenticateAndPullImage(
       serviceEntry,
-      dockerClientRemote,
+      dockerClient,
       context,
       serviceEntry.image
     );
 
     await replaceServiceContainer(
       serviceEntry,
-      dockerClientRemote,
+      dockerClient,
       serverHostname,
       context
     );
 
     logger.verboseLog(`Pruning Docker resources on ${serverHostname}`);
-    await dockerClientRemote.prune();
+    await dockerClient.prune();
 
     logger.verboseLog(
       `Service ${serviceEntry.name} deployed successfully to ${serverHostname}`
@@ -673,10 +769,7 @@ async function deployServiceToServer(
       `Failed to deploy service ${serviceEntry.name} to ${serverHostname}`,
       serverError
     );
-  } finally {
-    if (sshClient) {
-      await sshClient.close();
-    }
+    throw serverError;
   }
 }
 
@@ -830,7 +923,7 @@ async function replaceServiceContainer(
   serverHostname: string,
   context: DeploymentContext
 ): Promise<void> {
-  const containerName = serviceEntry.name;
+  const containerName = `${context.projectName}-${serviceEntry.name}`;
 
   try {
     await dockerClient.stopContainer(containerName);
@@ -856,6 +949,101 @@ async function replaceServiceContainer(
 
   if (!createSuccess) {
     throw new Error(`Failed to create container ${containerName}`);
+  }
+}
+
+/**
+ * Compares desired state with current state and determines required actions
+ */
+async function planStateReconciliation(
+  context: DeploymentContext,
+  dockerClient: DockerClient,
+  serverHostname: string
+): Promise<{
+  servicesToRemove: string[]; // service names to remove
+  servicesToDeploy: string[]; // service names to deploy/update
+}> {
+  logger.verboseLog(`Planning state reconciliation for ${serverHostname}...`);
+
+  // Get current state from server
+  const currentState = await dockerClient.getProjectCurrentState(
+    context.projectName
+  );
+
+  // Determine desired services for this server
+  const configuredServices = normalizeConfigEntries(context.config.services);
+  const desiredServices = new Set<string>();
+
+  configuredServices.forEach((service) => {
+    if (service.servers && service.servers.includes(serverHostname)) {
+      desiredServices.add(service.name);
+    }
+  });
+
+  // Determine what to remove (services that exist but are not in config)
+  const servicesToRemove: string[] = [];
+  Object.keys(currentState.services).forEach((serviceName) => {
+    if (!desiredServices.has(serviceName)) {
+      servicesToRemove.push(serviceName);
+    }
+  });
+
+  // Determine what to deploy (all desired services - deploy will handle updates)
+  const servicesToDeploy = Array.from(desiredServices);
+
+  logger.verboseLog(
+    `State reconciliation plan for ${serverHostname}:
+    - Services to remove: ${
+      servicesToRemove.length > 0 ? servicesToRemove.join(", ") : "none"
+    }
+    - Services to deploy: ${
+      servicesToDeploy.length > 0 ? servicesToDeploy.join(", ") : "none"
+    }`
+  );
+
+  return {
+    servicesToRemove,
+    servicesToDeploy,
+  };
+}
+
+/**
+ * Removes orphaned services that are no longer in the configuration
+ */
+async function removeOrphanedServices(
+  servicesToRemove: string[],
+  dockerClient: DockerClient,
+  serverHostname: string,
+  projectName: string
+): Promise<void> {
+  if (servicesToRemove.length === 0) {
+    return;
+  }
+
+  logger.verboseLog(
+    `Removing ${servicesToRemove.length} orphaned service(s) from ${serverHostname}...`
+  );
+
+  for (const serviceName of servicesToRemove) {
+    const containerName = `${projectName}-${serviceName}`;
+
+    try {
+      logger.verboseLog(`Removing orphaned service: ${serviceName}`);
+
+      // Stop the container gracefully
+      await dockerClient.stopContainer(containerName);
+
+      // Remove the container
+      await dockerClient.removeContainer(containerName);
+
+      logger.verboseLog(
+        `Successfully removed orphaned service: ${serviceName}`
+      );
+    } catch (error) {
+      logger.warn(
+        `Failed to remove orphaned service ${serviceName} on ${serverHostname}: ${error}`
+      );
+    }
   }
 }
 

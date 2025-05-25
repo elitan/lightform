@@ -72,6 +72,12 @@ function createBlueGreenContainerOptions(
     network: `${projectName}-network`,
     networkAlias: appEntry.name, // Will be modified during deployment
     restart: "unless-stopped",
+    labels: {
+      "luma.managed": "true",
+      "luma.project": projectName,
+      "luma.type": "app",
+      "luma.app": appEntry.name,
+    },
   };
 }
 
