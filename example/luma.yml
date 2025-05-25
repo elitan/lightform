@@ -15,6 +15,9 @@ apps:
       context: .
       dockerfile: Dockerfile
       platform: linux/amd64
+    environment:
+      plain:
+        - EXAMPLE_VAR=test
     proxy:
       hosts:
         - test.eliasson.me

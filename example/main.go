@@ -8,7 +8,8 @@ import (
 )
 
 func helloHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello World 5")
+	exampleVar := os.Getenv("EXAMPLE_VAR")
+	fmt.Fprintf(w, "Hello World 5\nEXAMPLE_VAR=%s", exampleVar)
 }
 
 func main() {
