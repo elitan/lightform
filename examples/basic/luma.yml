@@ -20,7 +20,6 @@ apps:
         - EXAMPLE_VAR=test
       secret:
         - SECRET_VAR
-        - SECRET_VAR_B
     proxy:
       hosts:
         - test.eliasson.me
