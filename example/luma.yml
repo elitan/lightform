@@ -18,6 +18,9 @@ apps:
     environment:
       plain:
         - EXAMPLE_VAR=test
+        - EXAMPLE_VAR_B=test2
+      secret:
+        - SECRET_VAR
     proxy:
       hosts:
         - test.eliasson.me

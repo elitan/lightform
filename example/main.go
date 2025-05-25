@@ -9,7 +9,8 @@ import (
 
 func helloHandler(w http.ResponseWriter, r *http.Request) {
 	exampleVar := os.Getenv("EXAMPLE_VAR")
-	fmt.Fprintf(w, "Hello World 5\nEXAMPLE_VAR=%s", exampleVar)
+	secretVar := os.Getenv("SECRET_VAR")
+	fmt.Fprintf(w, "Hello World 5\nEXAMPLE_VAR=%s\nSECRET_VAR=%s", exampleVar, secretVar)
 }
 
 func main() {
