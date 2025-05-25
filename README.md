@@ -133,10 +133,7 @@ Your app is live at:
 
 ### vs Kamal (37signals)
 
-- **TypeScript/Bun** instead of Ruby - familiar for JS developers
-- **Automatic SSL** built-in, no separate configuration needed
-- **Built-in health checks** and blue-green deployments
-- **Simpler configuration** - one YAML file vs multiple
+- **TypeScript/Bun** instead of Ruby
 
 ### vs Vercel/Netlify
 
