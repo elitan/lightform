@@ -2,7 +2,7 @@
   "name": "@elitan/luma",
   "description": "Zero-downtime deployments for your own servers.",
   "version": "0.1.0",
-  "author": "Elitan",
+  "author": "elitan",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -27,7 +27,16 @@
     "build": "tsc",
     "prepublishOnly": "bun run build",
     "start": "bun run src/index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "publish:current": "npm publish",
+    "release:patch": "npm version patch && git push origin main --tags && npm publish",
+    "release:minor": "npm version minor && git push origin main --tags && npm publish",
+    "release:major": "npm version major && git push origin main --tags && npm publish",
+    "release:alpha": "npm version prerelease --preid=alpha && git push origin main --tags && npm publish --tag alpha",
+    "release:beta": "npm version prerelease --preid=beta && git push origin main --tags && npm publish --tag beta",
+    "release:rc": "npm version prerelease --preid=rc && git push origin main --tags && npm publish --tag rc",
+    "publish:dry-run": "npm publish --dry-run",
+    "version:check": "npm version --json"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
