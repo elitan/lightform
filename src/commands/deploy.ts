@@ -356,24 +356,27 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
 
   if (isApp) {
     // Build phase for apps
-    logger.phase("📦 Building & Pushing Images");
+    logger.phase("Building & Pushing Images");
     for (const entry of context.targetEntries) {
       const appEntry = entry as AppEntry;
       await buildAndPushApp(appEntry, context);
     }
+    logger.phaseComplete("Building & Pushing Images");
 
     // Deploy phase for apps
-    logger.phase("🔄 Deploying to Servers");
+    logger.phase("Deploying to Servers");
     for (const entry of context.targetEntries) {
       const appEntry = entry as AppEntry;
       await deployAppToServers(appEntry, context);
     }
+    logger.phaseComplete("Deploying to Servers");
   } else {
     // Deploy phase for services
-    logger.phase("🔄 Deploying Services");
+    logger.phase("Deploying Services");
     for (const entry of context.targetEntries) {
       await deployService(entry as ServiceEntry, context);
     }
+    logger.phaseComplete("Deploying Services");
   }
 }
 
@@ -515,8 +518,6 @@ async function deployAppToServer(
   context: DeploymentContext,
   isLastServer: boolean = false
 ): Promise<void> {
-  const stepStart = Date.now();
-
   try {
     logger.verboseLog(`Deploying ${appEntry.name} to ${serverHostname}`);
 
@@ -536,18 +537,17 @@ async function deployAppToServer(
     const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
 
     // Step 1: Pull image
-    const pullStart = Date.now();
+    logger.serverStep("Pulling image");
     await authenticateAndPullImage(
       appEntry,
       dockerClient,
       context,
       imageNameWithRelease
     );
-    const pullDuration = Date.now() - pullStart;
-    logger.serverStepComplete(`Pulling image`, pullDuration);
+    logger.serverStepComplete(`Pulling image`);
 
     // Step 2: Zero-downtime deployment
-    const deployStart = Date.now();
+    logger.serverStep("Zero-downtime deployment");
     const deploymentResult = await performBlueGreenDeployment({
       appEntry,
       releaseId: context.releaseId,
@@ -563,11 +563,10 @@ async function deployAppToServer(
       await sshClient.close();
       throw new Error(deploymentResult.error || "Deployment failed");
     }
-    const deployDuration = Date.now() - deployStart;
-    logger.serverStepComplete(`Zero-downtime deployment`, deployDuration);
+    logger.serverStepComplete(`Zero-downtime deployment`);
 
     // Step 3: Configure proxy
-    const proxyStart = Date.now();
+    logger.serverStep("Configuring proxy", isLastServer);
     await configureProxyForApp(
       appEntry,
       dockerClient,
@@ -575,8 +574,7 @@ async function deployAppToServer(
       context.projectName,
       context.verboseFlag
     );
-    const proxyDuration = Date.now() - proxyStart;
-    logger.serverStepComplete(`Configuring proxy`, proxyDuration, isLastServer);
+    logger.serverStepComplete(`Configuring proxy`, undefined, isLastServer);
 
     await sshClient.close();
   } catch (error) {
@@ -856,11 +854,13 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     logger.deploymentStart(releaseId);
 
     // Check git status
-    logger.phase("✅ Configuration loaded");
+    logger.phase("Configuration loading");
     await checkUncommittedChanges(forceFlag);
+    logger.phaseComplete("Configuration loaded");
 
+    logger.phase("Verifying git status");
     const { config, secrets } = await loadConfigurationAndSecrets();
-    logger.phase("✅ Git status verified");
+    logger.phaseComplete("Git status verified");
 
     const targetEntries = identifyTargetEntries(
       entryNames,
@@ -876,7 +876,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     const networkName = getProjectNetworkName(projectName);
 
     // Verify infrastructure
-    logger.phase("✅ Infrastructure ready");
+    logger.phase("Checking infrastructure");
     await verifyInfrastructure(
       targetEntries,
       config,
@@ -884,6 +884,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       networkName,
       verboseFlag
     );
+    logger.phaseComplete("Infrastructure ready");
 
     const context: DeploymentContext = {
       config,
@@ -916,5 +917,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
   } catch (error) {
     logger.deploymentFailed(error);
     process.exit(1);
+  } finally {
+    logger.cleanup();
   }
 }

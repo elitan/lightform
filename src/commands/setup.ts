@@ -33,11 +33,12 @@ async function setupServer(
 ) {
   const stepStart = Date.now();
   let sshClient: SSHClient | undefined;
+  let sshCredentials: any;
 
   try {
     logger.server(serverHostname);
 
-    const sshCredentials = await getSSHCredentials(
+    sshCredentials = await getSSHCredentials(
       serverHostname,
       config,
       secrets,
@@ -114,7 +115,6 @@ async function setupServer(
     );
 
     // Step 1: Check Docker installation
-    const dockerStart = Date.now();
     logger.serverStep("Checking Docker installation");
     const dockerInstalled = await dockerClient.checkInstallation();
 
@@ -130,14 +130,11 @@ async function setupServer(
         return;
       }
     }
-    const dockerDuration = Date.now() - dockerStart;
     logger.serverStepComplete(
-      `Docker ${dockerInstalled ? "verified" : "installed"}`,
-      dockerDuration
+      `Docker ${dockerInstalled ? "verified" : "installed"}`
     );
 
     // Step 2: Docker registry authentication
-    const registryStart = Date.now();
     logger.serverStep("Configuring Docker registry");
 
     const dockerRegistry = config.docker?.registry || "docker.io";
@@ -159,8 +156,7 @@ async function setupServer(
         `Please ensure DOCKER_REGISTRY_PASSWORD is in .luma/secrets and docker.username is in luma.yml if login is required.`
       );
     }
-    const registryDuration = Date.now() - registryStart;
-    logger.serverStepComplete(`Docker registry configured`, registryDuration);
+    logger.serverStepComplete(`Docker registry configured`);
 
     // Step 3: Create project network
     if (!config.name) {
@@ -177,15 +173,12 @@ async function setupServer(
       );
     }
 
-    const networkStart = Date.now();
     logger.serverStep("Creating project network");
     const networkName = `${config.name}-network`;
     await dockerClient.createNetwork({ name: networkName });
-    const networkDuration = Date.now() - networkStart;
-    logger.serverStepComplete(`Network ${networkName} ready`, networkDuration);
+    logger.serverStepComplete(`Network ${networkName} ready`);
 
     // Step 4: Setup Luma Proxy
-    const proxyStart = Date.now();
     logger.serverStep("Setting up Luma Proxy");
     const proxySetupResult = await setupLumaProxy(
       serverHostname,
@@ -233,15 +226,12 @@ async function setupServer(
         );
       }
     }
-    const proxyDuration = Date.now() - proxyStart;
     logger.serverStepComplete(
-      `Luma Proxy ${proxySetupResult ? "configured" : "failed"}`,
-      proxyDuration
+      `Luma Proxy ${proxySetupResult ? "configured" : "failed"}`
     );
 
     // Step 5: Setup services
-    const servicesStart = Date.now();
-    logger.serverStep("Setting up services");
+    logger.serverStep("Setting up services", true);
 
     const servicesOnThisServer = Object.entries(config.services || {})
       .filter(
@@ -354,8 +344,7 @@ async function setupServer(
         }
       }
     }
-    const servicesDuration = Date.now() - servicesStart;
-    logger.serverStepComplete(`Services configured`, servicesDuration, true);
+    logger.serverStepComplete(`Services configured`, undefined, true);
 
     await sshClient.close();
   } catch (error: any) {
@@ -453,7 +442,7 @@ export async function setupCommand(
       return;
     }
 
-    logger.phase(`🔄 Setting up ${uniqueServers.size} server(s)`);
+    logger.phase(`Setting up ${uniqueServers.size} server(s)`);
     logger.verboseLog(
       `Target servers: ${Array.from(uniqueServers).join(", ")}`
     );
@@ -462,9 +451,12 @@ export async function setupCommand(
       await setupServer(serverHostname, config, secrets);
     }
 
+    logger.phaseComplete(`Setting up ${uniqueServers.size} server(s)`);
     logger.setupComplete();
   } catch (error) {
     logger.setupFailed(error);
     process.exit(1);
+  } finally {
+    logger.cleanup();
   }
 }

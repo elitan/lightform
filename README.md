@@ -1,12 +1,13 @@
-# Luma CLI ⚡
+# Luma ⚡
 
-**Ship Docker Anywhere.** Zero-downtime deployments for your own servers.
+**Ship Docker Anywhere.**
+
+Zero-downtime deployments for your own servers.
 
 Built with TypeScript and Bun as a modern alternative to Kamal.
 
 ```bash
-# Install with Bun
-bun install -g luma-cli
+npm install -g @elitan/luma
 
 # Deploy your app
 luma deploy
@@ -29,14 +30,7 @@ Luma automatically handles:
 ### 1. Install Luma
 
 ```bash
-# Via Bun (recommended)
-bun install -g luma-cli
-
-# Or via npm
-npm install -g luma-cli
-
-# Or run directly with Bun
-bunx luma-cli
+npm install -g @elitan/luma
 ```
 
 ### 2. Initialize your project
@@ -81,9 +75,8 @@ luma setup
 Luma will:
 
 - Install Docker if needed
-- Configure networking
 - Set up the reverse proxy
-- Create SSL certificates
+- Start services
 
 ### 5. Deploy!
 
@@ -94,24 +87,24 @@ luma deploy
 Watch as Luma builds, deploys, and switches traffic with zero downtime:
 
 ```
-🚀 Starting deployment with release a1b2c3d
+Starting deployment with release a1b2c3d
 
-✅ Configuration loaded
-✅ Git status verified
-✅ Infrastructure ready
+[✓] Configuration loaded (2.3s)
+[✓] Git status verified (1.2s)
+[✓] Infrastructure ready (0.8s)
 
-📦 Building & Pushing Images
-  └─ web → my-app/web:a1b2c3d ✅ (2.1s)
+Building & Pushing Images
+  [✓] web → my-app/web:a1b2c3d (2.1s)
 
-🔄 Deploying to Servers
+Deploying to Servers
   └─ your-server.com
-     ├─ Pulling image ✅ (1.3s)
-     ├─ Zero-downtime deployment ✅ (3.8s)
-     └─ Configuring SSL proxy ✅ (0.5s)
+     ├─ [✓] Pulling image (1.3s)
+     ├─ [✓] Zero-downtime deployment (3.8s)
+     └─ [✓] Configuring SSL proxy (0.5s)
 
-✅ Deployment completed successfully in 7.7s
+[✓] Deployment completed successfully in 7.7s
 
-🌐 Your app is live at:
+Your app is live at:
   └─ https://myapp.com
 ```
 
