@@ -1,0 +1,33 @@
+# Source files
+src/
+test/
+*.test.ts
+*.spec.ts
+
+# Development files
+.cursor/
+.git/
+.gitignore
+tsconfig.json
+bun.lock
+bun.lockb
+
+# Documentation not needed in package
+IMPLEMENTATION_*.md
+BLUE_GREEN_*.md
+ZERO_DOWNTIME_*.md
+PRD.md
+AGENTS.md
+todos
+*.sh
+
+# Example and proxy directories
+example/
+luma-proxy/
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db 

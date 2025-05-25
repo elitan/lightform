@@ -530,14 +530,14 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ```bash
 git clone https://github.com/yourusername/luma
 cd luma
-bun install
-bun run dev
+npm install  # or: bun install
+npm run dev  # or: bun run dev
 ```
 
 ### Running Tests
 
 ```bash
-bun test
+npm test  # or: bun test
 ```
 
 ---

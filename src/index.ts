@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 
 import { initCommand } from "./commands/init";
 import { setupCommand } from "./commands/setup";
@@ -24,7 +24,7 @@ function parseArgs(args: string[]): { flags: string[]; nonFlagArgs: string[] } {
 }
 
 async function main() {
-  const args = Bun.argv.slice(2); // Remove 'bun' and 'src/index.ts' from args
+  const args = process.argv.slice(2); // Remove 'node' and script path from args
 
   if (args.length === 0) {
     console.log("Luma CLI - Please provide a command.");

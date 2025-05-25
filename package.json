@@ -1,7 +1,31 @@
 {
-  "name": "luma",
+  "name": "@elitan/luma",
+  "description": "Zero-downtime deployments for your own servers.",
   "version": "0.1.0",
+  "author": "Elitan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elitan/luma.git"
+  },
+  "keywords": [
+    "deployment",
+    "zero-downtime",
+    "docker",
+    "ssh",
+    "cli"
+  ],
+  "bin": {
+    "luma": "dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
   "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "bun run build",
     "start": "bun run src/index.ts",
     "test": "bun test"
   },
@@ -13,15 +37,11 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/js-yaml": "^4.0.5",
-    "@types/node": "^20"
-  },
-  "bin": {
-    "luma": "src/index.ts"
-  },
-  "module": "src/index.ts",
-  "type": "module",
-  "private": true,
-  "peerDependencies": {
+    "@types/node": "^20",
+    "@types/ssh2": "^1.15.0",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
