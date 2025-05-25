@@ -73,7 +73,7 @@ function appEntryToContainerOptions(
   secrets: LumaSecrets,
   projectName: string
 ): DockerContainerOptions {
-  const imageNameWithRelease = `${appEntry.image}:${releaseId}`;
+  const imageNameWithRelease = buildImageName(appEntry, releaseId);
   const containerName = `${appEntry.name}-${releaseId}`;
   const envVars = resolveEnvironmentVariables(appEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
@@ -355,15 +355,33 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   const isApp = !context.deployServicesFlag;
 
   if (isApp) {
-    // Build phase for apps
-    logger.phase("Building & Pushing Images");
-    for (const entry of context.targetEntries) {
-      const appEntry = entry as AppEntry;
-      await buildAndPushApp(appEntry, context);
-    }
-    logger.phaseComplete("Building & Pushing Images");
+    // Separate apps into those that need building vs pre-built
+    const appsNeedingBuild = context.targetEntries.filter(
+      (entry) => (entry as AppEntry).build
+    ) as AppEntry[];
+    const preBuiltApps = context.targetEntries.filter(
+      (entry) => !(entry as AppEntry).build
+    ) as AppEntry[];
 
-    // Deploy phase for apps - no phase logging since server steps are self-explanatory
+    // Build phase for apps that have build config
+    if (appsNeedingBuild.length > 0) {
+      logger.phase("Building & Pushing Images");
+      for (const appEntry of appsNeedingBuild) {
+        await buildAndPushApp(appEntry, context);
+      }
+      logger.phaseComplete("Building & Pushing Images");
+    }
+
+    // Skip build phase for pre-built apps and show info
+    if (preBuiltApps.length > 0) {
+      logger.verboseLog(
+        `Using pre-built images: ${preBuiltApps
+          .map((app) => `${app.name} (${app.image})`)
+          .join(", ")}`
+      );
+    }
+
+    // Deploy phase for all apps
     for (const entry of context.targetEntries) {
       const appEntry = entry as AppEntry;
       await deployAppToServers(appEntry, context);
@@ -501,10 +519,15 @@ async function pushAppImage(
 }
 
 /**
- * Builds the full image name with release ID
+ * Builds the full image name with release ID for built apps, or returns original name for pre-built apps
  */
 function buildImageName(appEntry: AppEntry, releaseId: string): string {
-  return `${appEntry.image}:${releaseId}`;
+  // For apps with build config, use release ID
+  if (appEntry.build) {
+    return `${appEntry.image}:${releaseId}`;
+  }
+  // For pre-built apps, use the image as-is
+  return appEntry.image;
 }
 
 /**

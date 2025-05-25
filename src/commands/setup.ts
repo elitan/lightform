@@ -387,7 +387,7 @@ async function setupServer(
 }
 
 export async function setupCommand(
-  serviceNames?: string[],
+  entryNames?: string[],
   verbose: boolean = false
 ) {
   try {
@@ -399,59 +399,74 @@ export async function setupCommand(
     const config = await loadConfig();
     const secrets = await loadSecrets();
 
+    const configuredApps = normalizeConfigEntries(config.apps);
     const configuredServices = normalizeConfigEntries(config.services);
-    let servicesToSetup: Array<any> = [];
 
-    if (serviceNames && serviceNames.length > 0) {
-      logger.verboseLog(`Targeting services: ${serviceNames.join(", ")}`);
-      serviceNames.forEach((name) => {
-        const service = configuredServices.find((s) => s.name === name);
-        if (service) {
-          servicesToSetup.push(service);
-        } else {
-          logger.warn(
-            `Service "${name}" not found in configuration. Skipping.`
-          );
-        }
-      });
-    } else {
-      logger.verboseLog("Targeting all services for setup.");
-      servicesToSetup = configuredServices;
-    }
+    // Collect all servers from both apps and services
+    const allServers = new Set<string>();
 
-    if (servicesToSetup.length === 0) {
-      logger.info("No services to set up.");
-      return;
-    }
-
-    const uniqueServers = new Set<string>();
-    servicesToSetup.forEach((service) => {
-      if (service.servers && service.servers.length > 0) {
-        service.servers.forEach((server: string) => uniqueServers.add(server));
-      } else {
-        logger.warn(
-          `Service "${
-            service.name || "Unknown Service"
-          }" has no servers defined. Skipping.`
-        );
+    // Add servers from apps
+    configuredApps.forEach((app) => {
+      if (app.servers && app.servers.length > 0) {
+        app.servers.forEach((server: string) => allServers.add(server));
       }
     });
 
-    if (uniqueServers.size === 0) {
-      logger.info("No target servers found for the specified services.");
+    // Add servers from services
+    configuredServices.forEach((service) => {
+      if (service.servers && service.servers.length > 0) {
+        service.servers.forEach((server: string) => allServers.add(server));
+      }
+    });
+
+    // If specific entry names were provided, filter to only those servers
+    if (entryNames && entryNames.length > 0) {
+      logger.verboseLog(`Targeting entries: ${entryNames.join(", ")}`);
+
+      const targetServers = new Set<string>();
+
+      entryNames.forEach((name) => {
+        const app = configuredApps.find((a) => a.name === name);
+        if (app && app.servers) {
+          app.servers.forEach((server: string) => targetServers.add(server));
+        }
+
+        const service = configuredServices.find((s) => s.name === name);
+        if (service && service.servers) {
+          service.servers.forEach((server: string) =>
+            targetServers.add(server)
+          );
+        }
+
+        if (!app && !service) {
+          logger.warn(
+            `Entry "${name}" not found in apps or services configuration. Skipping.`
+          );
+        }
+      });
+
+      // Replace allServers with the filtered set
+      allServers.clear();
+      targetServers.forEach((server) => allServers.add(server));
+    } else {
+      logger.verboseLog("Targeting all servers for setup.");
+    }
+
+    if (allServers.size === 0) {
+      logger.info(
+        "No servers to set up. Please check your luma.yml configuration has apps or services with servers defined."
+      );
       return;
     }
 
-    logger.phase(`Setting up ${uniqueServers.size} server(s)`);
-    logger.verboseLog(
-      `Target servers: ${Array.from(uniqueServers).join(", ")}`
-    );
+    logger.phase(`Setting up ${allServers.size} server(s)`);
+    logger.verboseLog(`Target servers: ${Array.from(allServers).join(", ")}`);
 
-    for (const serverHostname of uniqueServers) {
+    for (const serverHostname of allServers) {
       await setupServer(serverHostname, config, secrets);
     }
 
-    logger.phaseComplete(`Setting up ${uniqueServers.size} server(s)`);
+    logger.phaseComplete(`Setting up ${allServers.size} server(s)`);
     logger.setupComplete();
   } catch (error) {
     logger.setupFailed(error);

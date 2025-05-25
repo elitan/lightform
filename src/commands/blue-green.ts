@@ -39,6 +39,18 @@ function generateContainerNames(
 }
 
 /**
+ * Builds the full image name with release ID for built apps, or returns original name for pre-built apps
+ */
+function buildImageName(appEntry: AppEntry, releaseId: string): string {
+  // For apps with build config, use release ID
+  if (appEntry.build) {
+    return `${appEntry.image}:${releaseId}`;
+  }
+  // For pre-built apps, use the image as-is
+  return appEntry.image;
+}
+
+/**
  * Creates container options for blue-green deployment
  */
 function createBlueGreenContainerOptions(
@@ -48,7 +60,7 @@ function createBlueGreenContainerOptions(
   projectName: string,
   containerName: string
 ): DockerContainerOptions {
-  const imageNameWithRelease = `${appEntry.image}:${releaseId}`;
+  const imageNameWithRelease = buildImageName(appEntry, releaseId);
   const envVars = resolveEnvironmentVariables(appEntry, secrets);
 
   return {
