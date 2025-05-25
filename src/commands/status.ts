@@ -6,7 +6,7 @@ import {
   LumaSecrets,
 } from "../config/types";
 import { DockerClient } from "../docker";
-import { SSHClient, getSSHCredentials } from "../ssh";
+import { SSHClient, getSSHCredentials, SSHClientOptions } from "../ssh";
 import { Logger } from "../utils/logger";
 
 // Module-level logger
@@ -60,8 +60,16 @@ async function getAppStatusOnServer(
       secrets,
       logger.verbose
     );
-    if (!sshCreds.host) sshCreds.host = serverHostname;
-    sshClient = await SSHClient.create(sshCreds);
+
+    // Ensure host is set (it should be, but TypeScript requires this)
+    const sshOptions: SSHClientOptions = {
+      ...sshCreds,
+      host: sshCreds.host || serverHostname,
+      username: sshCreds.username || "root",
+      port: sshCreds.port || 22,
+    };
+
+    sshClient = await SSHClient.create(sshOptions);
     await sshClient.connect();
 
     const dockerClient = new DockerClient(

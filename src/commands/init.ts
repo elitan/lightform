@@ -1,5 +1,6 @@
 import path from "path";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile, access } from "node:fs/promises";
+import { constants } from "node:fs";
 
 // CONFIG_DIR is no longer needed
 const LUMA_DIR = ".luma";
@@ -45,14 +46,19 @@ export async function initCommand() {
   }
 
   // Config file handling
-  const actualConfigFile = Bun.file(ACTUAL_CONFIG_PATH);
-  const configExistsInitially = await actualConfigFile.exists();
+  let configExistsInitially = false;
+  try {
+    await access(ACTUAL_CONFIG_PATH, constants.F_OK);
+    configExistsInitially = true;
+  } catch {
+    // File doesn't exist
+  }
 
   if (configExistsInitially) {
     console.log(`Configuration file ${ACTUAL_CONFIG_PATH} already exists.`);
   } else {
     try {
-      await Bun.write(actualConfigFile, MINIMAL_CONFIG_CONTENT); // Create a minimal config file
+      await writeFile(ACTUAL_CONFIG_PATH, MINIMAL_CONFIG_CONTENT, "utf8");
       console.log(`Created minimal configuration file: ${ACTUAL_CONFIG_PATH}`);
       configCreated = true;
     } catch (e) {
@@ -62,14 +68,19 @@ export async function initCommand() {
   }
 
   // Secrets file handling
-  const actualSecretsFile = Bun.file(ACTUAL_SECRETS_PATH);
-  const secretsExistInitially = await actualSecretsFile.exists();
+  let secretsExistInitially = false;
+  try {
+    await access(ACTUAL_SECRETS_PATH, constants.F_OK);
+    secretsExistInitially = true;
+  } catch {
+    // File doesn't exist
+  }
 
   if (secretsExistInitially) {
     console.log(`Secrets file ${ACTUAL_SECRETS_PATH} already exists.`);
   } else {
     try {
-      await Bun.write(actualSecretsFile, ""); // Create an empty secrets file
+      await writeFile(ACTUAL_SECRETS_PATH, "", "utf8");
       console.log(`Created empty secrets file: ${ACTUAL_SECRETS_PATH}`);
       secretsCreated = true;
     } catch (e) {
