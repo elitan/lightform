@@ -525,30 +525,26 @@ apps:
 
 ---
 
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
 ### Development Setup
 
 ```bash
-git clone https://github.com/yourusername/luma
+git clone https://github.com/elitan/luma
 cd luma
-npm install  # or: bun install
-npm run dev  # or: bun run dev
+bun install
+bun run dev
 ```
 
 ### Running Tests
 
 ```bash
-npm test  # or: bun test
+bun test
 ```
 
 ---
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT License
 
 ---
 
