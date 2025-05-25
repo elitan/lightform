@@ -230,7 +230,9 @@ docker:
 apps:
   web:
     image: my-app/web # Docker image name
-    servers: [server1.com, server2.com] # Target servers
+    servers:
+      - server1.com
+      - server2.com # Target servers
 
     # Build configuration (optional)
     build:
@@ -240,7 +242,9 @@ apps:
 
     # Proxy configuration for web apps
     proxy:
-      hosts: [example.com, www.example.com]
+      hosts:
+        - example.com
+        - www.example.com
       app_port: 3000
 
     # Environment variables
@@ -262,10 +266,13 @@ apps:
 services:
   database:
     image: postgres:15
-    servers: [db.example.com]
+    servers:
+      - db.example.com
     environment:
-      secret: [POSTGRES_PASSWORD]
-    ports: ["5432:5432"]
+      secret:
+        - POSTGRES_PASSWORD
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 ```
