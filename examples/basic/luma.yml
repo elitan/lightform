@@ -26,6 +26,11 @@ apps:
         - test.eliasson.me
       app_port: 3000
 
+  web2:
+    image: nginxdemos/hello
+    servers:
+      - 157.180.25.101
+
 services:
   db:
     image: postgres:17
