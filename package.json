@@ -32,14 +32,14 @@
     "start": "bun run src/index.ts",
     "test": "bun test",
     "publish:current": "bun publish --access public",
-    "release:patch": "bun version patch && git push origin main --tags && bun publish --access public",
-    "release:minor": "bun version minor && git push origin main --tags && bun publish --access public",
-    "release:major": "bun version major && git push origin main --tags && bun publish --access public",
-    "release:alpha": "bun version prerelease --preid=alpha && git push origin main --tags && bun publish --tag alpha --access public",
-    "release:beta": "bun version prerelease --preid=beta && git push origin main --tags && bun publish --tag beta --access public",
-    "release:rc": "bun version prerelease --preid=rc && git push origin main --tags && bun publish --tag rc --access public",
+    "release:patch": "npm version patch && git push origin main --tags && bun publish --access public",
+    "release:minor": "npm version minor && git push origin main --tags && bun publish --access public",
+    "release:major": "npm version major && git push origin main --tags && bun publish --access public",
+    "release:alpha": "npm version prerelease --preid=alpha && git push origin main --tags && bun publish --tag alpha --access public",
+    "release:beta": "npm version prerelease --preid=beta && git push origin main --tags && bun publish --tag beta --access public",
+    "release:rc": "npm version prerelease --preid=rc && git push origin main --tags && bun publish --tag rc --access public",
     "publish:dry-run": "bun publish --dry-run",
-    "version:check": "bun version --json"
+    "version:check": "npm version --json"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
