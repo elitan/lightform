@@ -32,8 +32,6 @@ Luma automatically handles:
 - ✅ Docker image building and registry management
 - ✅ Multi-server deployments
 
-**Perfect for developers who want Vercel-like simplicity on their own infrastructure.**
-
 ---
 
 ## 🚀 Quick Start
