@@ -1,5 +1,8 @@
 ---
-description:
-globs:
+description: 
+globs: 
 alwaysApply: false
 ---
+the example/basic is a project we can use to try and verify that Luma works.
+
+It deploys to a server, and you can ssh into that server using `ssh luma`, but you need to write commands and exexute ssh commands from this host machine.

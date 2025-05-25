@@ -392,6 +392,27 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
       );
     }
 
+    // Clean up removed apps with reconciliation
+    logger.phase("App State Reconciliation");
+    const allAppServers = new Set<string>();
+    context.targetEntries.forEach((entry) => {
+      const appEntry = entry as AppEntry;
+      appEntry.servers.forEach((server) => allAppServers.add(server));
+    });
+
+    // Also check servers that might have orphaned apps
+    const configuredApps = normalizeConfigEntries(context.config.apps);
+    const allConfiguredServers = new Set<string>();
+    configuredApps.forEach((app) => {
+      app.servers.forEach((server: string) => allConfiguredServers.add(server));
+    });
+    allConfiguredServers.forEach((server) => allAppServers.add(server));
+
+    for (const serverHostname of Array.from(allAppServers)) {
+      await reconcileAppsOnServer(context, serverHostname);
+    }
+    logger.phaseComplete("App State Reconciliation");
+
     // Deploy phase for all apps
     for (const entry of context.targetEntries) {
       const appEntry = entry as AppEntry;
@@ -1042,6 +1063,133 @@ async function removeOrphanedServices(
     } catch (error) {
       logger.warn(
         `Failed to remove orphaned service ${serviceName} on ${serverHostname}: ${error}`
+      );
+    }
+  }
+}
+
+/**
+ * Reconciles app state on a specific server - removes orphaned apps
+ */
+async function reconcileAppsOnServer(
+  context: DeploymentContext,
+  serverHostname: string
+): Promise<void> {
+  let sshClient: SSHClient | undefined;
+
+  try {
+    sshClient = await establishSSHConnection(
+      serverHostname,
+      context.config,
+      context.secrets,
+      context.verboseFlag
+    );
+    const dockerClient = new DockerClient(
+      sshClient,
+      serverHostname,
+      context.verboseFlag
+    );
+
+    logger.verboseLog(`Planning app reconciliation for ${serverHostname}...`);
+
+    // Get current app state from server
+    const currentState = await dockerClient.getProjectCurrentState(
+      context.projectName
+    );
+
+    // Determine desired apps for this server
+    const configuredApps = normalizeConfigEntries(context.config.apps);
+    const desiredApps = new Set<string>();
+
+    configuredApps.forEach((app) => {
+      if (app.servers && app.servers.includes(serverHostname)) {
+        desiredApps.add(app.name);
+      }
+    });
+
+    // Determine what to remove (apps that exist but are not in config)
+    const appsToRemove: string[] = [];
+    Object.keys(currentState.apps).forEach((appName) => {
+      if (!desiredApps.has(appName)) {
+        appsToRemove.push(appName);
+      }
+    });
+
+    if (appsToRemove.length > 0) {
+      logger.verboseLog(
+        `Apps to remove from ${serverHostname}: ${appsToRemove.join(", ")}`
+      );
+
+      await removeOrphanedApps(
+        appsToRemove,
+        dockerClient,
+        serverHostname,
+        context.projectName
+      );
+    } else {
+      logger.verboseLog(`No orphaned apps to remove from ${serverHostname}`);
+    }
+  } catch (error) {
+    logger.error(`Failed to reconcile apps on ${serverHostname}: ${error}`);
+    throw error;
+  } finally {
+    if (sshClient) {
+      await sshClient.close();
+    }
+  }
+}
+
+/**
+ * Removes orphaned apps that are no longer in the configuration
+ */
+async function removeOrphanedApps(
+  appsToRemove: string[],
+  dockerClient: DockerClient,
+  serverHostname: string,
+  projectName: string
+): Promise<void> {
+  if (appsToRemove.length === 0) {
+    return;
+  }
+
+  logger.verboseLog(
+    `Removing ${appsToRemove.length} orphaned app(s) from ${serverHostname}...`
+  );
+
+  for (const appName of appsToRemove) {
+    try {
+      logger.verboseLog(`Removing orphaned app: ${appName}`);
+
+      // Find all containers for this app (both blue and green)
+      const appContainers = await dockerClient.findContainersByLabel(
+        `luma.app=${appName}`
+      );
+
+      if (appContainers.length > 0) {
+        logger.verboseLog(
+          `Found ${
+            appContainers.length
+          } containers for app ${appName}: ${appContainers.join(", ")}`
+        );
+
+        // Stop and remove all containers for this app
+        for (const containerName of appContainers) {
+          try {
+            await dockerClient.stopContainer(containerName);
+            await dockerClient.removeContainer(containerName);
+            logger.verboseLog(`Removed container: ${containerName}`);
+          } catch (containerError) {
+            logger.warn(
+              `Failed to remove container ${containerName}: ${containerError}`
+            );
+          }
+        }
+      }
+
+      logger.verboseLog(`Successfully removed orphaned app: ${appName}`);
+    } catch (error) {
+      logger.warn(
+        `Failed to remove orphaned app ${appName} on ${serverHostname}: ${error}`
       );
     }
   }
