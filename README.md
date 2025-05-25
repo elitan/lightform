@@ -1,389 +1,549 @@
-# Luma CLI
+# Luma CLI ⚡
 
-Luma CLI is a tool for managing the deployment of your applications.
+**Ship Docker Anywhere.** Zero-downtime deployments for your own servers.
 
-## Installation
-
-Ensure you have Bun installed. Then, you can run the CLI directly:
+Built with TypeScript and Bun as a modern alternative to Kamal.
 
 ```bash
-bun src/index.ts <command>
+# Install with Bun
+bun install -g luma-cli
+
+# Deploy your app
+luma deploy
 ```
 
-Or, build it and then run the executable (details TBD).
+Luma automatically handles:
 
-## Commands
+- ✅ Zero-downtime blue-green deployments
+- ✅ Automatic SSL certificates via Let's Encrypt
+- ✅ Health checks and automatic rollbacks
+- ✅ Docker image building and registry management
+- ✅ Multi-server deployments
 
-### `init`
+**Perfect for developers who want Vercel-like simplicity on their own infrastructure.**
 
-Initializes a new Luma project. This creates:
+---
 
-- `luma.yml`: The main configuration file for your services.
-- `.luma/secrets`: A file to store sensitive information like API keys or passwords. This file should be added to `.gitignore`.
+## 🚀 Quick Start
+
+### 1. Install Luma
 
 ```bash
-bun src/index.ts init
+# Via Bun (recommended)
+bun install -g luma-cli
+
+# Or via npm
+npm install -g luma-cli
+
+# Or run directly with Bun
+bunx luma-cli
 ```
 
-### `setup`
-
-Prepares your target servers for deployment. For each unique server defined across your services, this command will:
-
-1.  Connect via SSH.
-2.  Check if Docker is installed and accessible.
-3.  **If Docker is not installed or the SSH user cannot access it:**
-    - The command will output instructions for manually bootstrapping the server (e.g., installing Docker, adding the user to the `docker` group).
-    - It will then skip further setup for that server.
-4.  **If Docker is installed and accessible:**
-    - It will attempt to log into the configured Docker registry if credentials (`docker.username` in `luma.yml` and `DOCKER_REGISTRY_PASSWORD` in `.luma/secrets`) are provided.
-
-You can optionally specify service names to set up only the servers associated with those services:
+### 2. Initialize your project
 
 ```bash
-bun src/index.ts setup
-bun src/index.ts setup my-service1 my-service2
+cd your-project
+luma init
 ```
 
-### `deploy`
+This creates:
 
-Deploys your applications and services to target servers. The deploy command provides a clean, hierarchical output showing the progress of each phase.
+- `luma.yml` - Your deployment configuration
+- `.luma/secrets` - Secure credentials (add to `.gitignore`)
 
-**Basic usage:**
+### 3. Configure your app
+
+Edit `luma.yml`:
+
+```yaml
+name: my-app
+
+apps:
+  web:
+    image: my-app/web
+    servers:
+      - your-server.com
+    build:
+      context: .
+      dockerfile: Dockerfile
+    proxy:
+      hosts:
+        - myapp.com
+      app_port: 3000
+```
+
+### 4. Set up your server
 
 ```bash
-# Deploy all apps
-bun src/index.ts deploy
-
-# Deploy specific apps
-bun src/index.ts deploy my-webapp my-worker
-
-# Deploy all services
-bun src/index.ts deploy --services
-
-# Deploy specific services
-bun src/index.ts deploy --services my-database my-cache
+luma setup
 ```
 
-**Flags:**
+Luma will:
 
-- `--force`: Skip Git status checks and deploy even with uncommitted changes
-- `--services`: Deploy services instead of apps
-- `--verbose`: Show detailed logging for debugging
+- Install Docker if needed
+- Configure networking
+- Set up the reverse proxy
+- Create SSL certificates
 
-**Example output:**
+### 5. Deploy!
+
+```bash
+luma deploy
+```
+
+Watch as Luma builds, deploys, and switches traffic with zero downtime:
 
 ```
-🚀 Starting deployment with release 5a13fe6
+🚀 Starting deployment with release a1b2c3d
 
 ✅ Configuration loaded
 ✅ Git status verified
 ✅ Infrastructure ready
 
 📦 Building & Pushing Images
-  └─ web → elitan/luma-test-web:5a13fe6 ✅ (2.1s)
+  └─ web → my-app/web:a1b2c3d ✅ (2.1s)
 
 🔄 Deploying to Servers
-  └─ 157.180.25.101
+  └─ your-server.com
      ├─ Pulling image ✅ (1.3s)
      ├─ Zero-downtime deployment ✅ (3.8s)
-     └─ Configuring proxy ✅ (0.5s)
+     └─ Configuring SSL proxy ✅ (0.5s)
 
 ✅ Deployment completed successfully in 7.7s
 
 🌐 Your app is live at:
-  └─ https://test.eliasson.me
+  └─ https://myapp.com
 ```
 
-### Other Commands
+---
 
-- `redeploy`: (To be implemented) Redeploys services, potentially without rebuilding.
-- `rollback`: (To be implemented) Rolls back to a previous deployment.
+## 📋 Prerequisites
 
-## Configuration
+- **Local machine**: Bun or Node.js 18+
+- **Target servers**:
+  - Ubuntu/Debian Linux
+  - SSH access with sudo privileges
+  - Ports 80 and 443 open
 
-### `luma.yml`
+---
 
-This file defines the services you want to manage.
+## 🆚 Why Luma vs Alternatives?
 
-**Structure:**
+### vs Kamal (37signals)
+
+- **TypeScript/Bun** instead of Ruby - familiar for JS developers
+- **Automatic SSL** built-in, no separate configuration needed
+- **Built-in health checks** and blue-green deployments
+- **Simpler configuration** - one YAML file vs multiple
+
+### vs Vercel/Netlify
+
+- **Your own servers** - full control, no vendor lock-in
+- **Any Docker app** - not limited to specific frameworks
+- **Cost-effective** - pay only for your servers
+- **No cold starts** - your containers are always running
+
+### vs Docker Compose
+
+- **Zero-downtime deployments** - compose restarts cause downtime
+- **Multi-server support** - deploy across multiple machines
+- **Automatic SSL** and reverse proxy included
+- **Git-based releases** and rollback capabilities
+
+---
+
+## 🎯 Core Concepts
+
+### Apps vs Services
+
+**Apps** are your main applications (web servers, APIs) that benefit from zero-downtime deployments:
 
 ```yaml
-# Optional: Global SSH settings.
-# If not provided, Luma defaults to user 'root' on port 22.
-# These can be overridden by your local ~/.ssh/config for specific hosts.
-ssh:
-  username: your_ssh_user # e.g., deployer
-  port: 2222 # e.g., a non-standard SSH port
-
-# Optional: Global Docker registry settings.
-# Can be overridden at the service level.
-docker:
-  registry: my.private-registry.com
-  username: my_registry_user # Password for this user should be in .luma/secrets
-
-# Optional: Luma proxy configuration
-proxy:
-  image: my-registry.com/custom-luma-proxy:latest # Configure a custom proxy image
-
-# Define your primary applications under 'apps'.
-# These are typically built by Luma and benefit from zero-downtime deployment.
 apps:
-  # Example App: A simple web application
-  my-webapp:
-    # Required: Docker image name.
-    # If you are building the image, this is the target image name.
-    # If you are using a pre-built image, this is the image to pull.
-    image: your_registry.example.com/my-webapp
+  web:
+    image: my-registry/web
+    proxy:
+      hosts:
+        - example.com
+      app_port: 3000
 
-    # Required: List of servers to deploy this app to (IPs or hostnames).
-    # Luma will connect to these servers via SSH.
-    servers:
-      - 192.168.1.101
-      - my-server-2.example.com
+  api:
+    image: my-registry/api
+    proxy:
+      hosts:
+        - api.example.com
+      app_port: 8080
+```
 
-    # Optional: App-specific registry override.
-    # Uncomment and configure if this app uses a different registry than the default.
-    # registry:
-    #   username: app_specific_username
-    #   password_secret: APP_REGISTRY_PASSWORD_VAR
+**Services** are supporting infrastructure (databases, caches) with simple stop-and-start deployment:
 
-    # Optional: Configuration for building the Docker image.
-    # Required if you are building your own image from a Dockerfile.
-    # If omitted, Luma assumes the 'image' already exists in the registry.
-    build:
-      # Path to the build context (e.g., '.' for monorepo root, 'apps/my-webapp' for a specific app dir).
-      context: .
-      # Path to the Dockerfile relative to the context.
-      dockerfile: Dockerfile
-      # Optional: Build arguments passed to docker build --build-arg.
-      # args:
-      #   - NODE_VERSION=18
-      #   - BUILD_ENV=production
-
-    # Optional: Environment variables for the container.
+```yaml
+services:
+  postgres:
+    image: postgres:15
     environment:
-      # Values sourced from the secrets file (.luma/secrets).
-      # Luma will inject these as environment variables into the container.
+      secret: [POSTGRES_PASSWORD]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+```
+
+### Zero-Downtime Deployments
+
+Luma automatically uses blue-green deployment for apps:
+
+1. **Deploy new version** alongside the current one
+2. **Health check** the new version via `/health` endpoint
+3. **Switch traffic** atomically (sub-millisecond)
+4. **Clean up** old version
+
+No configuration needed - it just works!
+
+### Automatic SSL
+
+Luma includes a smart reverse proxy that automatically:
+
+- Obtains SSL certificates via Let's Encrypt
+- Routes traffic to your apps
+- Handles health checks
+- Manages zero-downtime deployments with blue-green switching
+
+---
+
+## 📖 Configuration Reference
+
+### Basic Configuration
+
+```yaml
+name: my-project # Required: Project name
+
+# Optional: Global settings
+ssh:
+  username: deploy # SSH user (default: root)
+  port: 22 # SSH port
+
+docker:
+  registry: ghcr.io # Docker registry
+  username: myuser # Registry username
+
+apps:
+  web:
+    image: my-app/web # Docker image name
+    servers: [server1.com, server2.com] # Target servers
+
+    # Build configuration (optional)
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platform: linux/amd64
+
+    # Proxy configuration for web apps
+    proxy:
+      hosts: [example.com, www.example.com]
+      app_port: 3000
+
+    # Environment variables
+    environment:
+      plain:
+        - NODE_ENV=production
+        - PORT=3000
       secret:
-        - DATABASE_URL
+        - DATABASE_URL # From .luma/secrets
         - API_KEY
 
-      # Values defined directly in this config file.
-      plain:
-        - PORT=8080
-        - NODE_ENV=production
-
-    # Optional: Port mapping from host to container (HOST_PORT:CONTAINER_PORT).
-    # Luma will use the host port for health checks if configured.
-    ports:
-      - "80:8080" # Map host port 80 to container port 8080
-      - "443:8443" # Example for HTTPS
-
-    # Optional: Volumes to mount (HOST_PATH:CONTAINER_PATH or named_volume:CONTAINER_PATH).
-    volumes:
-      - app_data:/var/lib/my-webapp # Example named volume
-      - /etc/nginx/conf.d:/etc/nginx/conf.d:ro # Example bind mount (read-only)
-
-    # Optional: Health check configuration.
-    # Luma will wait for this endpoint to return a 2xx status code before considering the new container healthy.
-    # Primarily used for apps to enable basic zero-downtime updates.
+    # Health check (optional)
     healthcheck:
-      # HTTP path to check (e.g., /healthz, /status).
-      path: /healthz
-      # Check interval (e.g., 5s, 1m).
+      path: /health
       interval: 10s
-      # Check timeout (e.g., 3s, 30s).
       timeout: 5s
-      # Number of retries before failure.
       retries: 3
-      # Initial delay before health checks start (e.g., 30s).
-      start_period: 15s
 
-  # Example App: A background worker
-  my-worker:
-    image: your_registry.example.com/my-worker
-    servers:
-      - 192.168.1.102
-    build:
-      context: ./worker
-      dockerfile: Dockerfile
-    environment:
-      secret:
-        - QUEUE_CONNECTION_STRING
-      plain:
-        - WORKER_CONCURRENCY=5
-    # Workers might not expose ports or need health checks in the same way as web apps.
-    # ports: [] # No exposed ports
-    # healthcheck: # No HTTP health check needed
-    #   ...
-
-# Define supporting services (like databases, caches) under 'services'.
-# Luma manages these with a simpler stop-and-start deployment.
-# Note: In Luma, 'services' refers to supporting infrastructure like databases or caches,
-# distinct from the 'apps' that Luma builds and deploys with zero-downtime features.
 services:
-  # Example Service: A database
-  my-database:
-    # Required: Docker image name (usually from a public registry like Docker Hub).
-    image: postgres:14
-
-    # Required: List of servers to deploy this service to.
-    # Often deployed to a dedicated database server.
-    servers:
-      - 192.168.1.201
-
-    # Optional: Service-specific registry (e.g., if using a private Postgres image).
-    # registry:
-    #   ...
-
-    # Optional: Environment variables (e.g., for database initialization).
+  database:
+    image: postgres:15
+    servers: [db.example.com]
     environment:
-      secret:
-        - POSTGRES_PASSWORD
-        - POSTGRES_USER
-        - POSTGRES_DB
-      # plain:
-      #   - PGDATA=/var/lib/postgresql/data
-
-    # Optional: Port mapping (often internal or to a specific host interface for security).
-    ports:
-      - "127.0.0.1:5432:5432" # Bind to localhost for internal access only
-
-    # Optional: Volumes for persistent data. Crucial for databases!
+      secret: [POSTGRES_PASSWORD]
+    ports: ["5432:5432"]
     volumes:
-      - postgres_data:/var/lib/postgresql/data # Example named volume
-
-    # Health check can be defined but is NOT used for zero-downtime switching on services in MVP.
-    # healthcheck:
-    #   ...
-
-  # Example Service: A cache
-  my-cache:
-    image: redis:7
-    servers:
-      - 192.168.1.202
-    # No build needed for standard Redis image
-    # No registry override needed for Docker Hub
-    environment:
-      secret:
-        - REDIS_PASSWORD
-    ports:
-      - "6379:6379" # Default Redis port
-    volumes:
-      - redis_data:/data # Volume for persistence (optional for cache)
-    # No health check needed for zero-downtime in MVP
-    # healthcheck:
-    #   ...
+      - postgres_data:/var/lib/postgresql/data
 ```
 
-### `.luma/secrets`
+### Secrets Management
 
-This file is for storing sensitive data that should not be committed to your repository (ensure `.luma/` or `.luma/secrets` is in your `.gitignore`). It's a simple key-value store.
-
-**Format:**
-Each line should be `KEY=VALUE`. Lines starting with `#` are comments and are ignored.
-
-```
-# .luma/secrets example
-DEFAULT_SSH_KEY_PATH=~/.ssh/id_rsa_luma_project
-# DEFAULT_SSH_PASSWORD=your_ssh_password_if_not_using_keys
-DOCKER_REGISTRY_PASSWORD=your_docker_registry_password
-
-# Service-specific secrets
-DATABASE_URL_SECRET=postgres://user:pass@host:port/dbname
-API_KEY_SECRET=supersecretapikey
-AMQP_CONNECTION_STRING_SECRET=amqp://guest:guest@localhost:5672/
-```
-
-## SSH Connection Handling
-
-Luma connects to your servers via SSH. Here's how connection parameters (user, port, identity file, etc.) are determined, in order of precedence:
-
-1.  **`~/.ssh/config`**: Your local SSH client configuration file. If you have entries for specific hosts (e.g., using `Host`, `HostName`, `User`, `Port`, `IdentityFile`), these will take the highest precedence. This is the recommended way to manage complex or per-host SSH settings.
-2.  **`luma.yml` (`ssh:` section)**: You can specify a global `username` and `port` in the `ssh:` section of your `luma.yml`. These will be used if no specific configuration is found in `~/.ssh/config` for a host.
-3.  **Defaults**: If neither `~/.ssh/config` nor `luma.yml` provide specific settings, Luma defaults to:
-    - User: `root`
-    - Port: `22`
-
-**SSH Key Management:**
-
-- Luma will attempt to use your SSH agent if available.
-- You can specify a default SSH private key path in `.luma/secrets` using `DEFAULT_SSH_KEY_PATH`.
-- For host-specific keys, configure them in `~/.ssh/config` using the `IdentityFile` directive.
-- Password-based authentication can be used if `DEFAULT_SSH_PASSWORD` is set in secrets and no key-based methods succeed (though key-based authentication is strongly recommended).
-
-**Server Prerequisites for `setup` command:**
-
-- The target server must be accessible via SSH using the determined credentials.
-- **Docker must be installed on the server.**
-- The SSH user must have permission to manage Docker containers. This usually means:
-  - The user is part of the `docker` group (e.g., `sudo usermod -aG docker your_ssh_user`). You'll need to log out and back in for group changes to take effect on the server.
-  - Or, the user has passwordless `sudo` privileges to run Docker commands (less common for direct Docker management).
-- If these conditions are not met, the `setup` command will provide manual instructions to prepare the server.
-
-## Security Recommendations
-
-### Avoiding Root for SSH
-
-For security reasons, Luma CLI will warn you if you're using the `root` user for SSH connections. Using a non-root user with limited permissions is a security best practice. Here's how to set up a dedicated user for Luma deployments:
-
-1. SSH into your server as root (last time!):
-
-   ```bash
-   ssh root@your-server.example.com
-   ```
-
-2. Create a new user with sudo privileges (example uses 'luma' as username):
-
-   ```bash
-   useradd -m -s /bin/bash luma
-   passwd luma  # Set a strong password
-   usermod -aG sudo luma
-   ```
-
-3. Set up SSH for the new user:
-
-   ```bash
-   mkdir -p /home/luma/.ssh
-   cp ~/.ssh/authorized_keys /home/luma/.ssh/  # Copy your existing authorized keys
-   chown -R luma:luma /home/luma/.ssh
-   chmod 700 /home/luma/.ssh
-   chmod 600 /home/luma/.ssh/authorized_keys
-   ```
-
-4. Test the new user login from your local machine:
-
-   ```bash
-   ssh luma@your-server.example.com
-   ```
-
-5. Update your `luma.yml` to use this user instead of root:
-
-   ```yaml
-   ssh:
-     username: luma
-   ```
-
-6. (Optional but recommended) Disable root SSH login for improved security:
-   ```bash
-   sudo nano /etc/ssh/sshd_config
-   # Find "PermitRootLogin" and change to "PermitRootLogin no"
-   sudo systemctl restart sshd
-   ```
-
-### Installing Docker on Your Server
-
-If Luma detects that Docker is not installed on your server, it will exit early with a warning. Here's how to install Docker on common Linux distributions:
-
-#### Ubuntu/Debian:
+Store sensitive values in `.luma/secrets`:
 
 ```bash
-sudo apt update
-sudo apt upgrade -y
-sudo apt install -y docker.io curl git
-sudo usermod -a -G docker luma
+# .luma/secrets
+DATABASE_URL=postgres://user:pass@localhost:5432/myapp
+API_KEY=supersecretkey
+DOCKER_REGISTRY_PASSWORD=myregistrypassword
 ```
 
-Once Docker is successfully installed, you can run `luma setup` again to continue with the deployment setup.
+**Important**: Add `.luma/secrets` to your `.gitignore`!
 
-## Contributing
+---
+
+## 🛠️ Commands
+
+### `luma init`
+
+Initialize a new project with configuration files.
+
+### `luma setup [service...]`
+
+Prepare servers for deployment. Installs Docker, creates networks, sets up the proxy.
+
+```bash
+luma setup              # Set up all servers
+luma setup web api      # Set up only servers for web and api
+```
+
+### `luma deploy [app...]`
+
+Deploy apps or services with zero downtime.
+
+```bash
+luma deploy             # Deploy all apps
+luma deploy web         # Deploy specific app
+luma deploy --services  # Deploy services instead
+luma deploy --force     # Skip git status checks
+luma deploy --verbose   # Detailed logging
+```
+
+### `luma status [app...]`
+
+Check the status of your deployments.
+
+```bash
+luma status             # Status of all apps
+luma status web         # Status of specific app
+
+# Example output:
+📱 App: web
+   Status: ✅ RUNNING (green active)
+   Replicas: 2/2 running
+   Servers: server1.com, server2.com
+```
+
+---
+
+## 🏗️ Examples
+
+### Simple Web App
+
+```yaml
+name: blog
+apps:
+  web:
+    image: my-blog
+    servers:
+      - server.com
+    build:
+      context: .
+    proxy:
+      hosts:
+        - blog.com
+      app_port: 3000
+    environment:
+      secret: [DATABASE_URL]
+```
+
+### Full-Stack App with Database
+
+```yaml
+name: ecommerce
+
+apps:
+  web:
+    image: ecommerce/frontend
+    servers:
+      - web1.com
+      - web2.com
+    proxy:
+      hosts:
+        - shop.com
+        - www.shop.com
+      app_port: 3000
+
+  api:
+    image: ecommerce/backend
+    servers:
+      - api.com
+    proxy:
+      hosts:
+        - api.shop.com
+      app_port: 8080
+    environment:
+      secret: [DATABASE_URL, JWT_SECRET]
+
+services:
+  postgres:
+    image: postgres:15
+    servers:
+      - db.com
+    environment:
+      secret: [POSTGRES_PASSWORD]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    servers:
+      - cache.com
+```
+
+### Microservices with Load Balancing
+
+```yaml
+name: platform
+
+apps:
+  user-service:
+    image: platform/users
+    replicas: 3
+    servers:
+      - app1.com
+      - app2.com
+    proxy:
+      hosts:
+        - users.platform.com
+      app_port: 8080
+
+  order-service:
+    image: platform/orders
+    replicas: 2
+    servers:
+      - app1.com
+      - app2.com
+    proxy:
+      hosts:
+        - orders.platform.com
+      app_port: 8081
+```
+
+---
+
+## 🔒 Security Best Practices
+
+### Server Setup
+
+1. **Create a dedicated deployment user**:
+
+   ```bash
+   sudo useradd -m -s /bin/bash deploy
+   sudo usermod -aG docker,sudo deploy
+   ```
+
+2. **Set up SSH keys**:
+
+   ```bash
+   ssh-copy-id deploy@your-server.com
+   ```
+
+3. **Configure Luma**:
+   ```yaml
+   ssh:
+     username: deploy
+   ```
+
+### Network Security
+
+- Use a firewall to restrict access
+- Keep your servers updated
+
+### Secrets Management
+
+- Never commit `.luma/secrets` to version control
+- Use environment-specific secrets
+
+## 📚 Advanced Usage
+
+### Custom Health Checks
+
+```yaml
+apps:
+  api:
+    healthcheck:
+      path: /api/health
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+```
+
+### Multi-Environment Deployments
+
+```yaml
+# luma.staging.yml
+name: myapp-staging
+apps:
+  web:
+    image: myapp/web:staging
+    servers:
+      - staging.myapp.com
+
+# luma.production.yml
+name: myapp-prod
+apps:
+  web:
+    image: myapp/web:latest
+    servers:
+      - prod1.myapp.com
+      - prod2.myapp.com
+```
+
+Deploy with:
+
+```bash
+luma deploy -c luma.staging.yml
+luma deploy -c luma.production.yml
+```
+
+### Custom Docker Registries
+
+```yaml
+docker:
+  registry: my-registry.com
+  username: myuser
+
+apps:
+  web:
+    # Override per-app
+    registry:
+      registry: ghcr.io
+      username: different-user
+```
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Development Setup
+
+```bash
+git clone https://github.com/yourusername/luma
+cd luma
+bun install
+bun run dev
+```
+
+### Running Tests
+
+```bash
+bun test
+```
+
+---
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+**Made with ❤️ for developers who want simple, reliable deployments on their own infrastructure.**
