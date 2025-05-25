@@ -1,0 +1,39 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Luma Project Overview
+
+Luma is a TypeScript CLI tool for zero-downtime Docker deployments to your own servers. It provides blue-green deployments, automatic SSL certificates, health checks, and multi-server support.
+
+## Project Structure
+
+- **Entry Point**: [src/index.ts](mdc:src/index.ts) - Main CLI entry point with command routing
+- **Commands**: [src/commands/](mdc:src/commands) - All CLI commands implementation
+- **Core Functionality**:
+  - [src/commands/deploy.ts](mdc:src/commands/deploy.ts) - Main deployment logic
+  - [src/commands/blue-green.ts](mdc:src/commands/blue-green.ts) - Zero-downtime deployment strategy
+  - [src/commands/setup.ts](mdc:src/commands/setup.ts) - Server setup and configuration
+  - [src/commands/init.ts](mdc:src/commands/init.ts) - Project initialization
+  - [src/commands/status.ts](mdc:src/commands/status.ts) - Deployment status checking
+
+## Key Technologies
+
+- **Runtime**: Bun/Node.js 18+
+- **Language**: TypeScript
+- **Dependencies**: ssh2-promise, js-yaml, zod
+- **Target**: Ubuntu/Debian servers with Docker
+
+## Configuration Files
+
+- [package.json](mdc:package.json) - Project metadata and dependencies
+- [tsconfig.json](mdc:tsconfig.json) - TypeScript configuration
+- `luma.yml` - User deployment configuration (created by init command)
+- `.luma/secrets` - Secure credentials storage
+
+## Build & Release
+
+- Build target: `dist/` directory
+- CLI binary: `dist/index.js`
+- Package: `@elitan/luma` on npm

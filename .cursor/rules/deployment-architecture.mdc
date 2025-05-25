@@ -1,0 +1,68 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Deployment Architecture
+
+## Core Concepts
+
+### Apps vs Services
+
+**Apps** are main applications that require zero-downtime deployments:
+- Web servers, APIs, microservices
+- Use blue-green deployment strategy
+- Health checks via `/health` endpoint
+- Automatic traffic switching
+
+**Services** are supporting infrastructure:
+- Databases (PostgreSQL, MySQL)
+- Caches (Redis, Memcached)
+- Message queues
+- Simple stop-and-start deployment
+
+### Zero-Downtime Deployment Flow
+
+1. **Build & Push** - Build Docker image and push to registry
+2. **Deploy New Version** - Start new container alongside current one
+3. **Health Check** - Verify new version is healthy
+4. **Switch Traffic** - Atomically switch proxy traffic
+5. **Cleanup** - Remove old container
+
+## Key Files
+
+### Deployment Logic
+- [src/commands/deploy.ts](mdc:src/commands/deploy.ts) - Main deployment orchestration
+- [src/commands/blue-green.ts](mdc:src/commands/blue-green.ts) - Zero-downtime deployment implementation
+
+### Configuration Management
+- [src/config/](mdc:src/config) - Configuration loading and validation
+- User's `luma.yml` - Deployment configuration
+- User's `.luma/secrets` - Encrypted credentials
+
+### Infrastructure Setup
+- [src/commands/setup.ts](mdc:src/commands/setup.ts) - Server preparation
+- [src/setup-proxy/](mdc:src/setup-proxy) - Reverse proxy configuration
+- [src/proxy/](mdc:src/proxy) - Proxy management
+
+## Docker Integration
+
+- Uses Docker for containerization
+- Supports custom Dockerfiles
+- Registry management for image storage
+- Health check integration
+- Volume and network management
+
+## SSL & Proxy
+
+- Automatic SSL certificate generation via Let's Encrypt
+- Reverse proxy configuration (typically Nginx/Traefik)
+- Custom domain support
+- Port management and traffic routing
+
+## Multi-Server Support
+
+- Deploy to multiple servers simultaneously
+- SSH-based remote operations via ssh2-promise
+- Consistent configuration across servers
+- Centralized orchestration from local machine
