@@ -186,17 +186,17 @@ async function getAppStatus(
  */
 function displayAppStatus(appStatus: AppStatus): void {
   const statusIcon = {
-    running: "✅",
-    stopped: "❌",
-    mixed: "⚠️",
-    unknown: "❓",
+    running: "[✓]",
+    stopped: "[✗]",
+    mixed: "[!]",
+    unknown: "[?]",
   }[appStatus.status];
 
   const versionDisplay = appStatus.activeColor
     ? `(${appStatus.activeColor} active)`
     : "(no active version)";
 
-  console.log(`  └─ 📱 ${appStatus.name}`);
+  console.log(`  └─ App: ${appStatus.name}`);
   console.log(
     `     ├─ Status: ${statusIcon} ${appStatus.status.toUpperCase()} ${versionDisplay}`
   );
@@ -230,7 +230,7 @@ function displayAppStatus(appStatus: AppStatus): void {
  * Displays service information in a formatted way
  */
 function displayServiceStatus(service: ServiceEntry): void {
-  console.log(`  └─ 🔧 ${service.name}`);
+  console.log(`  └─ Service: ${service.name}`);
   console.log(`     ├─ Image: ${service.image}`);
   console.log(`     └─ Servers: ${service.servers.join(", ")}`);
   console.log(); // Add spacing between services
@@ -247,7 +247,7 @@ export async function statusCommand(
     // Initialize logger with verbose flag
     logger = new Logger({ verbose });
 
-    logger.phase("📊 Checking deployment status");
+    logger.phase("Checking deployment status");
 
     const config = await loadConfig();
     const secrets = await loadSecrets();
@@ -275,7 +275,7 @@ export async function statusCommand(
 
       // Show status for requested apps
       if (filteredApps.length > 0) {
-        console.log(`📱 Apps (${filteredApps.length}):`);
+        console.log(`Apps (${filteredApps.length}):`);
         for (const app of filteredApps) {
           const appStatus = await getAppStatus(app, config, secrets);
           displayAppStatus(appStatus);
@@ -284,7 +284,7 @@ export async function statusCommand(
 
       // Show status for requested services
       if (filteredServices.length > 0) {
-        console.log(`🔧 Services (${filteredServices.length}):`);
+        console.log(`Services (${filteredServices.length}):`);
         for (const service of filteredServices) {
           displayServiceStatus(service);
         }
@@ -294,7 +294,7 @@ export async function statusCommand(
       if (apps.length === 0) {
         logger.info("No apps configured.");
       } else {
-        console.log(`📱 Apps (${apps.length}):`);
+        console.log(`Apps (${apps.length}):`);
         for (const app of apps) {
           const appStatus = await getAppStatus(app, config, secrets);
           displayAppStatus(appStatus);
@@ -303,7 +303,7 @@ export async function statusCommand(
 
       // Show basic service info
       if (services.length > 0) {
-        console.log(`🔧 Services (${services.length}):`);
+        console.log(`Services (${services.length}):`);
         for (const service of services) {
           displayServiceStatus(service);
         }
@@ -315,9 +315,12 @@ export async function statusCommand(
       }
     }
 
-    console.log("✨ Status check complete!");
+    logger.phaseComplete("Checking deployment status");
+    console.log("[✓] Status check complete!");
   } catch (error) {
     logger.error("Failed to get status", error);
     process.exit(1);
+  } finally {
+    logger.cleanup();
   }
 }

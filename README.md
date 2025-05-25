@@ -4,8 +4,6 @@
 
 Zero-downtime deployments for your own servers.
 
-Built with TypeScript and Bun as a modern alternative to Kamal.
-
 ```bash
 npm install -g @elitan/luma
 
