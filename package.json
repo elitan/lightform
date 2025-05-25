@@ -23,11 +23,23 @@
     "dist/**/*",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "bun run build",
     "start": "bun run src/index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "publish:current": "bun publish --access public",
+    "release:patch": "bun version patch && git push origin main --tags && bun publish --access public",
+    "release:minor": "bun version minor && git push origin main --tags && bun publish --access public",
+    "release:major": "bun version major && git push origin main --tags && bun publish --access public",
+    "release:alpha": "bun version prerelease --preid=alpha && git push origin main --tags && bun publish --tag alpha --access public",
+    "release:beta": "bun version prerelease --preid=beta && git push origin main --tags && bun publish --tag beta --access public",
+    "release:rc": "bun version prerelease --preid=rc && git push origin main --tags && bun publish --tag rc --access public",
+    "publish:dry-run": "bun publish --dry-run",
+    "version:check": "bun version --json"
   },
   "dependencies": {
     "js-yaml": "^4.1.0",
