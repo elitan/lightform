@@ -4,7 +4,7 @@
 
 Zero-downtime deployments for your own servers.
 
-```bash
+```
 ❯ luma deploy
 Using Git SHA for release ID: 5729458
 Starting deployment with release 5729458
