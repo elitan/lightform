@@ -46,7 +46,7 @@ function resolveEnvironmentVariables(
         envVars[secretKey] = secrets[secretKey];
       } else {
         logger.warn(
-          `Secret key "${secretKey}" for entry "${entry.name}" not found in loaded secrets`
+          `Secret key "${secretKey}" for ${entry.name} not found in loaded secrets`
         );
       }
     }
@@ -366,6 +366,12 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   const isApp = !context.deployServicesFlag;
 
   if (isApp) {
+    logger.verboseLog(
+      `Deploying ${context.targetEntries.length} app(s): ${context.targetEntries
+        .map((e) => e.name)
+        .join(", ")}`
+    );
+
     // Separate apps into those that need building vs pre-built
     const appsNeedingBuild = context.targetEntries.filter(
       (entry) => (entry as AppEntry).build
@@ -414,10 +420,14 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
     logger.phaseComplete("App State Reconciliation");
 
     // Deploy phase for all apps
+    logger.phaseStart("Deploying Apps");
+    const deploymentStartTime = Date.now();
     for (const entry of context.targetEntries) {
       const appEntry = entry as AppEntry;
       await deployAppToServers(appEntry, context);
     }
+    const deploymentDuration = Date.now() - deploymentStartTime;
+    logger.phaseComplete("Deploying Apps", deploymentDuration);
   } else {
     // Deploy phase for services with reconciliation
     logger.phase("Deploying Services");
@@ -478,7 +488,7 @@ async function deployAppToServers(
   appEntry: AppEntry,
   context: DeploymentContext
 ): Promise<void> {
-  logger.server(appEntry.servers.join(", "));
+  logger.appDeployment(appEntry.name, appEntry.servers);
 
   for (let i = 0; i < appEntry.servers.length; i++) {
     const serverHostname = appEntry.servers[i];
@@ -600,17 +610,17 @@ async function deployAppToServer(
     const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
 
     // Step 1: Pull image
-    logger.serverStep("Pulling image");
+    logger.serverStep(`Pulling ${appEntry.name} image`);
     await authenticateAndPullImage(
       appEntry,
       dockerClient,
       context,
       imageNameWithRelease
     );
-    logger.serverStepComplete(`Pulling image`);
+    logger.serverStepComplete(`Pulling ${appEntry.name} image`);
 
     // Step 2: Zero-downtime deployment
-    logger.serverStep("Zero-downtime deployment");
+    logger.serverStep(`Zero-downtime deployment of ${appEntry.name}`);
     const deploymentResult = await performBlueGreenDeployment({
       appEntry,
       releaseId: context.releaseId,
@@ -626,10 +636,10 @@ async function deployAppToServer(
       await sshClient.close();
       throw new Error(deploymentResult.error || "Deployment failed");
     }
-    logger.serverStepComplete(`Zero-downtime deployment`);
+    logger.serverStepComplete(`Zero-downtime deployment of ${appEntry.name}`);
 
     // Step 3: Configure proxy
-    logger.serverStep("Configuring proxy", isLastServer);
+    logger.serverStep(`Configuring proxy for ${appEntry.name}`, isLastServer);
     await configureProxyForApp(
       appEntry,
       dockerClient,
@@ -637,11 +647,19 @@ async function deployAppToServer(
       context.projectName,
       context.verboseFlag
     );
-    logger.serverStepComplete(`Configuring proxy`, undefined, isLastServer);
+    logger.serverStepComplete(
+      `Configuring proxy for ${appEntry.name}`,
+      undefined,
+      isLastServer
+    );
 
     await sshClient.close();
   } catch (error) {
-    logger.serverStepError(`${serverHostname}`, error, isLastServer);
+    logger.serverStepError(
+      `${appEntry.name} deployment to ${serverHostname}`,
+      error,
+      isLastServer
+    );
     throw error;
   }
 }

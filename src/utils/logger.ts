@@ -64,6 +64,12 @@ export class Logger {
     this.startSpinner(message, 0);
   }
 
+  phaseStart(message: string) {
+    this.clearSpinner();
+    console.log(`[⠿] ${message}`);
+    this.stepStartTime = Date.now();
+  }
+
   phaseComplete(message: string, duration?: number) {
     this.clearSpinner();
     const elapsed = duration || Date.now() - this.stepStartTime;
@@ -112,6 +118,16 @@ export class Logger {
   server(hostname: string) {
     this.clearSpinner();
     console.log(`  └─ ${hostname}`);
+  }
+
+  // New method for app-specific deployment logging
+  appDeployment(appName: string, servers: string[]) {
+    this.clearSpinner();
+    if (servers.length === 1) {
+      console.log(`  └─ ${appName} → ${servers[0]}`);
+    } else {
+      console.log(`  └─ ${appName} → ${servers.join(", ")}`);
+    }
   }
 
   serverStep(message: string, isLast: boolean = false) {
