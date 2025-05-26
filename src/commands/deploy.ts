@@ -976,6 +976,7 @@ async function configureProxyForApp(
   );
   const hosts = appEntry.proxy.hosts;
   const appPort = appEntry.proxy.app_port || 80;
+  const healthPath = appEntry.health_check?.path || "/up";
 
   for (const host of hosts) {
     try {
@@ -983,14 +984,15 @@ async function configureProxyForApp(
         host,
         appEntry.name,
         appPort,
-        projectName
+        projectName,
+        healthPath
       );
 
       if (!configSuccess) {
         logger.error(`Failed to configure proxy for host ${host}`);
       } else {
         logger.verboseLog(
-          `Configured proxy for ${host} → ${appEntry.name}:${appPort}`
+          `Configured proxy for ${host} → ${appEntry.name}:${appPort} (health: ${healthPath})`
         );
       }
     } catch (proxyError) {

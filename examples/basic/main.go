@@ -8,11 +8,28 @@ import (
 )
 
 func helloHandler(w http.ResponseWriter, r *http.Request) {
+	// Only handle exact root path
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
 	fmt.Fprintf(w, "Hello World 2")
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "OK")
+}
+
+func upHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "UP")
 }
 
 func main() {
 	http.HandleFunc("/", helloHandler)
+	http.HandleFunc("/health", healthHandler)
+	http.HandleFunc("/up", upHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {

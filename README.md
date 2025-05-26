@@ -199,7 +199,7 @@ Luma automatically uses blue-green deployment for apps:
 
 1. **Build and transfer** your Docker image securely to servers
 2. **Deploy new version** alongside the current one
-3. **Health check** the new version via `/health` endpoint
+3. **Health check** the new version via configured health endpoint
 4. **Switch traffic** atomically (sub-millisecond)
 5. **Clean up** old version
 
@@ -224,6 +224,31 @@ Luma includes a smart reverse proxy that automatically:
 - Routes traffic to your apps
 - Handles health checks
 - Manages zero-downtime deployments with blue-green switching
+
+### Health Checks
+
+Luma performs automatic health checks during deployments to ensure zero-downtime deployments. Your application must implement a health check endpoint that returns HTTP 200 when healthy.
+
+```yaml
+apps:
+  api:
+    health_check:
+      path: /health # Health check endpoint (default: /up)
+```
+
+**Health Check Behavior (Automatic):**
+
+- **Method**: HTTP GET request
+- **Success criteria**: HTTP 200 response
+- **Timeout**: 5 seconds
+- **Retries**: 3 attempts
+- **Port**: Uses the configured `app_port` (defaults to 80)
+
+The only configurable option is:
+
+- **path**: Health check endpoint path (default: `/up`)
+
+All other health check behavior is handled automatically by Luma to ensure reliable deployments.
 
 ---
 
@@ -274,11 +299,8 @@ apps:
         - API_KEY
 
     # Health check (optional)
-    healthcheck:
-      path: /health
-      interval: 10s
-      timeout: 5s
-      retries: 3
+    health_check:
+      path: /health # Health check endpoint (default: /up)
 
 services:
   database:
@@ -492,19 +514,6 @@ apps:
 - Use environment-specific secrets
 
 ## 📚 Advanced Usage
-
-### Custom Health Checks
-
-```yaml
-apps:
-  api:
-    healthcheck:
-      path: /api/health
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-```
 
 ### Multi-Environment Deployments
 

@@ -39,6 +39,11 @@ func (m *Manager) FindByHost(hostname string) (models.Service, bool) {
 
 // Deploy configures routing for a hostname to a network alias target
 func (m *Manager) Deploy(host, target, project string) error {
+	return m.DeployWithHealthPath(host, target, project, "/up")
+}
+
+// DeployWithHealthPath configures routing for a hostname with custom health check path
+func (m *Manager) DeployWithHealthPath(host, target, project, healthPath string) error {
 	m.config.Lock()
 	defer m.config.Unlock()
 
@@ -50,13 +55,19 @@ func (m *Manager) Deploy(host, target, project string) error {
 		}
 	}
 
+	// Set default health path if empty
+	if healthPath == "" {
+		healthPath = "/up"
+	}
+
 	// Create service - all targets are network aliases for zero-downtime deployments
 	service := models.Service{
-		Name:    host,
-		Host:    host,
-		Target:  target, // Always network alias:port (e.g., "blog:3000")
-		Project: project,
-		Healthy: true, // Assume healthy until proven otherwise
+		Name:       host,
+		Host:       host,
+		Target:     target, // Always network alias:port (e.g., "blog:3000")
+		Project:    project,
+		Healthy:    true, // Assume healthy until proven otherwise
+		HealthPath: healthPath,
 	}
 
 	m.config.Services[host] = service
@@ -92,10 +103,23 @@ func (m *Manager) PerformHealthChecks() {
 
 // checkServiceHealth performs HTTP health check on a service target
 func (m *Manager) checkServiceHealth(target string) bool {
+	// Find the service to get its health path
+	m.config.RLock()
+	var healthPath string = "/up" // default fallback
+	for _, service := range m.config.Services {
+		if service.Target == target {
+			if service.HealthPath != "" {
+				healthPath = service.HealthPath
+			}
+			break
+		}
+	}
+	m.config.RUnlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf("http://%s/up", target)
+	url := fmt.Sprintf("http://%s%s", target, healthPath)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return false

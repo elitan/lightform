@@ -16,11 +16,12 @@ import (
 
 // DeployCmd represents the deploy command
 type DeployCmd struct {
-	fs        *flag.FlagSet
-	target    *string
-	host      *string
-	project   *string
-	certEmail *string
+	fs         *flag.FlagSet
+	target     *string
+	host       *string
+	project    *string
+	certEmail  *string
+	healthPath *string
 }
 
 // NewDeployCmd creates a new deploy command
@@ -33,6 +34,7 @@ func NewDeployCmd() *DeployCmd {
 	cmd.host = cmd.fs.String("host", "", "Hostname that this service will serve traffic for")
 	cmd.project = cmd.fs.String("project", "", "Project identifier (Docker network name)")
 	cmd.certEmail = cmd.fs.String("cert-email", "", "Email address for Let's Encrypt registration")
+	cmd.healthPath = cmd.fs.String("health-path", "/up", "Health check endpoint path (default: /up)")
 
 	return cmd
 }
@@ -72,12 +74,12 @@ func (c *DeployCmd) Execute() error {
 	serviceManager := service.NewManager(cfg)
 
 	// Configure the route (automatically uses blue-green for network alias targets)
-	if err := serviceManager.Deploy(*c.host, *c.target, projectName); err != nil {
+	if err := serviceManager.DeployWithHealthPath(*c.host, *c.target, projectName, *c.healthPath); err != nil {
 		return err
 	}
 
-	log.Printf("Route for host '%s' successfully configured to target '%s' in project '%s'",
-		*c.host, *c.target, projectName)
+	log.Printf("Route for host '%s' successfully configured to target '%s' in project '%s' with health path '%s'",
+		*c.host, *c.target, projectName, *c.healthPath)
 
 	// Always attempt immediate certificate provisioning
 	log.Printf("Attempting SSL certificate provisioning for %s...", *c.host)

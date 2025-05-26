@@ -766,13 +766,15 @@ EOF`);
    * @param reuseHelper Whether to create the helper container but return a container name for reuse (legacy parameter, always uses luma-proxy now)
    * @param projectName The project name for network verification
    * @param appPort The port the app is listening on (default: 80)
-   * @returns true if the /up endpoint returns 200, false otherwise. When reuseHelper is true, returns [boolean, string] with container name
+   * @param healthCheckPath The health check endpoint path (default: "/up")
+   * @returns true if the health check endpoint returns 200, false otherwise. When reuseHelper is true, returns [boolean, string] with container name
    */
   async checkContainerEndpoint(
     containerName: string,
     reuseHelper: boolean = false,
     projectName?: string,
-    appPort: number = 80
+    appPort: number = 80,
+    healthCheckPath: string = "/up"
   ): Promise<boolean | [boolean, string]> {
     if (!projectName) {
       this.logError(
@@ -782,7 +784,7 @@ EOF`);
     }
 
     this.log(
-      `Performing endpoint health check for ${containerName} (project: ${projectName}, using luma-proxy, port: ${appPort})`
+      `Performing endpoint health check for ${containerName} (project: ${projectName}, using luma-proxy, port: ${appPort}, path: ${healthCheckPath})`
     );
 
     const targetNetworkName = await this.getContainerNetworkName(
@@ -833,7 +835,8 @@ EOF`);
       proxyContainerName,
       targetIP,
       containerName,
-      appPort
+      appPort,
+      healthCheckPath
     );
 
     return reuseHelper ? [isHealthy, proxyContainerName] : isHealthy;
@@ -845,17 +848,19 @@ EOF`);
    * @param targetContainerIP IP address of the container to check
    * @param targetContainerName Name of the container to check
    * @param appPort The port the app is listening on (default: 80)
-   * @returns true if the /up endpoint returns 200, false otherwise
+   * @param healthCheckPath The health check endpoint path (default: "/up")
+   * @returns true if the health check endpoint returns 200, false otherwise
    */
   async checkHealthWithLumaProxy(
     proxyContainerName: string,
     targetContainerIP: string,
     targetContainerName: string,
-    appPort: number = 80
+    appPort: number = 80,
+    healthCheckPath: string = "/up"
   ): Promise<boolean> {
     try {
       this.log(
-        `Using luma-proxy container for health check of ${targetContainerName} (IP: ${targetContainerIP}:${appPort})`
+        `Using luma-proxy container for health check of ${targetContainerName} (IP: ${targetContainerIP}:${appPort}${healthCheckPath})`
       );
 
       // Retry the curl command if it fails. Use the provided port, path to /up.
@@ -866,7 +871,7 @@ EOF`);
         try {
           // Use curl from within the luma-proxy container
           // The luma-proxy container should have curl available, but if not we'll install it
-          const execCmd = `exec ${proxyContainerName} sh -c "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y curl); curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainerIP}:${appPort}/up || echo 'failed'"`;
+          const execCmd = `exec ${proxyContainerName} sh -c "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y curl); curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainerIP}:${appPort}${healthCheckPath} || echo 'failed'"`;
           statusCode = await this.execRemote(execCmd);
           success = true;
           break;
@@ -889,7 +894,7 @@ EOF`);
       // Check the status code
       const cleanStatusCode = statusCode.trim();
       this.log(
-        `Health check for ${targetContainerName} (IP: ${targetContainerIP}:${appPort}) returned status: ${cleanStatusCode} (using luma-proxy)`
+        `Health check for ${targetContainerName} (IP: ${targetContainerIP}:${appPort}${healthCheckPath}) returned status: ${cleanStatusCode} (using luma-proxy)`
       );
 
       return cleanStatusCode === "200";

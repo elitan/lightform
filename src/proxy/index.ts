@@ -83,13 +83,15 @@ export class LumaProxyClient {
    * @param targetContainer The container name to route traffic to
    * @param targetPort The port on the target container
    * @param projectName The name of the project (used for network connectivity)
+   * @param healthPath The health check endpoint path (default: "/up")
    * @returns true if the configuration was successful
    */
   async configureProxy(
     host: string,
     targetContainer: string,
     targetPort: number,
-    projectName: string
+    projectName: string,
+    healthPath: string = "/up"
   ): Promise<boolean> {
     try {
       // Check if luma-proxy is running
@@ -101,11 +103,11 @@ export class LumaProxyClient {
       }
 
       this.log(
-        `Configuring luma-proxy for host: ${host} -> ${targetContainer}:${targetPort}`
+        `Configuring luma-proxy for host: ${host} -> ${targetContainer}:${targetPort} (health: ${healthPath})`
       );
 
       // Build the proxy configuration command (SSL certificates are now always attempted automatically)
-      const proxyCmd = `luma-proxy deploy --host ${host} --target ${targetContainer}:${targetPort} --project ${projectName}`;
+      const proxyCmd = `luma-proxy deploy --host ${host} --target ${targetContainer}:${targetPort} --project ${projectName} --health-path ${healthPath}`;
 
       // Execute the command in the luma-proxy container
       const execResult = await this.dockerClient.execInContainer(
@@ -115,7 +117,7 @@ export class LumaProxyClient {
 
       if (execResult.success) {
         this.log(
-          `Successfully configured luma-proxy for ${host} -> ${targetContainer}:${targetPort}`
+          `Successfully configured luma-proxy for ${host} -> ${targetContainer}:${targetPort} (health: ${healthPath})`
         );
         return true;
       } else {

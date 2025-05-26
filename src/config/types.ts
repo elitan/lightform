@@ -9,13 +9,7 @@ import { z } from "zod";
 
 // Zod schema for HealthCheck (primarily for Apps)
 export const HealthCheckSchema = z.object({
-  command: z.array(z.string()).optional(), // For Dockerfile HEALTHCHECK CMD
-  http_path: z.string().optional(), // For HTTP health checks
-  interval: z.string().optional(), // e.g., "30s"
-  timeout: z.string().optional(), // e.g., "5s"
-  retries: z.number().optional(),
-  start_period: z.string().optional(), // e.g., "60s"
-  // We no longer need endpoint and port as they're hardcoded to /up and 80
+  path: z.string().optional().default("/up"), // Health check endpoint path
 });
 export type HealthCheckConfig = z.infer<typeof HealthCheckSchema>;
 

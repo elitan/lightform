@@ -133,23 +133,15 @@ async function performBlueGreenHealthChecks(
   }
 
   const appPort = appEntry.proxy?.app_port || 80;
+  const healthCheckPath = appEntry.health_check?.path || "/up";
   const healthPromises = containerNames.map(async (containerName) => {
     try {
-      // Wait for container to be ready
-      const hcConfig = appEntry.health_check || {};
-      const startPeriodSeconds = parseInt(hcConfig.start_period || "0s", 10);
-
-      if (startPeriodSeconds > 0) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, startPeriodSeconds * 1000)
-        );
-      }
-
       const result = await dockerClient.checkContainerEndpoint(
         containerName,
         true,
         projectName,
-        appPort
+        appPort,
+        healthCheckPath
       );
 
       const [healthCheckPassed] = result as [boolean, string];
