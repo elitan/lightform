@@ -2,7 +2,7 @@
 
 **Ship Docker Anywhere.**
 
-Zero-downtime deployments for your own servers.
+Zero-downtime deployments and automatic HTTPS on your own servers.
 
 ```
 ❯ luma deploy
