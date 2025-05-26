@@ -529,8 +529,20 @@ async function setupServicesOnServer(
 
   const servicesOnThisServer = getServicesForServer(serverHostname, context);
 
+  // Check if there are apps on this server to provide better messaging
+  const configuredApps = normalizeConfigEntries(context.config.apps);
+  const appsOnThisServer = configuredApps.filter(
+    (app) => app.servers && app.servers.includes(serverHostname)
+  );
+
   if (servicesOnThisServer.length === 0) {
-    logger.verboseLog(`No services found for this server`);
+    if (appsOnThisServer.length > 0) {
+      logger.verboseLog(
+        `No services configured for this server, but ${appsOnThisServer.length} app(s) found. Infrastructure setup is complete for app deployments.`
+      );
+    } else {
+      logger.verboseLog(`No services found for this server`);
+    }
   } else {
     logger.verboseLog(`Found ${servicesOnThisServer.length} services to start`);
 
@@ -547,7 +559,14 @@ async function setupServicesOnServer(
     }
   }
 
-  logger.serverStepComplete(`Services configured`, undefined, true);
+  const statusMessage =
+    servicesOnThisServer.length > 0
+      ? `Services configured`
+      : appsOnThisServer.length > 0
+      ? `Infrastructure ready for apps`
+      : `No services configured`;
+
+  logger.serverStepComplete(statusMessage, undefined, true);
 }
 
 /**
@@ -644,6 +663,45 @@ async function setupServer(
 }
 
 /**
+ * Provides a summary of what will be set up
+ */
+function logSetupSummary(
+  targetServers: Set<string>,
+  config: LumaConfig,
+  verboseFlag: boolean
+): void {
+  const configuredApps = normalizeConfigEntries(config.apps);
+  const configuredServices = normalizeConfigEntries(config.services);
+
+  const appsCount = configuredApps.filter(
+    (app) =>
+      app.servers &&
+      app.servers.some((server: string) => targetServers.has(server))
+  ).length;
+
+  const servicesCount = configuredServices.filter(
+    (service) =>
+      service.servers &&
+      service.servers.some((server: string) => targetServers.has(server))
+  ).length;
+
+  if (verboseFlag) {
+    logger.verboseLog(`Setup will prepare infrastructure for:`);
+    if (appsCount > 0) {
+      logger.verboseLog(`  - ${appsCount} app(s) ready for deployment`);
+    }
+    if (servicesCount > 0) {
+      logger.verboseLog(`  - ${servicesCount} service(s) to be started`);
+    }
+    if (appsCount === 0 && servicesCount === 0) {
+      logger.verboseLog(
+        `  - Server infrastructure only (no apps or services configured for these servers)`
+      );
+    }
+  }
+}
+
+/**
  * Main setup command that orchestrates the entire setup process
  */
 export async function setupCommand(
@@ -680,17 +738,44 @@ export async function setupCommand(
       return;
     }
 
-    logger.phase(`Setting up ${targetServers.size} server(s)`);
+    // Check what types of entries we're setting up for better messaging
+    const configuredApps = normalizeConfigEntries(config.apps);
+    const configuredServices = normalizeConfigEntries(config.services);
+
+    const hasApps = configuredApps.some(
+      (app) =>
+        app.servers &&
+        app.servers.some((server: string) => targetServers.has(server))
+    );
+    const hasServices = configuredServices.some(
+      (service) =>
+        service.servers &&
+        service.servers.some((server: string) => targetServers.has(server))
+    );
+
+    let phaseMessage = `Setting up ${targetServers.size} server(s)`;
+    if (hasApps && hasServices) {
+      phaseMessage += ` for apps and services`;
+    } else if (hasApps) {
+      phaseMessage += ` for app deployments`;
+    } else if (hasServices) {
+      phaseMessage += ` for services`;
+    }
+
+    logger.phase(phaseMessage);
     logger.verboseLog(
       `Target servers: ${Array.from(targetServers).join(", ")}`
     );
+
+    // Provide setup summary
+    logSetupSummary(targetServers, config, verboseFlag);
 
     // Setup each server
     for (const serverHostname of targetServers) {
       await setupServer(serverHostname, context);
     }
 
-    logger.phaseComplete(`Setting up ${targetServers.size} server(s)`);
+    logger.phaseComplete(phaseMessage);
     logger.setupComplete();
   } catch (error) {
     logger.setupFailed(error);
