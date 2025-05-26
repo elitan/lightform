@@ -28,8 +28,7 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/", helloHandler)
-	http.HandleFunc("/health", healthHandler)
-	http.HandleFunc("/up", upHandler)
+	http.HandleFunc("/api/health", healthHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {

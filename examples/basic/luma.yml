@@ -25,7 +25,7 @@ apps:
         - test.eliasson.me
       app_port: 3000
     health_check:
-      path: /health
+      path: /api/health
 
 services:
   db:
