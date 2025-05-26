@@ -9,8 +9,19 @@ import { DockerClient } from "../docker";
 import { SSHClient, getSSHCredentials, SSHClientOptions } from "../ssh";
 import { Logger } from "../utils/logger";
 
-// Module-level logger
+// Module-level logger that gets configured when statusCommand runs
 let logger: Logger;
+
+interface StatusContext {
+  config: LumaConfig;
+  secrets: LumaSecrets;
+  verboseFlag: boolean;
+}
+
+interface ParsedStatusArgs {
+  entryNames: string[];
+  verboseFlag: boolean;
+}
 
 interface AppStatus {
   name: string;
@@ -26,6 +37,43 @@ interface AppStatus {
   servers: string[];
 }
 
+interface ServerAppStatus {
+  activeColor: "blue" | "green" | null;
+  blueContainers: string[];
+  greenContainers: string[];
+  runningContainers: string[];
+}
+
+/**
+ * Parses command line arguments for status command
+ */
+function parseStatusArgs(
+  args: string[],
+  verbose: boolean = false
+): ParsedStatusArgs {
+  return {
+    entryNames: args || [],
+    verboseFlag: verbose,
+  };
+}
+
+/**
+ * Loads and validates Luma configuration and secrets files
+ */
+async function loadConfigurationAndSecrets(): Promise<{
+  config: LumaConfig;
+  secrets: LumaSecrets;
+}> {
+  try {
+    const config = await loadConfig();
+    const secrets = await loadSecrets();
+    return { config, secrets };
+  } catch (error) {
+    logger.error("Failed to load configuration/secrets", error);
+    throw error;
+  }
+}
+
 /**
  * Normalizes configuration entries from object/array format to array format
  */
@@ -38,79 +86,109 @@ function normalizeConfigEntries(
 }
 
 /**
+ * Establishes SSH connection to a server for status checking
+ */
+async function establishSSHConnection(
+  serverHostname: string,
+  context: StatusContext
+): Promise<SSHClient> {
+  const sshCreds = await getSSHCredentials(
+    serverHostname,
+    context.config,
+    context.secrets,
+    context.verboseFlag
+  );
+
+  const sshOptions: SSHClientOptions = {
+    ...sshCreds,
+    host: sshCreds.host || serverHostname,
+    username: sshCreds.username || "root",
+    port: sshCreds.port || 22,
+  };
+
+  const sshClient = await SSHClient.create(sshOptions);
+  await sshClient.connect();
+
+  logger.verboseLog(`SSH connection established to ${serverHostname}`);
+  return sshClient;
+}
+
+/**
+ * Gets container information for an app on a specific server
+ */
+async function getAppContainersOnServer(
+  appEntry: AppEntry,
+  dockerClient: DockerClient
+): Promise<{
+  allContainers: string[];
+  blueContainers: string[];
+  greenContainers: string[];
+  runningContainers: string[];
+}> {
+  const allContainers = await dockerClient.findContainersByLabel(
+    `luma.app=${appEntry.name}`
+  );
+
+  const blueContainers: string[] = [];
+  const greenContainers: string[] = [];
+  const runningContainers: string[] = [];
+
+  for (const containerName of allContainers) {
+    const isRunning = await dockerClient.containerIsRunning(containerName);
+    if (isRunning) {
+      runningContainers.push(containerName);
+    }
+
+    const labels = await dockerClient.getContainerLabels(containerName);
+    const color = labels["luma.color"];
+
+    if (color === "blue") {
+      blueContainers.push(containerName);
+    } else if (color === "green") {
+      greenContainers.push(containerName);
+    }
+  }
+
+  return {
+    allContainers,
+    blueContainers,
+    greenContainers,
+    runningContainers,
+  };
+}
+
+/**
  * Gets status information for a single app on a specific server
  */
 async function getAppStatusOnServer(
   appEntry: AppEntry,
   serverHostname: string,
-  config: LumaConfig,
-  secrets: LumaSecrets
-): Promise<{
-  activeColor: "blue" | "green" | null;
-  blueContainers: string[];
-  greenContainers: string[];
-  runningContainers: string[];
-}> {
+  context: StatusContext
+): Promise<ServerAppStatus> {
   let sshClient: SSHClient | undefined;
 
   try {
-    const sshCreds = await getSSHCredentials(
-      serverHostname,
-      config,
-      secrets,
-      logger.verbose
-    );
-
-    // Ensure host is set (it should be, but TypeScript requires this)
-    const sshOptions: SSHClientOptions = {
-      ...sshCreds,
-      host: sshCreds.host || serverHostname,
-      username: sshCreds.username || "root",
-      port: sshCreds.port || 22,
-    };
-
-    sshClient = await SSHClient.create(sshOptions);
-    await sshClient.connect();
-
+    sshClient = await establishSSHConnection(serverHostname, context);
     const dockerClient = new DockerClient(
       sshClient,
       serverHostname,
-      logger.verbose
+      context.verboseFlag
     );
 
     // Get active color
     const activeColor = await dockerClient.getCurrentActiveColor(appEntry.name);
 
-    // Get all containers for this app
-    const allContainers = await dockerClient.findContainersByLabel(
-      `luma.app=${appEntry.name}`
+    // Get container information
+    const containerInfo = await getAppContainersOnServer(
+      appEntry,
+      dockerClient
     );
-
-    const blueContainers: string[] = [];
-    const greenContainers: string[] = [];
-    const runningContainers: string[] = [];
-
-    for (const containerName of allContainers) {
-      const isRunning = await dockerClient.containerIsRunning(containerName);
-      if (isRunning) {
-        runningContainers.push(containerName);
-      }
-
-      const labels = await dockerClient.getContainerLabels(containerName);
-      const color = labels["luma.color"];
-
-      if (color === "blue") {
-        blueContainers.push(containerName);
-      } else if (color === "green") {
-        greenContainers.push(containerName);
-      }
-    }
 
     return {
       activeColor,
-      blueContainers,
-      greenContainers,
-      runningContainers,
+      blueContainers: containerInfo.blueContainers,
+      greenContainers: containerInfo.greenContainers,
+      runningContainers: containerInfo.runningContainers,
     };
   } catch (error) {
     logger.verboseLog(
@@ -130,20 +208,18 @@ async function getAppStatusOnServer(
 }
 
 /**
- * Gets comprehensive status for an app across all its servers
+ * Aggregates server statuses to determine overall app status
  */
-async function getAppStatus(
+function aggregateAppStatus(
   appEntry: AppEntry,
-  config: LumaConfig,
-  secrets: LumaSecrets
-): Promise<AppStatus> {
-  const serverStatuses = await Promise.all(
-    appEntry.servers.map((server) =>
-      getAppStatusOnServer(appEntry, server, config, secrets)
-    )
-  );
-
-  // Aggregate status across all servers
+  serverStatuses: ServerAppStatus[]
+): {
+  totalRunning: number;
+  totalBlue: number;
+  totalGreen: number;
+  activeColor: "blue" | "green" | null;
+  status: "running" | "stopped" | "mixed" | "unknown";
+} {
   let totalRunning = 0;
   let totalBlue = 0;
   let totalGreen = 0;
@@ -176,21 +252,45 @@ async function getAppStatus(
   }
 
   return {
-    name: appEntry.name,
-    status,
+    totalRunning,
+    totalBlue,
+    totalGreen,
     activeColor,
+    status,
+  };
+}
+
+/**
+ * Gets comprehensive status for an app across all its servers
+ */
+async function getAppStatus(
+  appEntry: AppEntry,
+  context: StatusContext
+): Promise<AppStatus> {
+  const serverStatuses = await Promise.all(
+    appEntry.servers.map((server) =>
+      getAppStatusOnServer(appEntry, server, context)
+    )
+  );
+
+  const aggregated = aggregateAppStatus(appEntry, serverStatuses);
+
+  return {
+    name: appEntry.name,
+    status: aggregated.status,
+    activeColor: aggregated.activeColor,
     replicas: {
-      total: totalBlue + totalGreen,
-      running: totalRunning,
-      blue: totalBlue,
-      green: totalGreen,
+      total: aggregated.totalBlue + aggregated.totalGreen,
+      running: aggregated.totalRunning,
+      blue: aggregated.totalBlue,
+      green: aggregated.totalGreen,
     },
     servers: appEntry.servers,
   };
 }
 
 /**
- * Displays status information in a formatted way
+ * Displays status information for an app in a formatted way
  */
 function displayAppStatus(appStatus: AppStatus): void {
   const statusIcon = {
@@ -245,83 +345,149 @@ function displayServiceStatus(service: ServiceEntry): void {
 }
 
 /**
- * Main status command function
+ * Filters apps and services based on requested entry names
+ */
+function filterEntriesByNames(
+  entryNames: string[],
+  apps: AppEntry[],
+  services: ServiceEntry[]
+): {
+  filteredApps: AppEntry[];
+  filteredServices: ServiceEntry[];
+} {
+  if (entryNames.length === 0) {
+    return { filteredApps: apps, filteredServices: services };
+  }
+
+  const filteredApps = apps.filter((app) => entryNames.includes(app.name));
+  const filteredServices = services.filter((service) =>
+    entryNames.includes(service.name)
+  );
+
+  return { filteredApps, filteredServices };
+}
+
+/**
+ * Validates that requested entries exist
+ */
+function validateRequestedEntries(
+  entryNames: string[],
+  filteredApps: AppEntry[],
+  filteredServices: ServiceEntry[]
+): boolean {
+  if (
+    entryNames.length > 0 &&
+    filteredApps.length === 0 &&
+    filteredServices.length === 0
+  ) {
+    logger.error(
+      `No apps or services found with names: ${entryNames.join(", ")}`
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Displays status for apps
+ */
+async function displayAppsStatus(
+  apps: AppEntry[],
+  context: StatusContext
+): Promise<void> {
+  if (apps.length === 0) {
+    logger.info("No apps configured.");
+    return;
+  }
+
+  console.log(`Apps (${apps.length}):`);
+  for (const app of apps) {
+    const appStatus = await getAppStatus(app, context);
+    displayAppStatus(appStatus);
+  }
+}
+
+/**
+ * Displays status for services
+ */
+function displayServicesStatus(services: ServiceEntry[]): void {
+  if (services.length === 0) {
+    return;
+  }
+
+  console.log(`Services (${services.length}):`);
+  for (const service of services) {
+    displayServiceStatus(service);
+  }
+}
+
+/**
+ * Handles the main status checking and display logic
+ */
+async function checkAndDisplayStatus(
+  parsedArgs: ParsedStatusArgs,
+  context: StatusContext
+): Promise<void> {
+  const apps = normalizeConfigEntries(context.config.apps) as AppEntry[];
+  const services = normalizeConfigEntries(
+    context.config.services
+  ) as ServiceEntry[];
+
+  const { filteredApps, filteredServices } = filterEntriesByNames(
+    parsedArgs.entryNames,
+    apps,
+    services
+  );
+
+  if (
+    !validateRequestedEntries(
+      parsedArgs.entryNames,
+      filteredApps,
+      filteredServices
+    )
+  ) {
+    return;
+  }
+
+  // Check if no apps or services are configured
+  if (apps.length === 0 && services.length === 0) {
+    logger.info("No apps or services configured.");
+    return;
+  }
+
+  // Display status for apps
+  await displayAppsStatus(filteredApps, context);
+
+  // Display status for services
+  displayServicesStatus(filteredServices);
+}
+
+/**
+ * Main status command that orchestrates the entire status checking process
  */
 export async function statusCommand(
   args: string[],
   verbose: boolean = false
 ): Promise<void> {
   try {
+    const parsedArgs = parseStatusArgs(args, verbose);
+
     // Initialize logger with verbose flag
-    logger = new Logger({ verbose });
+    logger = new Logger({ verbose: parsedArgs.verboseFlag });
 
     logger.phase("Checking deployment status");
 
-    const config = await loadConfig();
-    const secrets = await loadSecrets();
+    // Load configuration and secrets
+    const { config, secrets } = await loadConfigurationAndSecrets();
 
-    // Get apps to check status for
-    const apps = normalizeConfigEntries(config.apps) as AppEntry[];
-    const services = normalizeConfigEntries(config.services) as ServiceEntry[];
+    const context: StatusContext = {
+      config,
+      secrets,
+      verboseFlag: parsedArgs.verboseFlag,
+    };
 
-    if (args.length > 0) {
-      // Filter to specific apps/services requested
-      const requestedNames = args;
-      const filteredApps = apps.filter((app) =>
-        requestedNames.includes(app.name)
-      );
-      const filteredServices = services.filter((service) =>
-        requestedNames.includes(service.name)
-      );
-
-      if (filteredApps.length === 0 && filteredServices.length === 0) {
-        logger.error(
-          `No apps or services found with names: ${requestedNames.join(", ")}`
-        );
-        return;
-      }
-
-      // Show status for requested apps
-      if (filteredApps.length > 0) {
-        console.log(`Apps (${filteredApps.length}):`);
-        for (const app of filteredApps) {
-          const appStatus = await getAppStatus(app, config, secrets);
-          displayAppStatus(appStatus);
-        }
-      }
-
-      // Show status for requested services
-      if (filteredServices.length > 0) {
-        console.log(`Services (${filteredServices.length}):`);
-        for (const service of filteredServices) {
-          displayServiceStatus(service);
-        }
-      }
-    } else {
-      // Show status for all apps
-      if (apps.length === 0) {
-        logger.info("No apps configured.");
-      } else {
-        console.log(`Apps (${apps.length}):`);
-        for (const app of apps) {
-          const appStatus = await getAppStatus(app, config, secrets);
-          displayAppStatus(appStatus);
-        }
-      }
-
-      // Show basic service info
-      if (services.length > 0) {
-        console.log(`Services (${services.length}):`);
-        for (const service of services) {
-          displayServiceStatus(service);
-        }
-      }
-
-      if (apps.length === 0 && services.length === 0) {
-        logger.info("No apps or services configured.");
-        return;
-      }
-    }
+    // Check and display status
+    await checkAndDisplayStatus(parsedArgs, context);
 
     logger.phaseComplete("Checking deployment status");
     console.log("[✓] Status check complete!");
