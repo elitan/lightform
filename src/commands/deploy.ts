@@ -18,6 +18,13 @@ import { execSync } from "child_process";
 import { LumaProxyClient } from "../proxy";
 import { performBlueGreenDeployment } from "./blue-green";
 import { Logger } from "../utils/logger";
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
+import { createHash } from "crypto";
+import { unlink, stat } from "fs/promises";
+import * as cliProgress from "cli-progress";
+import { join, basename } from "path";
 
 // Module-level logger that gets configured when deployCommand runs
 let logger: Logger;
@@ -157,6 +164,7 @@ interface DeploymentContext {
   forceFlag: boolean;
   deployServicesFlag: boolean;
   verboseFlag: boolean;
+  imageArchives?: Map<string, string>; // app name -> archive path
 }
 
 interface ParsedArgs {
@@ -363,78 +371,87 @@ async function verifyInfrastructure(
  * Main deployment loop that processes all target entries
  */
 async function deployEntries(context: DeploymentContext): Promise<void> {
-  const isApp = !context.deployServicesFlag;
+  // Categorize entries by type
+  const apps = context.targetEntries.filter(
+    (entry) =>
+      (entry.name !== undefined && (entry as AppEntry).build !== undefined) ||
+      (entry as AppEntry).proxy !== undefined
+  ) as AppEntry[];
+  const services = context.targetEntries.filter(
+    (entry) =>
+      entry.name !== undefined &&
+      (entry as ServiceEntry).image !== undefined &&
+      !(entry as AppEntry).build &&
+      !(entry as AppEntry).proxy
+  ) as ServiceEntry[];
 
-  if (isApp) {
+  const appsNeedingBuild = apps.filter((app) => app.build !== undefined);
+
+  // Initialize image archives map
+  context.imageArchives = new Map<string, string>();
+
+  // Build phase for apps that have build config
+  if (appsNeedingBuild.length > 0) {
+    logger.phase("Building Images");
+    for (const appEntry of appsNeedingBuild) {
+      const archivePath = await buildAndSaveApp(appEntry, context);
+      context.imageArchives.set(appEntry.name, archivePath);
+    }
+    logger.phaseComplete("Building Images");
+  }
+
+  // Skip build phase for pre-built apps and show info
+  if (apps.length > 0 && apps.length > appsNeedingBuild.length) {
     logger.verboseLog(
-      `Deploying ${context.targetEntries.length} app(s): ${context.targetEntries
-        .map((e) => e.name)
+      `Using pre-built images: ${apps
+        .filter((app) => !(app as AppEntry).build)
+        .map((app) => `${app.name} (${app.image})`)
         .join(", ")}`
     );
+  }
 
-    // Separate apps into those that need building vs pre-built
-    const appsNeedingBuild = context.targetEntries.filter(
-      (entry) => (entry as AppEntry).build
-    ) as AppEntry[];
-    const preBuiltApps = context.targetEntries.filter(
-      (entry) => !(entry as AppEntry).build
-    ) as AppEntry[];
+  // Clean up removed apps with reconciliation
+  logger.phase("App State Reconciliation");
+  const allAppServers = new Set<string>();
+  context.targetEntries.forEach((entry) => {
+    const appEntry = entry as AppEntry;
+    appEntry.servers.forEach((server) => allAppServers.add(server));
+  });
 
-    // Build phase for apps that have build config
-    if (appsNeedingBuild.length > 0) {
-      logger.phase("Building & Pushing Images");
-      for (const appEntry of appsNeedingBuild) {
-        await buildAndPushApp(appEntry, context);
-      }
-      logger.phaseComplete("Building & Pushing Images");
-    }
+  // Also check servers that might have orphaned apps
+  const configuredApps = normalizeConfigEntries(context.config.apps);
+  const allConfiguredServers = new Set<string>();
+  configuredApps.forEach((app) => {
+    app.servers.forEach((server: string) => allConfiguredServers.add(server));
+  });
+  allConfiguredServers.forEach((server) => allAppServers.add(server));
 
-    // Skip build phase for pre-built apps and show info
-    if (preBuiltApps.length > 0) {
-      logger.verboseLog(
-        `Using pre-built images: ${preBuiltApps
-          .map((app) => `${app.name} (${app.image})`)
-          .join(", ")}`
-      );
-    }
+  for (const serverHostname of Array.from(allAppServers)) {
+    await reconcileAppsOnServer(context, serverHostname);
+  }
+  logger.phaseComplete("App State Reconciliation");
 
-    // Clean up removed apps with reconciliation
-    logger.phase("App State Reconciliation");
-    const allAppServers = new Set<string>();
-    context.targetEntries.forEach((entry) => {
-      const appEntry = entry as AppEntry;
-      appEntry.servers.forEach((server) => allAppServers.add(server));
-    });
-
-    // Also check servers that might have orphaned apps
-    const configuredApps = normalizeConfigEntries(context.config.apps);
-    const allConfiguredServers = new Set<string>();
-    configuredApps.forEach((app) => {
-      app.servers.forEach((server: string) => allConfiguredServers.add(server));
-    });
-    allConfiguredServers.forEach((server) => allAppServers.add(server));
-
-    for (const serverHostname of Array.from(allAppServers)) {
-      await reconcileAppsOnServer(context, serverHostname);
-    }
-    logger.phaseComplete("App State Reconciliation");
-
-    // Deploy phase for all apps
-    logger.phaseStart("Deploying Apps");
+  // Deploy phase for apps
+  if (apps.length > 0) {
+    logger.phase("Deploying Apps");
     const deploymentStartTime = Date.now();
-    for (const entry of context.targetEntries) {
-      const appEntry = entry as AppEntry;
+
+    // Deployment phase: Deploy each app to their servers
+    for (const appEntry of apps) {
       await deployAppToServers(appEntry, context);
     }
+
     const deploymentDuration = Date.now() - deploymentStartTime;
     logger.phaseComplete("Deploying Apps", deploymentDuration);
-  } else {
-    // Deploy phase for services with reconciliation
+  }
+
+  // Deploy phase for services with reconciliation
+  if (services.length > 0 || context.deployServicesFlag) {
     logger.phase("Deploying Services");
 
     // Get all unique servers that need service deployment
     const allServiceServers = new Set<string>();
-    context.targetEntries.forEach((entry) => {
+    services.forEach((entry) => {
       const serviceEntry = entry as ServiceEntry;
       serviceEntry.servers.forEach((server) => allServiceServers.add(server));
     });
@@ -449,12 +466,12 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
 }
 
 /**
- * Builds and pushes an app image (build phase)
+ * Builds an app and saves it to a tar archive for transfer
  */
-async function buildAndPushApp(
+async function buildAndSaveApp(
   appEntry: AppEntry,
   context: DeploymentContext
-): Promise<void> {
+): Promise<string> {
   const imageNameWithRelease = `${appEntry.image}:${context.releaseId}`;
   const stepStart = Date.now();
 
@@ -466,15 +483,15 @@ async function buildAndPushApp(
     );
     if (!imageReady) throw new Error("Image build failed");
 
-    await pushAppImage(
+    const archivePath = await saveAppImage(
       appEntry,
       imageNameWithRelease,
-      context.config,
       context.verboseFlag
     );
 
     const duration = Date.now() - stepStart;
     logger.stepComplete(`${appEntry.name} → ${imageNameWithRelease}`, duration);
+    return archivePath;
   } catch (error) {
     logger.stepError(`${appEntry.name} → ${imageNameWithRelease}`, error);
     throw error;
@@ -571,6 +588,34 @@ async function pushAppImage(
 }
 
 /**
+ * Saves an app image to a tar archive for transfer
+ */
+async function saveAppImage(
+  appEntry: AppEntry,
+  imageNameWithRelease: string,
+  verbose: boolean = false
+): Promise<string> {
+  logger.verboseLog(`Saving image ${imageNameWithRelease} to archive...`);
+  try {
+    // Create a temporary directory for the archive
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "luma-"));
+    const archivePath = path.join(
+      tempDir,
+      `${appEntry.name}-${Date.now()}.tar`
+    );
+
+    await DockerClient.save(imageNameWithRelease, archivePath, verbose);
+    logger.verboseLog(
+      `Successfully saved ${imageNameWithRelease} to ${archivePath}`
+    );
+    return archivePath;
+  } catch (error) {
+    logger.error(`Failed to save image ${imageNameWithRelease}`, error);
+    throw error;
+  }
+}
+
+/**
  * Builds the full image name with release ID for built apps, or returns original name for pre-built apps
  */
 function buildImageName(appEntry: AppEntry, releaseId: string): string {
@@ -610,14 +655,15 @@ async function deployAppToServer(
     const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
 
     // Step 1: Pull image
-    logger.serverStep(`Pulling ${appEntry.name} image`);
-    await authenticateAndPullImage(
+    logger.serverStep(`Loading ${appEntry.name} image`);
+    await transferAndLoadImage(
       appEntry,
+      sshClient,
       dockerClient,
       context,
       imageNameWithRelease
     );
-    logger.serverStepComplete(`Pulling ${appEntry.name} image`);
+    logger.serverStepComplete(`Loading ${appEntry.name} image`);
 
     // Step 2: Zero-downtime deployment
     logger.serverStep(`Zero-downtime deployment of ${appEntry.name}`);
@@ -1210,6 +1256,111 @@ async function removeOrphanedApps(
         `Failed to remove orphaned app ${appName} on ${serverHostname}: ${error}`
       );
     }
+  }
+}
+
+/**
+ * Transfers the image archive to the remote server and loads it
+ */
+async function transferAndLoadImage(
+  appEntry: AppEntry,
+  sshClient: any,
+  dockerClientRemote: DockerClient,
+  context: DeploymentContext,
+  imageName: string
+): Promise<void> {
+  const archivePath = context.imageArchives?.get(appEntry.name);
+  if (!archivePath) {
+    throw new Error(`No archive found for app ${appEntry.name}`);
+  }
+
+  try {
+    // Generate remote path for the archive
+    const remoteArchivePath = `/tmp/luma-${appEntry.name}-${context.releaseId}.tar`;
+
+    logger.verboseLog(`Transferring image archive to server...`);
+
+    // Get file size for progress bar
+    const fileStat = await stat(archivePath);
+    const fileSizeKB = Math.round(fileStat.size / 1024);
+    const fileSizeMB = (fileStat.size / 1024 / 1024).toFixed(2);
+
+    logger.verboseLog(`File size: ${fileSizeMB} MB`);
+
+    // Create progress bar for this server
+    const progressBar = new cliProgress.SingleBar(
+      {
+        format: `   Uploading |{bar}| {percentage}% | {value}/{total} KB | Speed: {speed} KB/s`,
+        barCompleteChar: "█",
+        barIncompleteChar: "░",
+        hideCursor: true,
+        etaBuffer: 10,
+      },
+      cliProgress.Presets.shades_classic
+    );
+
+    let startTime = Date.now();
+    let lastTransferred = 0;
+    let lastTime = startTime;
+
+    // Start progress bar
+    progressBar.start(fileSizeKB, 0, { speed: "0" });
+
+    // Upload with progress tracking
+    await sshClient.uploadFile(
+      archivePath,
+      remoteArchivePath,
+      (transferred: number, total: number) => {
+        const transferredKB = Math.round(transferred / 1024);
+        const currentTime = Date.now();
+        const timeDiff = (currentTime - lastTime) / 1000; // seconds
+
+        if (timeDiff > 0.1) {
+          // Update speed every 100ms
+          const bytesDiff = transferred - lastTransferred;
+          const speed = Math.round(bytesDiff / 1024 / timeDiff);
+
+          progressBar.update(transferredKB, { speed: speed.toString() });
+
+          lastTransferred = transferred;
+          lastTime = currentTime;
+        }
+      }
+    );
+
+    // Complete the progress bar
+    progressBar.update(fileSizeKB, { speed: "Done" });
+    progressBar.stop();
+
+    logger.verboseLog(`✓ Upload complete`);
+
+    // Load the image from archive
+    logger.verboseLog(`Loading image ${imageName} from archive...`);
+    await dockerClientRemote.loadImage(remoteArchivePath);
+    logger.verboseLog(`✓ Image loaded successfully`);
+
+    // Clean up remote archive
+    await sshClient.exec(`rm -f ${remoteArchivePath}`);
+
+    // Clean up local archive
+    try {
+      fs.unlinkSync(archivePath);
+      // Also try to remove the temp directory if it's empty
+      const tempDir = path.dirname(archivePath);
+      try {
+        fs.rmdirSync(tempDir);
+      } catch (e) {
+        // Ignore if directory is not empty or already removed
+      }
+      logger.verboseLog(`Cleaned up local archive ${archivePath}`);
+    } catch (cleanupError) {
+      logger.verboseLog(
+        `Warning: Failed to clean up local archive: ${cleanupError}`
+      );
+    }
+  } catch (error) {
+    logger.error(`Failed to transfer and load image ${imageName}`, error);
+    throw error;
   }
 }
 

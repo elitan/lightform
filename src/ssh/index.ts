@@ -3,6 +3,9 @@
 import SSH2Promise from "ssh2-promise";
 import { ConnectConfig } from "ssh2"; // Import ConnectConfig from ssh2
 import { getSSHCredentials } from "./utils"; // Import the utility function
+import { createReadStream, createWriteStream } from "fs";
+import { stat } from "fs/promises";
+import * as cliProgress from "cli-progress";
 
 export { getSSHCredentials }; // Export for use across the codebase
 
@@ -193,6 +196,98 @@ export class SSHClient {
       if (this.verbose) {
         console.error(`Error closing SSH connection to ${this.host}:`, err);
       }
+    }
+  }
+
+  /**
+   * Upload a file to the remote server using SFTP
+   */
+  async uploadFile(
+    localPath: string,
+    remotePath: string,
+    onProgress?: (transferred: number, total: number) => void
+  ): Promise<void> {
+    if (this.verbose) {
+      console.log(`[${this.host}] Uploading ${localPath} to ${remotePath}`);
+    }
+
+    try {
+      // Get file stats for progress info
+      const stats = await stat(localPath);
+      if (this.verbose) {
+        console.log(
+          `[${this.host}] File size: ${(stats.size / 1024 / 1024).toFixed(
+            2
+          )} MB`
+        );
+      }
+
+      const sftp = await this.ssh.sftp();
+
+      if (onProgress) {
+        // Use streaming upload with progress tracking
+        const readStream = createReadStream(localPath);
+        const writeStream = await sftp.createWriteStream(remotePath);
+        let transferred = 0;
+        const totalSize = stats.size;
+
+        return new Promise((resolve, reject) => {
+          readStream.on("data", (chunk: string | Buffer) => {
+            const chunkSize =
+              typeof chunk === "string"
+                ? Buffer.byteLength(chunk)
+                : chunk.length;
+            transferred += chunkSize;
+            onProgress(transferred, totalSize);
+          });
+
+          readStream.on("end", () => {
+            resolve();
+          });
+
+          readStream.on("error", reject);
+          writeStream.on("error", reject);
+
+          readStream.pipe(writeStream);
+        });
+      } else {
+        // Use the standard upload method
+        await sftp.fastPut(localPath, remotePath);
+      }
+
+      if (this.verbose) {
+        console.log(`[${this.host}] Upload completed: ${remotePath}`);
+      }
+    } catch (err) {
+      console.error(
+        `[${this.host}] Failed to upload file ${localPath} to ${remotePath}:`,
+        err
+      );
+      throw err;
+    }
+  }
+
+  /**
+   * Download a file from the remote server using SFTP
+   */
+  async downloadFile(remotePath: string, localPath: string): Promise<void> {
+    if (this.verbose) {
+      console.log(`[${this.host}] Downloading ${remotePath} to ${localPath}`);
+    }
+
+    try {
+      const sftp = await this.ssh.sftp();
+      await sftp.fastGet(remotePath, localPath);
+
+      if (this.verbose) {
+        console.log(`[${this.host}] Download completed: ${localPath}`);
+      }
+    } catch (err) {
+      console.error(
+        `[${this.host}] Failed to download file ${remotePath} to ${localPath}:`,
+        err
+      );
+      throw err;
     }
   }
 }

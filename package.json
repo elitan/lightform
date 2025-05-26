@@ -42,6 +42,8 @@
     "version:check": "npm version --json"
   },
   "dependencies": {
+    "@types/cli-progress": "^3.11.6",
+    "cli-progress": "^3.12.0",
     "js-yaml": "^4.1.0",
     "ssh2-promise": "^1.0.0",
     "zod": "^3.24.4"

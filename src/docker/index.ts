@@ -199,6 +199,26 @@ export class DockerClient {
     }
   }
 
+  /**
+   * Save a Docker image to a tar archive
+   */
+  static async save(
+    imageName: string,
+    outputPath: string,
+    verbose: boolean = false
+  ): Promise<void> {
+    const command = `docker save \"${imageName}\" -o \"${outputPath}\"`;
+    if (verbose) {
+      console.log(`Saving image to archive: ${command}`);
+    }
+    await DockerClient._runLocalCommand(command, verbose);
+    if (verbose) {
+      console.log(
+        `Successfully saved image \"${imageName}\" to \"${outputPath}\".`
+      );
+    }
+  }
+
   static async push(
     imageName: string,
     registry?: string,
@@ -397,6 +417,21 @@ EOF`);
       return true;
     } catch (error) {
       this.logError(`Failed to force pull image ${image}: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Load a Docker image from a tar archive
+   */
+  async loadImage(archivePath: string): Promise<boolean> {
+    this.log(`Loading image from archive ${archivePath}...`);
+    try {
+      await this.execRemote(`load -i "${archivePath}"`);
+      this.log(`Successfully loaded image from ${archivePath}.`);
+      return true;
+    } catch (error) {
+      this.logError(`Failed to load image from ${archivePath}: ${error}`);
       return false;
     }
   }
