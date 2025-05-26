@@ -598,12 +598,17 @@ async function saveAppImage(
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "luma-"));
     const archivePath = path.join(
       tempDir,
-      `${appEntry.name}-${Date.now()}.tar`
+      `${appEntry.name}-${Date.now()}.tar.gz`
     );
 
-    await DockerClient.save(imageNameWithRelease, archivePath, verbose);
+    // Use gzip compression to significantly reduce file size
+    await DockerClient.saveCompressed(
+      imageNameWithRelease,
+      archivePath,
+      verbose
+    );
     logger.verboseLog(
-      `Successfully saved ${imageNameWithRelease} to ${archivePath}`
+      `Successfully saved ${imageNameWithRelease} to compressed archive ${archivePath}`
     );
     return archivePath;
   } catch (error) {
@@ -1274,10 +1279,11 @@ async function transferAndLoadImage(
   }
 
   try {
-    // Generate remote path for the archive
-    const remoteArchivePath = `/tmp/luma-${appEntry.name}-${context.releaseId}.tar`;
+    // Generate remote path for the archive, preserving compression extension
+    const fileExt = archivePath.endsWith(".tar.gz") ? ".tar.gz" : ".tar";
+    const remoteArchivePath = `/tmp/luma-${appEntry.name}-${context.releaseId}${fileExt}`;
 
-    logger.verboseLog(`Transferring image archive to server...`);
+    logger.verboseLog(`Transferring compressed image archive to server...`);
 
     // Get file size for progress tracking
     const fileStat = await stat(archivePath);
@@ -1316,7 +1322,7 @@ async function transferAndLoadImage(
       }
     );
 
-    // Load the image from archive
+    // Load the image from archive (automatically handles compression)
     logger.verboseLog(`Loading image ${imageName} from archive...`);
     await dockerClientRemote.loadImage(remoteArchivePath);
     logger.verboseLog(`✓ Image loaded successfully`);

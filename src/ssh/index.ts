@@ -198,7 +198,7 @@ export class SSHClient {
   }
 
   /**
-   * Upload a file to the remote server using SFTP
+   * Upload a file to the remote server using native rsync or scp command (fastest for large files)
    */
   async uploadFile(
     localPath: string,
@@ -206,59 +206,103 @@ export class SSHClient {
     onProgress?: (transferred: number, total: number) => void
   ): Promise<void> {
     if (this.verbose) {
-      console.log(`[${this.host}] Uploading ${localPath} to ${remotePath}`);
+      console.log(
+        `[${this.host}] Uploading ${localPath} to ${remotePath} via rsync or SCP`
+      );
     }
 
     try {
       // Get file stats for progress info
       const stats = await stat(localPath);
+      const totalSize = stats.size;
       if (this.verbose) {
         console.log(
-          `[${this.host}] File size: ${(stats.size / 1024 / 1024).toFixed(
-            2
-          )} MB`
+          `[${this.host}] File size: ${(totalSize / 1024 / 1024).toFixed(2)} MB`
         );
       }
 
-      const sftp = await this.ssh.sftp();
+      // Create remote directory first via SSH
+      await this.ssh.exec(`mkdir -p $(dirname "${remotePath}")`);
 
-      if (onProgress) {
-        // Use streaming upload with progress tracking
-        const readStream = createReadStream(localPath);
-        const writeStream = await sftp.createWriteStream(remotePath);
-        let transferred = 0;
-        const totalSize = stats.size;
-
-        return new Promise((resolve, reject) => {
-          readStream.on("data", (chunk: string | Buffer) => {
-            const chunkSize =
-              typeof chunk === "string"
-                ? Buffer.byteLength(chunk)
-                : chunk.length;
-            transferred += chunkSize;
-            onProgress(transferred, totalSize);
-          });
-
-          readStream.on("end", () => {
-            resolve();
-          });
-
-          readStream.on("error", reject);
-          writeStream.on("error", reject);
-
-          readStream.pipe(writeStream);
-        });
-      } else {
-        // Use the standard upload method
-        await sftp.fastPut(localPath, remotePath);
-      }
+      // Use native rsync or scp command for maximum speed
+      // Try rsync first (faster for large files), fall back to scp
+      const rsyncCommand = `rsync -avz --progress "${localPath}" ${this.connectOptions.username}@${this.host}:"${remotePath}"`;
+      const scpCommand = `scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -C "${localPath}" ${this.connectOptions.username}@${this.host}:"${remotePath}"`;
 
       if (this.verbose) {
-        console.log(`[${this.host}] Upload completed: ${remotePath}`);
+        console.log(`[${this.host}] Trying rsync for faster transfer`);
+      }
+
+      // Execute rsync or scp command directly
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execPromise = promisify(exec);
+
+      let progressInterval: NodeJS.Timeout | undefined;
+
+      if (onProgress) {
+        // Monitor progress by checking remote file size during transfer
+        progressInterval = setInterval(async () => {
+          try {
+            const result = await this.ssh.exec(
+              `stat -c%s "${remotePath}" 2>/dev/null || echo 0`
+            );
+            const transferred = parseInt(result.trim()) || 0;
+            onProgress(Math.min(transferred, totalSize), totalSize);
+          } catch (e) {
+            // Ignore errors during progress monitoring
+          }
+        }, 200); // Check every 200ms for smoother progress
+      }
+
+      try {
+        // Try rsync first
+        try {
+          if (this.verbose) {
+            console.log(
+              `[${this.host}] Executing rsync: ${rsyncCommand.replace(
+                localPath,
+                "***"
+              )}`
+            );
+          }
+          await execPromise(rsyncCommand);
+          if (this.verbose) {
+            console.log(`[${this.host}] rsync upload completed: ${remotePath}`);
+          }
+        } catch (rsyncError) {
+          // Fallback to SCP if rsync fails
+          if (this.verbose) {
+            console.log(
+              `[${this.host}] rsync failed, falling back to SCP: ${rsyncError}`
+            );
+            console.log(
+              `[${this.host}] Executing SCP: ${scpCommand.replace(
+                localPath,
+                "***"
+              )}`
+            );
+          }
+          await execPromise(scpCommand);
+          if (this.verbose) {
+            console.log(`[${this.host}] SCP upload completed: ${remotePath}`);
+          }
+        }
+
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          // Final progress update
+          onProgress?.(totalSize, totalSize);
+        }
+      } catch (transferError) {
+        if (progressInterval) {
+          clearInterval(progressInterval);
+        }
+        throw transferError;
       }
     } catch (err) {
       console.error(
-        `[${this.host}] Failed to upload file ${localPath} to ${remotePath}:`,
+        `[${this.host}] Failed to upload file ${localPath} to ${remotePath} via rsync or SCP:`,
         err
       );
       throw err;

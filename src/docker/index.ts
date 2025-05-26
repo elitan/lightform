@@ -219,6 +219,27 @@ export class DockerClient {
     }
   }
 
+  /**
+   * Save a Docker image to a compressed tar.gz archive for faster transfer
+   */
+  static async saveCompressed(
+    imageName: string,
+    outputPath: string,
+    verbose: boolean = false
+  ): Promise<void> {
+    // Use gzip compression to significantly reduce file size
+    const command = `docker save \"${imageName}\" | gzip > \"${outputPath}\"`;
+    if (verbose) {
+      console.log(`Saving compressed image to archive: ${command}`);
+    }
+    await DockerClient._runLocalCommand(command, verbose);
+    if (verbose) {
+      console.log(
+        `Successfully saved compressed image \"${imageName}\" to \"${outputPath}\".`
+      );
+    }
+  }
+
   static async push(
     imageName: string,
     registry?: string,
@@ -427,11 +448,35 @@ EOF`);
   async loadImage(archivePath: string): Promise<boolean> {
     this.log(`Loading image from archive ${archivePath}...`);
     try {
+      // Check if it's a compressed archive by file extension
+      if (archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz")) {
+        return await this.loadCompressedImage(archivePath);
+      }
+
       await this.execRemote(`load -i "${archivePath}"`);
       this.log(`Successfully loaded image from ${archivePath}.`);
       return true;
     } catch (error) {
       this.logError(`Failed to load image from ${archivePath}: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Load a Docker image from a compressed tar.gz archive
+   */
+  async loadCompressedImage(archivePath: string): Promise<boolean> {
+    this.log(`Loading compressed image from archive ${archivePath}...`);
+    try {
+      // Use shell command to decompress and pipe to docker load
+      const command = `sh -c "gunzip -c '${archivePath}' | docker load"`;
+      await this.sshClient?.exec(command);
+      this.log(`Successfully loaded compressed image from ${archivePath}.`);
+      return true;
+    } catch (error) {
+      this.logError(
+        `Failed to load compressed image from ${archivePath}: ${error}`
+      );
       return false;
     }
   }
