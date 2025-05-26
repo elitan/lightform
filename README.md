@@ -1,6 +1,4 @@
-# Luma ⚡
-
-**Ship Docker Anywhere.**
+# Luma: Ship Docker Anywhere ⚡
 
 Zero-downtime deployments and automatic HTTPS on your own servers.
 
