@@ -20,6 +20,7 @@ import { performBlueGreenDeployment } from "./blue-green";
 import { Logger } from "../utils/logger";
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { stat } from "fs/promises";
 
 // Module-level logger that gets configured when deployCommand runs
