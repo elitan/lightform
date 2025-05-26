@@ -11,20 +11,16 @@ import {
   DockerClient,
   DockerBuildOptions,
   DockerContainerOptions,
-} from "../docker"; // Updated path and name
-import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh"; // Updated to import the utility function
-import { generateReleaseId, getProjectNetworkName } from "../utils"; // Changed path and added getProjectNetworkName
+} from "../docker";
+import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh";
+import { generateReleaseId, getProjectNetworkName } from "../utils";
 import { execSync } from "child_process";
 import { LumaProxyClient } from "../proxy";
 import { performBlueGreenDeployment } from "./blue-green";
 import { Logger } from "../utils/logger";
 import * as path from "path";
 import * as fs from "fs";
-import * as os from "os";
-import { createHash } from "crypto";
-import { unlink, stat } from "fs/promises";
-import * as cliProgress from "cli-progress";
-import { join, basename } from "path";
+import { stat } from "fs/promises";
 
 // Module-level logger that gets configured when deployCommand runs
 let logger: Logger;
@@ -1282,59 +1278,42 @@ async function transferAndLoadImage(
 
     logger.verboseLog(`Transferring image archive to server...`);
 
-    // Get file size for progress bar
+    // Get file size for progress tracking
     const fileStat = await stat(archivePath);
-    const fileSizeKB = Math.round(fileStat.size / 1024);
-    const fileSizeMB = (fileStat.size / 1024 / 1024).toFixed(2);
+    const totalSizeMB = (fileStat.size / 1024 / 1024).toFixed(1);
 
-    logger.verboseLog(`File size: ${fileSizeMB} MB`);
+    logger.verboseLog(`File size: ${totalSizeMB} MB`);
 
-    // Create progress bar for this server
-    const progressBar = new cliProgress.SingleBar(
-      {
-        format: `   Uploading |{bar}| {percentage}% | {value}/{total} KB | Speed: {speed} KB/s`,
-        barCompleteChar: "█",
-        barIncompleteChar: "░",
-        hideCursor: true,
-        etaBuffer: 10,
-      },
-      cliProgress.Presets.shades_classic
-    );
-
-    let startTime = Date.now();
     let lastTransferred = 0;
-    let lastTime = startTime;
-
-    // Start progress bar
-    progressBar.start(fileSizeKB, 0, { speed: "0" });
+    let lastTime = Date.now();
 
     // Upload with progress tracking
     await sshClient.uploadFile(
       archivePath,
       remoteArchivePath,
       (transferred: number, total: number) => {
-        const transferredKB = Math.round(transferred / 1024);
-        const currentTime = Date.now();
-        const timeDiff = (currentTime - lastTime) / 1000; // seconds
+        const transferredMB = (transferred / 1024 / 1024).toFixed(1);
 
-        if (timeDiff > 0.1) {
-          // Update speed every 100ms
-          const bytesDiff = transferred - lastTransferred;
-          const speed = Math.round(bytesDiff / 1024 / timeDiff);
+        // Update the current step with upload progress
+        if ((logger as any).activeSpinner) {
+          const elapsed = Date.now() - (logger as any).activeSpinner.startTime;
+          const spinner = (logger as any).spinnerChars[
+            (logger as any).spinnerIndex
+          ];
+          const timeStr = (logger as any).formatDuration(elapsed);
 
-          progressBar.update(transferredKB, { speed: speed.toString() });
+          // Clear current line and show progress with file size
+          process.stdout.write("\r\x1b[K");
+          process.stdout.write(
+            `     ├─ [${spinner}] Loading ${appEntry.name} image... (${timeStr}) | ${transferredMB}MB/${totalSizeMB}MB`
+          );
 
-          lastTransferred = transferred;
-          lastTime = currentTime;
+          (logger as any).spinnerIndex =
+            ((logger as any).spinnerIndex + 1) %
+            (logger as any).spinnerChars.length;
         }
       }
     );
-
-    // Complete the progress bar
-    progressBar.update(fileSizeKB, { speed: "Done" });
-    progressBar.stop();
-
-    logger.verboseLog(`✓ Upload complete`);
 
     // Load the image from archive
     logger.verboseLog(`Loading image ${imageName} from archive...`);
