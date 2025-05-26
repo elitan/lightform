@@ -79,7 +79,10 @@ export const AppEntryWithoutNameSchema = z.object({
       target: z.string().optional(), // For multi-stage builds
       platform: z.string().optional(), // e.g., linux/amd64
     })
-    .optional(),
+    .optional()
+    .describe(
+      "Build configuration. When specified, the app is built locally and transferred via docker save/load instead of using registries."
+    ),
   ports: z.array(z.string()).optional(), // e.g., ["80:80", "443:443"]
   volumes: z.array(z.string()).optional(), // e.g., ["mydata:/data/db"]
   environment: z
@@ -88,13 +91,16 @@ export const AppEntryWithoutNameSchema = z.object({
       secret: z.array(z.string()).optional(),
     })
     .optional(),
-  registry: z // Optional per-app registry override
+  registry: z // Optional per-app registry override (only used for pre-built images)
     .object({
       url: z.string().optional(),
       username: z.string(),
       password_secret: z.string(), // Secret key for the password
     })
-    .optional(),
+    .optional()
+    .describe(
+      "Registry configuration for pre-built images. Apps with 'build' configuration use docker save/load transfer and don't require registries."
+    ),
   health_check: HealthCheckSchema.optional(),
   proxy: AppProxyConfigSchema.optional(),
   // Potentially add other app-specific fields like 'replicas', 'domains', etc.
@@ -119,13 +125,16 @@ export const ServiceEntryWithoutNameSchema = z.object({
       secret: z.array(z.string()).optional(),
     })
     .optional(),
-  registry: z // Optional per-service registry override
+  registry: z // Optional per-service registry override (for private registries)
     .object({
       url: z.string().optional(),
       username: z.string(),
       password_secret: z.string(), // Secret key for the password
     })
-    .optional(),
+    .optional()
+    .describe(
+      "Registry configuration for services using private registries. Public images like 'postgres:15' don't require registry configuration."
+    ),
 });
 export type ServiceEntryWithoutName = z.infer<
   typeof ServiceEntryWithoutNameSchema
@@ -154,12 +163,20 @@ export const LumaConfigSchema = z.object({
     .optional(),
   docker: z
     .object({
-      registry: z.string().optional(), // Global Docker registry
-      username: z.string().optional(), // Global username
+      registry: z
+        .string()
+        .optional()
+        .describe(
+          "Global Docker registry (optional - only needed for services using private registries)"
+        ), // Global Docker registry
+      username: z.string().optional().describe("Global registry username"), // Global username
       // Global password_secret should be defined in LumaSecrets and referenced
       // e.g. global_docker_password_secret: "DOCKER_REGISTRY_PASSWORD"
     })
-    .optional(),
+    .optional()
+    .describe(
+      "Global Docker registry configuration. Optional - only needed for services using private registries. Apps with build configuration use docker save/load transfer."
+    ),
   ssh: z
     .object({
       username: z.string().optional(), // Default SSH username

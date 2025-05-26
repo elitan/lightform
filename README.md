@@ -11,9 +11,9 @@ Starting deployment with release 9d8209a
 [✓] Git status verified (3ms)
 [✓] Infrastructure ready (1.2s)
 [✓] web → elitan/luma-test-web:9d8209a (3.3s)
-[✓] Building & Pushing Images (3.3s)
+[✓] Building Images (3.3s)
   └─ 157.180.25.101
-     ├─ [✓] Pulling image (2.5s)
+     ├─ [✓] Loading image (2.5s)
      ├─ [✓] Zero-downtime deployment (1.4s)
      └─ [✓] Configuring proxy (319ms)
 [✓] Deployment completed successfully in 8.8s
@@ -27,7 +27,7 @@ Luma automatically handles:
 - ✅ Zero-downtime blue-green deployments
 - ✅ Automatic SSL certificates via Let's Encrypt
 - ✅ Health checks and automatic rollbacks
-- ✅ Docker image building and registry management
+- ✅ Docker image building and secure transfer
 - ✅ Multi-server deployments
 
 ---
@@ -100,12 +100,12 @@ Starting deployment with release a1b2c3d
 [✓] Git status verified (1.2s)
 [✓] Infrastructure ready (0.8s)
 
-Building & Pushing Images
+Building Images
   [✓] web → my-app/web:a1b2c3d (2.1s)
 
 Deploying to Servers
   └─ your-server.com
-     ├─ [✓] Pulling image (1.3s)
+     ├─ [✓] Loading image (1.3s)
      ├─ [✓] Zero-downtime deployment (3.8s)
      └─ [✓] Configuring SSL proxy (0.5s)
 
@@ -132,6 +132,7 @@ Your app is live at:
 ### vs Kamal (37signals)
 
 - **TypeScript/Bun** instead of Ruby
+- **Registry-less deployments** - no need for external Docker registries
 
 ### vs Vercel/Netlify
 
@@ -153,26 +154,31 @@ Your app is live at:
 
 ### Apps vs Services
 
-**Apps** are your main applications (web servers, APIs) that benefit from zero-downtime deployments:
+**Apps** are your main applications (web servers, APIs) that you build and deploy with zero-downtime:
 
 ```yaml
 apps:
   web:
-    image: my-registry/web
+    image: my-app/web
+    build:
+      context: .
+      dockerfile: Dockerfile
     proxy:
       hosts:
         - example.com
       app_port: 3000
 
   api:
-    image: my-registry/api
+    image: my-app/api
+    build:
+      context: ./api
     proxy:
       hosts:
         - api.example.com
       app_port: 8080
 ```
 
-**Services** are supporting infrastructure (databases, caches) with simple stop-and-start deployment:
+**Services** are supporting infrastructure (databases, caches) that use pre-built images:
 
 ```yaml
 services:
@@ -191,12 +197,24 @@ services:
 
 Luma automatically uses blue-green deployment for apps:
 
-1. **Deploy new version** alongside the current one
-2. **Health check** the new version via `/health` endpoint
-3. **Switch traffic** atomically (sub-millisecond)
-4. **Clean up** old version
+1. **Build and transfer** your Docker image securely to servers
+2. **Deploy new version** alongside the current one
+3. **Health check** the new version via `/health` endpoint
+4. **Switch traffic** atomically (sub-millisecond)
+5. **Clean up** old version
 
-No configuration needed - it just works!
+No Docker registry required - images are transferred directly!
+
+### Registry-Free Operation
+
+Built apps are transferred using secure Docker save/load:
+
+- **Build locally** - your Docker images are built on your machine
+- **Transfer securely** - images are saved as tar archives and uploaded via SSH
+- **Load remotely** - Docker loads the image directly on your servers
+- **No registry needed** - eliminates external dependencies and credentials
+
+Services can still use registries for pre-built images like `postgres:15`.
 
 ### Automatic SSL
 
@@ -221,6 +239,7 @@ ssh:
   username: deploy # SSH user (default: root)
   port: 22 # SSH port
 
+# Optional: Docker registry (only needed for services using private registries)
 docker:
   registry: ghcr.io # Docker registry
   username: myuser # Registry username
@@ -232,7 +251,7 @@ apps:
       - server1.com
       - server2.com # Target servers
 
-    # Build configuration (optional)
+    # Build configuration (apps are built locally and transferred)
     build:
       context: .
       dockerfile: Dockerfile
@@ -283,6 +302,7 @@ Store sensitive values in `.luma/secrets`:
 # .luma/secrets
 DATABASE_URL=postgres://user:pass@localhost:5432/myapp
 API_KEY=supersecretkey
+# Only needed if using private registries for services
 DOCKER_REGISTRY_PASSWORD=myregistrypassword
 ```
 
@@ -366,6 +386,8 @@ apps:
     servers:
       - web1.com
       - web2.com
+    build:
+      context: ./frontend
     proxy:
       hosts:
         - shop.com
@@ -376,6 +398,8 @@ apps:
     image: ecommerce/backend
     servers:
       - api.com
+    build:
+      context: ./backend
     proxy:
       hosts:
         - api.shop.com
@@ -411,6 +435,8 @@ apps:
     servers:
       - app1.com
       - app2.com
+    build:
+      context: ./services/users
     proxy:
       hosts:
         - users.platform.com
@@ -422,6 +448,8 @@ apps:
     servers:
       - app1.com
       - app2.com
+    build:
+      context: ./services/orders
     proxy:
       hosts:
         - orders.platform.com
@@ -485,7 +513,9 @@ apps:
 name: myapp-staging
 apps:
   web:
-    image: myapp/web:staging
+    image: myapp/web
+    build:
+      context: .
     servers:
       - staging.myapp.com
 
@@ -493,7 +523,9 @@ apps:
 name: myapp-prod
 apps:
   web:
-    image: myapp/web:latest
+    image: myapp/web
+    build:
+      context: .
     servers:
       - prod1.myapp.com
       - prod2.myapp.com
@@ -506,19 +538,29 @@ luma deploy -c luma.staging.yml
 luma deploy -c luma.production.yml
 ```
 
-### Custom Docker Registries
+### Using Docker Registries (Optional)
+
+For services that need private registries or when you prefer registry-based workflows:
 
 ```yaml
+# Global registry configuration
 docker:
   registry: my-registry.com
   username: myuser
 
+services:
+  private-service:
+    image: my-registry.com/private-service:latest
+    # Uses global registry config
+
 apps:
   web:
-    # Override per-app
+    # Per-app registry override
     registry:
-      registry: ghcr.io
+      url: ghcr.io
       username: different-user
+      password_secret: GITHUB_TOKEN
+    # Still uses build + transfer, registry only for pre-built images
 ```
 
 ---

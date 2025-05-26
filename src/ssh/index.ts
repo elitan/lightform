@@ -1,25 +1,23 @@
 // SSH client wrapper logic will go here
 
 import SSH2Promise from "ssh2-promise";
-import { ConnectConfig } from "ssh2"; // Import ConnectConfig from ssh2
-import { getSSHCredentials } from "./utils"; // Import the utility function
-import { createReadStream, createWriteStream } from "fs";
+import { ConnectConfig } from "ssh2";
+import { getSSHCredentials } from "./utils";
+import { createReadStream } from "fs";
 import { stat } from "fs/promises";
-import * as cliProgress from "cli-progress";
 
-export { getSSHCredentials }; // Export for use across the codebase
+export { getSSHCredentials };
 
 export interface SSHClientOptions {
   host: string;
   port?: number;
   username: string;
-  identity?: string; // Path to private key, ssh2-promise uses 'identity' for path
-  privateKey?: string; // Content of the private key, ssh2 uses 'privateKey'
+  identity?: string;
+  privateKey?: string;
   password?: string;
-  passphrase?: string; // For encrypted private keys
-  agent?: string; // SSH agent socket path
+  passphrase?: string;
+  agent?: string;
   verbose?: boolean;
-  // proxy?: SSHConfig['proxy']; // Assuming proxy config is part of SSHConfig, will verify later
 }
 
 export class SSHClient {
