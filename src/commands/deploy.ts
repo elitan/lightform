@@ -596,21 +596,38 @@ async function saveAppImage(
   try {
     // Create a temporary directory for the archive
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "luma-"));
-    const archivePath = path.join(
+    const compressedArchivePath = path.join(
       tempDir,
       `${appEntry.name}-${Date.now()}.tar.gz`
     );
+    const uncompressedArchivePath = path.join(
+      tempDir,
+      `${appEntry.name}-${Date.now()}.tar`
+    );
 
-    // Use gzip compression to significantly reduce file size
+    // Try to use compression first
     await DockerClient.saveCompressed(
       imageNameWithRelease,
-      archivePath,
+      compressedArchivePath,
       verbose
     );
-    logger.verboseLog(
-      `Successfully saved ${imageNameWithRelease} to compressed archive ${archivePath}`
-    );
-    return archivePath;
+
+    // Check which file was actually created (compressed or uncompressed)
+    if (fs.existsSync(compressedArchivePath)) {
+      logger.verboseLog(
+        `Successfully saved ${imageNameWithRelease} to compressed archive ${compressedArchivePath}`
+      );
+      return compressedArchivePath;
+    } else if (fs.existsSync(uncompressedArchivePath)) {
+      logger.verboseLog(
+        `Successfully saved ${imageNameWithRelease} to uncompressed archive ${uncompressedArchivePath}`
+      );
+      return uncompressedArchivePath;
+    } else {
+      throw new Error(
+        "Neither compressed nor uncompressed archive was created"
+      );
+    }
   } catch (error) {
     logger.error(`Failed to save image ${imageNameWithRelease}`, error);
     throw error;
@@ -1279,17 +1296,27 @@ async function transferAndLoadImage(
   }
 
   try {
-    // Generate remote path for the archive, preserving compression extension
-    const fileExt = archivePath.endsWith(".tar.gz") ? ".tar.gz" : ".tar";
+    // Generate remote path for the archive, preserving the actual file extension
+    const isCompressed =
+      archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz");
+    const fileExt = isCompressed ? ".tar.gz" : ".tar";
     const remoteArchivePath = `/tmp/luma-${appEntry.name}-${context.releaseId}${fileExt}`;
 
-    logger.verboseLog(`Transferring compressed image archive to server...`);
+    logger.verboseLog(
+      `Transferring ${
+        isCompressed ? "compressed" : "uncompressed"
+      } image archive to server...`
+    );
 
     // Get file size for progress tracking
     const fileStat = await stat(archivePath);
     const totalSizeMB = (fileStat.size / 1024 / 1024).toFixed(1);
 
-    logger.verboseLog(`File size: ${totalSizeMB} MB`);
+    logger.verboseLog(
+      `File size: ${totalSizeMB} MB (${
+        isCompressed ? "compressed" : "uncompressed"
+      })`
+    );
 
     let lastTransferred = 0;
     let lastTime = Date.now();
@@ -1312,7 +1339,11 @@ async function transferAndLoadImage(
           // Clear current line and show progress with file size
           process.stdout.write("\r\x1b[K");
           process.stdout.write(
-            `     ├─ [${spinner}] Loading ${appEntry.name} image... (${timeStr}) | ${transferredMB}MB/${totalSizeMB}MB`
+            `     ├─ [${spinner}] Loading ${
+              appEntry.name
+            } image... (${timeStr}) | ${transferredMB}MB/${totalSizeMB}MB ${
+              isCompressed ? "(compressed)" : "(uncompressed)"
+            }`
           );
 
           (logger as any).spinnerIndex =
@@ -1322,9 +1353,18 @@ async function transferAndLoadImage(
       }
     );
 
-    // Load the image from archive (automatically handles compression)
-    logger.verboseLog(`Loading image ${imageName} from archive...`);
-    await dockerClientRemote.loadImage(remoteArchivePath);
+    // Load the image from archive (automatically handles compression detection)
+    logger.verboseLog(
+      `Loading image ${imageName} from ${
+        isCompressed ? "compressed" : "uncompressed"
+      } archive...`
+    );
+    const loadSuccess = await dockerClientRemote.loadImage(remoteArchivePath);
+
+    if (!loadSuccess) {
+      throw new Error(`Failed to load image from archive ${remoteArchivePath}`);
+    }
+
     logger.verboseLog(`✓ Image loaded successfully`);
 
     // Clean up remote archive

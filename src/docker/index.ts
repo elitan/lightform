@@ -221,22 +221,54 @@ export class DockerClient {
 
   /**
    * Save a Docker image to a compressed tar.gz archive for faster transfer
+   * Falls back to uncompressed tar if gzip is not available
    */
   static async saveCompressed(
     imageName: string,
     outputPath: string,
     verbose: boolean = false
   ): Promise<void> {
-    // Use gzip compression to significantly reduce file size
-    const command = `docker save \"${imageName}\" | gzip > \"${outputPath}\"`;
-    if (verbose) {
-      console.log(`Saving compressed image to archive: ${command}`);
-    }
-    await DockerClient._runLocalCommand(command, verbose);
-    if (verbose) {
-      console.log(
-        `Successfully saved compressed image \"${imageName}\" to \"${outputPath}\".`
-      );
+    try {
+      // Check if gzip is available locally
+      const { exec } = await import("child_process");
+      const { promisify } = await import("util");
+      const execPromise = promisify(exec);
+
+      try {
+        await execPromise("which gzip");
+        if (verbose) {
+          console.log("gzip is available, using compression");
+        }
+      } catch (gzipCheckError) {
+        if (verbose) {
+          console.log("gzip not available, falling back to uncompressed tar");
+        }
+        // Fall back to regular save if gzip is not available
+        const uncompressedPath = outputPath.replace(".tar.gz", ".tar");
+        await DockerClient.save(imageName, uncompressedPath, verbose);
+        return;
+      }
+
+      // Use gzip compression to significantly reduce file size
+      const command = `docker save "${imageName}" | gzip > "${outputPath}"`;
+      if (verbose) {
+        console.log(`Saving compressed image to archive: ${command}`);
+      }
+      await DockerClient._runLocalCommand(command, verbose);
+      if (verbose) {
+        console.log(
+          `Successfully saved compressed image "${imageName}" to "${outputPath}".`
+        );
+      }
+    } catch (error) {
+      if (verbose) {
+        console.log(
+          `Compression failed, falling back to uncompressed tar: ${error}`
+        );
+      }
+      // Fall back to regular save if compression fails
+      const uncompressedPath = outputPath.replace(".tar.gz", ".tar");
+      await DockerClient.save(imageName, uncompressedPath, verbose);
     }
   }
 
@@ -464,10 +496,27 @@ EOF`);
 
   /**
    * Load a Docker image from a compressed tar.gz archive
+   * Falls back to regular docker load if gunzip is not available
    */
   async loadCompressedImage(archivePath: string): Promise<boolean> {
     this.log(`Loading compressed image from archive ${archivePath}...`);
     try {
+      // Check if gunzip is available on the remote server
+      try {
+        await this.sshClient?.exec("which gunzip");
+        this.log("gunzip is available on remote server, using decompression");
+      } catch (gunzipCheckError) {
+        this.log(
+          "gunzip not available on remote server, falling back to regular docker load"
+        );
+        // Fall back to regular docker load (assuming file might not be compressed)
+        await this.execRemote(`load -i "${archivePath}"`);
+        this.log(
+          `Successfully loaded image from ${archivePath} (fallback method).`
+        );
+        return true;
+      }
+
       // Use shell command to decompress and pipe to docker load
       const command = `sh -c "gunzip -c '${archivePath}' | docker load"`;
       await this.sshClient?.exec(command);
@@ -477,7 +526,23 @@ EOF`);
       this.logError(
         `Failed to load compressed image from ${archivePath}: ${error}`
       );
-      return false;
+
+      // Try one more fallback - maybe the file isn't actually compressed
+      try {
+        this.log(
+          `Attempting fallback: treating ${archivePath} as uncompressed`
+        );
+        await this.execRemote(`load -i "${archivePath}"`);
+        this.log(
+          `Successfully loaded image from ${archivePath} (fallback method).`
+        );
+        return true;
+      } catch (fallbackError) {
+        this.logError(
+          `All load attempts failed for ${archivePath}: ${fallbackError}`
+        );
+        return false;
+      }
     }
   }
 
