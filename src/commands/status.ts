@@ -16,6 +16,7 @@ interface StatusContext {
   config: LumaConfig;
   secrets: LumaSecrets;
   verboseFlag: boolean;
+  verboseMessages: string[]; // Store verbose messages for later display
 }
 
 interface ParsedStatusArgs {
@@ -109,7 +110,12 @@ async function establishSSHConnection(
   const sshClient = await SSHClient.create(sshOptions);
   await sshClient.connect();
 
-  logger.verboseLog(`SSH connection established to ${serverHostname}`);
+  // Store verbose message instead of logging immediately
+  if (context.verboseFlag) {
+    context.verboseMessages.push(
+      `SSH connection established to ${serverHostname}`
+    );
+  }
   return sshClient;
 }
 
@@ -191,9 +197,12 @@ async function getAppStatusOnServer(
       runningContainers: containerInfo.runningContainers,
     };
   } catch (error) {
-    logger.verboseLog(
-      `Failed to get status for ${appEntry.name} on ${serverHostname}: ${error}`
-    );
+    // Store verbose message instead of logging immediately
+    if (context.verboseFlag) {
+      context.verboseMessages.push(
+        `Failed to get status for ${appEntry.name} on ${serverHostname}: ${error}`
+      );
+    }
     return {
       activeColor: null,
       blueContainers: [],
@@ -389,39 +398,6 @@ function validateRequestedEntries(
 }
 
 /**
- * Displays status for apps
- */
-async function displayAppsStatus(
-  apps: AppEntry[],
-  context: StatusContext
-): Promise<void> {
-  if (apps.length === 0) {
-    logger.info("No apps configured.");
-    return;
-  }
-
-  console.log(`Apps (${apps.length}):`);
-  for (const app of apps) {
-    const appStatus = await getAppStatus(app, context);
-    displayAppStatus(appStatus);
-  }
-}
-
-/**
- * Displays status for services
- */
-function displayServicesStatus(services: ServiceEntry[]): void {
-  if (services.length === 0) {
-    return;
-  }
-
-  console.log(`Services (${services.length}):`);
-  for (const service of services) {
-    displayServiceStatus(service);
-  }
-}
-
-/**
  * Handles the main status checking and display logic
  */
 async function checkAndDisplayStatus(
@@ -455,11 +431,58 @@ async function checkAndDisplayStatus(
     return;
   }
 
-  // Display status for apps
-  await displayAppsStatus(filteredApps, context);
+  // Collect app statuses first (this is what takes time)
+  const appStatuses: AppStatus[] = [];
+  for (const app of filteredApps) {
+    const appStatus = await getAppStatus(app, context);
+    appStatuses.push(appStatus);
+  }
 
-  // Display status for services
+  // Complete the checking phase before displaying results
+  logger.phaseComplete("Checking deployment status");
+
+  // Display any collected verbose messages
+  if (context.verboseFlag && context.verboseMessages.length > 0) {
+    for (const message of context.verboseMessages) {
+      logger.verboseLog(message);
+    }
+  }
+
+  // Now display the collected results
+  displayCollectedAppsStatus(filteredApps, appStatuses);
   displayServicesStatus(filteredServices);
+}
+
+/**
+ * Displays status for apps using pre-collected status data
+ */
+function displayCollectedAppsStatus(
+  apps: AppEntry[],
+  appStatuses: AppStatus[]
+): void {
+  if (apps.length === 0) {
+    logger.info("No apps configured.");
+    return;
+  }
+
+  console.log(`Apps (${apps.length}):`);
+  for (const appStatus of appStatuses) {
+    displayAppStatus(appStatus);
+  }
+}
+
+/**
+ * Displays status for services
+ */
+function displayServicesStatus(services: ServiceEntry[]): void {
+  if (services.length === 0) {
+    return;
+  }
+
+  console.log(`Services (${services.length}):`);
+  for (const service of services) {
+    displayServiceStatus(service);
+  }
 }
 
 /**
@@ -475,7 +498,7 @@ export async function statusCommand(
     // Initialize logger with verbose flag
     logger = new Logger({ verbose: parsedArgs.verboseFlag });
 
-    logger.phase("Checking deployment status");
+    logger.phaseStart("Checking deployment status");
 
     // Load configuration and secrets
     const { config, secrets } = await loadConfigurationAndSecrets();
@@ -484,12 +507,12 @@ export async function statusCommand(
       config,
       secrets,
       verboseFlag: parsedArgs.verboseFlag,
+      verboseMessages: [], // Initialize verboseMessages
     };
 
-    // Check and display status
+    // Check and display status (this will complete the phase internally)
     await checkAndDisplayStatus(parsedArgs, context);
 
-    logger.phaseComplete("Checking deployment status");
     console.log("[✓] Status check complete!");
   } catch (error) {
     logger.error("Failed to get status", error);

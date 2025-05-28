@@ -333,6 +333,11 @@ export class Logger {
   cleanup() {
     this.clearSpinner();
   }
+
+  // Public method to clear spinner when needed
+  public clear() {
+    this.clearSpinner();
+  }
 }
 
 // Export a default logger instance
