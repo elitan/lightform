@@ -498,7 +498,7 @@ export async function statusCommand(
     // Initialize logger with verbose flag
     logger = new Logger({ verbose: parsedArgs.verboseFlag });
 
-    logger.phaseStart("Checking deployment status");
+    logger.phase("Checking deployment status");
 
     // Load configuration and secrets
     const { config, secrets } = await loadConfigurationAndSecrets();
