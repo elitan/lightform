@@ -365,29 +365,128 @@ async function verifyInfrastructure(
 }
 
 /**
- * Main deployment loop that processes all target entries
+ * Categorizes entries into apps and services based on configuration
  */
-async function deployEntries(context: DeploymentContext): Promise<void> {
-  // Categorize entries by type
-  const apps = context.targetEntries.filter(
-    (entry) =>
-      (entry.name !== undefined && (entry as AppEntry).build !== undefined) ||
-      (entry as AppEntry).proxy !== undefined
-  ) as AppEntry[];
-  const services = context.targetEntries.filter(
-    (entry) =>
-      entry.name !== undefined &&
+function categorizeEntries(targetEntries: (AppEntry | ServiceEntry)[]): {
+  apps: AppEntry[];
+  services: ServiceEntry[];
+} {
+  const apps: AppEntry[] = [];
+  const services: ServiceEntry[] = [];
+
+  for (const entry of targetEntries) {
+    // If it has a proxy config, it's definitely an app
+    if ((entry as AppEntry).proxy !== undefined) {
+      apps.push(entry as AppEntry);
+      continue;
+    }
+
+    // If it explicitly has a build config, it's an app
+    if ((entry as AppEntry).build !== undefined) {
+      apps.push(entry as AppEntry);
+      continue;
+    }
+
+    // If it has an image but no build config and no proxy, it's a service
+    if (
       (entry as ServiceEntry).image !== undefined &&
       !(entry as AppEntry).build &&
       !(entry as AppEntry).proxy
-  ) as ServiceEntry[];
+    ) {
+      services.push(entry as ServiceEntry);
+      continue;
+    }
 
-  const appsNeedingBuild = apps.filter((app) => app.build !== undefined);
+    // If it doesn't have an image field at all, it's an app that needs building
+    if (!(entry as ServiceEntry).image) {
+      apps.push(entry as AppEntry);
+      continue;
+    }
+
+    // Default to service for anything else
+    services.push(entry as ServiceEntry);
+  }
+
+  return { apps, services };
+}
+
+/**
+ * Gets the build configuration for an app, providing defaults if none specified
+ */
+function getBuildConfig(appEntry: AppEntry): {
+  context: string;
+  dockerfile: string;
+  platform: string;
+  args?: Record<string, string>;
+  target?: string;
+} {
+  if (appEntry.build) {
+    return {
+      context: appEntry.build.context || ".",
+      dockerfile: appEntry.build.dockerfile || "Dockerfile",
+      platform: appEntry.build.platform || "linux/amd64",
+      args: appEntry.build.args,
+      target: appEntry.build.target,
+    };
+  }
+
+  // Default build configuration for apps without explicit build config
+  return {
+    context: ".",
+    dockerfile: "Dockerfile",
+    platform: "linux/amd64", // Single platform for broader compatibility
+  };
+}
+
+/**
+ * Checks if an app needs to be built (vs using an existing image)
+ */
+function appNeedsBuilding(appEntry: AppEntry): boolean {
+  // If it has a build config, it needs building
+  if (appEntry.build) {
+    return true;
+  }
+
+  // If it doesn't have an image field, it needs building
+  if (!appEntry.image) {
+    return true;
+  }
+
+  // If it has an image field but also proxy config, it needs building
+  // (the image field is used as the base name for tagging)
+  if (appEntry.proxy) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Gets the base image name for an app (used for tagging built images)
+ */
+function getAppImageName(appEntry: AppEntry): string {
+  // If image is specified, use it as the base name
+  if (appEntry.image) {
+    return appEntry.image;
+  }
+
+  // Otherwise, generate a name based on the app name
+  return `${appEntry.name}`;
+}
+
+/**
+ * Main deployment loop that processes all target entries
+ */
+async function deployEntries(context: DeploymentContext): Promise<void> {
+  // Categorize entries by type using new logic
+  const { apps, services } = categorizeEntries(context.targetEntries);
+
+  const appsNeedingBuild = apps.filter((app) => appNeedsBuilding(app));
 
   // Initialize image archives map
   context.imageArchives = new Map<string, string>();
 
-  // Build phase for apps that have build config
+  // Build phase for apps that need building
   if (appsNeedingBuild.length > 0) {
     logger.phase("Building Images");
     for (const appEntry of appsNeedingBuild) {
@@ -401,7 +500,7 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   if (apps.length > 0 && apps.length > appsNeedingBuild.length) {
     logger.verboseLog(
       `Using pre-built images: ${apps
-        .filter((app) => !(app as AppEntry).build)
+        .filter((app) => !appNeedsBuilding(app))
         .map((app) => `${app.name} (${app.image})`)
         .join(", ")}`
     );
@@ -469,7 +568,7 @@ async function buildAndSaveApp(
   appEntry: AppEntry,
   context: DeploymentContext
 ): Promise<string> {
-  const imageNameWithRelease = `${appEntry.image}:${context.releaseId}`;
+  const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
   const stepStart = Date.now();
 
   try {
@@ -520,27 +619,26 @@ async function buildOrTagAppImage(
   imageNameWithRelease: string,
   verbose: boolean = false
 ): Promise<boolean> {
-  if (appEntry.build) {
+  if (appNeedsBuilding(appEntry)) {
     logger.verboseLog(`Building app ${appEntry.name}...`);
     try {
-      const buildPlatform = appEntry.build.platform || "linux/amd64";
-      if (!appEntry.build.platform) {
-        logger.verboseLog(
-          `No platform specified, defaulting to ${buildPlatform}`
-        );
+      const buildConfig = getBuildConfig(appEntry);
+
+      if (!buildConfig.platform) {
+        logger.verboseLog(`No platform specified, defaulting to linux/amd64`);
       }
 
       await DockerClient.build({
-        context: appEntry.build.context,
-        dockerfile: appEntry.build.dockerfile,
+        context: buildConfig.context,
+        dockerfile: buildConfig.dockerfile,
         tags: [imageNameWithRelease],
-        buildArgs: appEntry.build.args,
-        platform: buildPlatform,
-        target: appEntry.build.target,
+        buildArgs: buildConfig.args,
+        platform: buildConfig.platform,
+        target: buildConfig.target,
         verbose: verbose,
       });
       logger.verboseLog(
-        `Successfully built and tagged ${imageNameWithRelease}`
+        `Successfully built and tagged ${imageNameWithRelease} for platforms: ${buildConfig.platform}`
       );
       return true;
     } catch (error) {
@@ -548,17 +646,17 @@ async function buildOrTagAppImage(
       return false;
     }
   } else {
-    logger.verboseLog(
-      `Tagging ${appEntry.image} as ${imageNameWithRelease}...`
-    );
+    // For apps that don't need building, tag the existing image
+    const baseImageName = getAppImageName(appEntry);
+    logger.verboseLog(`Tagging ${baseImageName} as ${imageNameWithRelease}...`);
     try {
-      await DockerClient.tag(appEntry.image, imageNameWithRelease, verbose);
+      await DockerClient.tag(baseImageName, imageNameWithRelease, verbose);
       logger.verboseLog(
-        `Successfully tagged ${appEntry.image} as ${imageNameWithRelease}`
+        `Successfully tagged ${baseImageName} as ${imageNameWithRelease}`
       );
       return true;
     } catch (error) {
-      logger.error(`Failed to tag pre-built image ${appEntry.image}`, error);
+      logger.error(`Failed to tag pre-built image ${baseImageName}`, error);
       return false;
     }
   }
@@ -638,12 +736,14 @@ async function saveAppImage(
  * Builds the full image name with release ID for built apps, or returns original name for pre-built apps
  */
 function buildImageName(appEntry: AppEntry, releaseId: string): string {
-  // For apps with build config, use release ID
-  if (appEntry.build) {
-    return `${appEntry.image}:${releaseId}`;
+  const baseImageName = getAppImageName(appEntry);
+
+  // For apps that need building, use release ID
+  if (appNeedsBuilding(appEntry)) {
+    return `${baseImageName}:${releaseId}`;
   }
-  // For pre-built apps, use the image as-is
-  return appEntry.image;
+  // For pre-built apps, use the image as-is (if it exists)
+  return appEntry.image || baseImageName;
 }
 
 /**

@@ -23,6 +23,55 @@ bun ../../src/index.ts deploy --services --force
 - **SSH Username**: `luma`
 - **Project Name**: `gmail` (as defined in `luma.yml`)
 
+## Configuration Overview
+
+### New Configuration Approach
+
+Luma now supports two distinct configuration patterns:
+
+#### Apps (for building local applications)
+
+```yaml
+apps:
+  web:
+    servers: [...]
+    build: # Use build: for local apps
+      context: . # Defaults to .
+      dockerfile: Dockerfile # Defaults to Dockerfile
+      # Platform builds for linux/amd64,linux/arm64 by default
+    proxy:
+      hosts: [...]
+```
+
+#### Services (for existing Docker images)
+
+```yaml
+services:
+  db:
+    image: postgres:17 # Use image: for existing images
+    servers: [...]
+    ports: [...]
+```
+
+#### Minimal Configuration
+
+For local apps, you can omit the `build` section entirely:
+
+```yaml
+apps:
+  web:
+    servers: [...]
+    proxy:
+      hosts: [...]
+    # Will automatically build using context: . and dockerfile: Dockerfile
+```
+
+### Build Features
+
+- **Multi-platform builds**: Automatically builds for `linux/amd64` and `linux/arm64`
+- **Smart defaults**: Uses `context: .` and `dockerfile: Dockerfile` if not specified
+- **Flexible configuration**: Specify either `image:` OR `build:`, not both
+
 ## Debugging Commands
 
 ### Local Development
@@ -64,13 +113,16 @@ ssh luma@157.180.25.101 "docker stats --no-stream --filter 'label=luma.project=g
 
 # Check port bindings
 ssh luma@157.180.25.101 "netstat -tlnp | grep :5433"
+
+# Check multi-platform image info
+ssh luma@157.180.25.101 "docker image inspect web:<release_id> | grep Architecture"
 ```
 
 ## Configuration Details
 
 ### Current Setup
 
-- **App**: `web` service running on port 3000
+- **App**: `web` service running on port 3000 (built locally, multi-platform)
 - **Database**: PostgreSQL 17 on port 5433 (mapped from container port 5432)
 - **Domain**: `test.eliasson.me`
 - **Docker Registry**: Uses `elitan` username
@@ -96,7 +148,20 @@ bun ../../src/index.ts deploy --force
 ssh -o ConnectTimeout=10 luma@157.180.25.101 "echo 'Connection successful'"
 ```
 
-### 3. Container Issues
+### 3. Multi-Platform Build Issues
+
+```bash
+# Verify Docker buildx is available
+docker buildx version
+
+# Check available builders
+docker buildx ls
+
+# Create a new builder if needed
+docker buildx create --use
+```
+
+### 4. Container Issues
 
 ```bash
 # Check if containers are running
@@ -106,7 +171,7 @@ ssh luma@157.180.25.101 "docker ps --filter 'label=luma.project=gmail' --format 
 ssh luma@157.180.25.101 "docker logs --tail 20 gmail-web-\$(docker ps --filter 'label=luma.project=gmail' --filter 'label=luma.type=app' --format '{{.Names}}' | head -1 | cut -d'-' -f3-)"
 ```
 
-### 4. Network Connectivity
+### 5. Network Connectivity
 
 ```bash
 # Test external connectivity

@@ -58,7 +58,7 @@ export type GlobalProxyOptions = z.infer<typeof GlobalProxyOptionsSchema>;
 
 // Zod schema for AppEntry without name (used in record format)
 export const AppEntryWithoutNameSchema = z.object({
-  image: z.string(),
+  image: z.string().optional(),
   servers: z.array(z.string()), // For now, simple array of hostnames/IPs
   replicas: z
     .number()

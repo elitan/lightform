@@ -8,13 +8,8 @@ docker:
 
 apps:
   web:
-    image: elitan/luma-test-web
     servers:
       - 157.180.25.101
-    build:
-      context: .
-      dockerfile: Dockerfile
-      platform: linux/amd64
     environment:
       plain:
         - EXAMPLE_VAR=test
