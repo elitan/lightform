@@ -1,8 +1,8 @@
 import path from "path";
 import { mkdir, writeFile, access } from "node:fs/promises";
 import { constants } from "node:fs";
+import { createInterface } from "readline";
 
-// CONFIG_DIR is no longer needed
 const LUMA_DIR = ".luma";
 const CONFIG_FILE = "luma.yml";
 const SECRETS_FILE = "secrets";
@@ -10,32 +10,59 @@ const SECRETS_FILE = "secrets";
 const ACTUAL_CONFIG_PATH = CONFIG_FILE; // Config file will be in the root
 const ACTUAL_SECRETS_PATH = path.join(LUMA_DIR, SECRETS_FILE);
 
-const MINIMAL_CONFIG_CONTENT = `name: my-project
+interface ConfigPrompts {
+  projectName: string;
+}
+
+function prompt(question: string): Promise<string> {
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+async function promptForConfig(): Promise<ConfigPrompts> {
+  console.log("Let's set up your Luma configuration!\n");
+
+  const projectName =
+    (await prompt("Project name (my-project): ")) || "my-project";
+
+  return { projectName };
+}
+
+function generateConfigContent(config: ConfigPrompts): string {
+  return `name: ${config.projectName}
+
+ssh:
+  username: your-ssh-username
 
 apps:
   web:
-    image: nginxdemos/hello
     servers:
-      - your-server-ip-1
+      - your-server-ip
     proxy:
       hosts:
         - your-domain.com
-      app_port: 80
+      app_port: 3000
 `;
+}
 
 export async function initCommand() {
   let configCreated = false;
   let secretsCreated = false;
 
   try {
-    // No longer creating CONFIG_DIR
     await mkdir(LUMA_DIR, { recursive: true });
   } catch (e) {
     const error = e as Error & { code?: string };
     if (error.code !== "EEXIST") {
       console.error(`Error creating directory ${LUMA_DIR}: ${error.message}`);
-      // Decide if we should return or try to continue if only .luma dir fails
-      // For now, let's return, as secrets file depends on it.
       return;
     }
   }
@@ -53,8 +80,11 @@ export async function initCommand() {
     console.log(`Configuration file ${ACTUAL_CONFIG_PATH} already exists.`);
   } else {
     try {
-      await writeFile(ACTUAL_CONFIG_PATH, MINIMAL_CONFIG_CONTENT, "utf8");
-      console.log(`Created minimal configuration file: ${ACTUAL_CONFIG_PATH}`);
+      const configData = await promptForConfig();
+      const configContent = generateConfigContent(configData);
+
+      await writeFile(ACTUAL_CONFIG_PATH, configContent, "utf8");
+      console.log(`\nCreated configuration file: ${ACTUAL_CONFIG_PATH}`);
       configCreated = true;
     } catch (e) {
       const error = e as Error;
