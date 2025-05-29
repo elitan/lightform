@@ -973,41 +973,67 @@ EOF`);
         `Using luma-proxy container for health check of ${targetContainerName} (IP: ${targetContainerIP}:${appPort}${healthCheckPath})`
       );
 
-      // Retry the curl command if it fails. Use the provided port, path to /up.
+      // Retry the curl command if it fails. Give containers up to 30 seconds to start up.
       let statusCode = "";
       let success = false;
+      const maxAttempts = 30; // 30 seconds total
 
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
           // Use curl from within the luma-proxy container
           // The luma-proxy container should have curl available, but if not we'll install it
           const execCmd = `exec ${proxyContainerName} sh -c "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y curl); curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainerIP}:${appPort}${healthCheckPath} || echo 'failed'"`;
           statusCode = await this.execRemote(execCmd);
-          success = true;
-          break;
-        } catch (execError) {
-          this.logError(
-            `Health check attempt ${attempt + 1}/3 failed: ${execError}`
-          );
-          if (attempt < 2) {
-            // Brief pause before retry
-            await new Promise((resolve) => setTimeout(resolve, 1000));
+
+          // Check if we got a successful status code
+          const cleanStatusCode = statusCode.trim();
+          if (cleanStatusCode === "200") {
+            success = true;
+            this.log(
+              `Health check for ${targetContainerName} passed on attempt ${
+                attempt + 1
+              }/${maxAttempts} (IP: ${targetContainerIP}:${appPort}${healthCheckPath})`
+            );
+            break;
+          } else {
+            if (attempt < maxAttempts - 1) {
+              this.log(
+                `Health check attempt ${
+                  attempt + 1
+                }/${maxAttempts} returned status: ${cleanStatusCode}, retrying in 1 second...`
+              );
+            }
           }
+        } catch (execError) {
+          if (attempt < maxAttempts - 1) {
+            this.log(
+              `Health check attempt ${
+                attempt + 1
+              }/${maxAttempts} failed: ${execError}, retrying in 1 second...`
+            );
+          } else {
+            this.logError(
+              `Health check attempt ${
+                attempt + 1
+              }/${maxAttempts} failed: ${execError}`
+            );
+          }
+        }
+
+        // Wait 1 second before next attempt (unless this was the last attempt)
+        if (attempt < maxAttempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
 
       if (!success) {
-        this.logError(`All health check attempts with luma-proxy failed`);
+        this.logError(
+          `All ${maxAttempts} health check attempts failed for ${targetContainerName}`
+        );
         return false;
       }
 
-      // Check the status code
-      const cleanStatusCode = statusCode.trim();
-      this.log(
-        `Health check for ${targetContainerName} (IP: ${targetContainerIP}:${appPort}${healthCheckPath}) returned status: ${cleanStatusCode} (using luma-proxy)`
-      );
-
-      return cleanStatusCode === "200";
+      return true;
     } catch (error) {
       this.logError(`Health check failed for ${targetContainerName}: ${error}`);
       return false;

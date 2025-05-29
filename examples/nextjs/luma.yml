@@ -5,11 +5,9 @@ ssh:
 
 apps:
   web:
-    image: elitan/luma-example-nextjs
     build:
       context: .
       dockerfile: Dockerfile
-      platform: linux/amd64
     servers:
       - 157.180.25.101
     environment:
@@ -19,3 +17,5 @@ apps:
       hosts:
         - nextjs.example.myluma.cloud
       app_port: 3000
+    health_check:
+      path: /up

@@ -3,11 +3,11 @@ name: gmail
 ssh:
   username: luma
 
-docker:
-  username: elitan
-
 apps:
   web:
+    build:
+      context: .
+      dockerfile: Dockerfile
     servers:
       - 157.180.25.101
     environment:

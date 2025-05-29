@@ -8,6 +8,16 @@ import {
 import { DockerClient } from "../docker";
 import { SSHClient, getSSHCredentials, SSHClientOptions } from "../ssh";
 import { Logger } from "../utils/logger";
+import {
+  checkDomainStatus,
+  formatDomainStatus,
+  DomainStatus,
+} from "../utils/ssl-checker";
+import {
+  checkProxyStatus,
+  formatProxyStatus,
+  ProxyStatus,
+} from "../utils/proxy-checker";
 
 // Module-level logger that gets configured when statusCommand runs
 let logger: Logger;
@@ -36,6 +46,7 @@ interface AppStatus {
   };
   lastDeployed?: string;
   servers: string[];
+  domains?: DomainStatus[];
 }
 
 interface ServerAppStatus {
@@ -43,6 +54,10 @@ interface ServerAppStatus {
   blueContainers: string[];
   greenContainers: string[];
   runningContainers: string[];
+}
+
+interface ProxyStatusSummary {
+  proxyStatuses: ProxyStatus[];
 }
 
 /**
@@ -161,6 +176,141 @@ async function getAppContainersOnServer(
     greenContainers,
     runningContainers,
   };
+}
+
+/**
+ * Gets domain/SSL status for an app
+ */
+async function getDomainStatus(
+  appEntry: AppEntry,
+  context: StatusContext
+): Promise<DomainStatus[]> {
+  const domains = appEntry.proxy?.hosts || [];
+
+  if (domains.length === 0) {
+    return [];
+  }
+
+  const domainStatuses: DomainStatus[] = [];
+
+  // Use the first server to check domain status
+  // Domains should be accessible from any server, so we only need to check once
+  if (appEntry.servers.length > 0) {
+    const serverHostname = appEntry.servers[0];
+    let sshClient: SSHClient | undefined;
+
+    try {
+      sshClient = await establishSSHConnection(serverHostname, context);
+
+      for (const domain of domains) {
+        if (context.verboseFlag) {
+          context.verboseMessages.push(
+            `Checking domain status for ${domain}...`
+          );
+        }
+
+        const domainStatus = await checkDomainStatus(
+          domain,
+          sshClient,
+          context.verboseFlag
+        );
+        domainStatuses.push(domainStatus);
+      }
+    } catch (error) {
+      if (context.verboseFlag) {
+        context.verboseMessages.push(
+          `Failed to check domain status for ${appEntry.name}: ${error}`
+        );
+      }
+
+      // Add error status for all domains
+      for (const domain of domains) {
+        domainStatuses.push({
+          domain,
+          accessible: false,
+          hasSSL: false,
+          error: `Failed to connect to server: ${error}`,
+        });
+      }
+    } finally {
+      if (sshClient) {
+        await sshClient.close();
+      }
+    }
+  }
+
+  return domainStatuses;
+}
+
+/**
+ * Gets proxy status across all servers
+ */
+async function getProxyStatusSummary(
+  context: StatusContext
+): Promise<ProxyStatusSummary> {
+  const proxyStatuses: ProxyStatus[] = [];
+
+  // Get unique servers from all apps and services
+  const allServers = new Set<string>();
+
+  const apps = normalizeConfigEntries(context.config.apps) as AppEntry[];
+  const services = normalizeConfigEntries(
+    context.config.services
+  ) as ServiceEntry[];
+
+  apps.forEach((app) =>
+    app.servers.forEach((server) => allServers.add(server))
+  );
+  services.forEach((service) =>
+    service.servers.forEach((server) => allServers.add(server))
+  );
+
+  if (allServers.size === 0) {
+    return { proxyStatuses: [] };
+  }
+
+  for (const serverHostname of allServers) {
+    let sshClient: SSHClient | undefined;
+
+    try {
+      sshClient = await establishSSHConnection(serverHostname, context);
+
+      if (context.verboseFlag) {
+        context.verboseMessages.push(
+          `Checking proxy status on ${serverHostname}...`
+        );
+      }
+
+      const proxyStatus = await checkProxyStatus(
+        serverHostname,
+        sshClient,
+        context.verboseFlag
+      );
+
+      proxyStatuses.push(proxyStatus);
+    } catch (error) {
+      if (context.verboseFlag) {
+        context.verboseMessages.push(
+          `Failed to check proxy status on ${serverHostname}: ${error}`
+        );
+      }
+
+      // Add error status for this server
+      proxyStatuses.push({
+        running: false,
+        containerName: "luma-proxy",
+        serverId: serverHostname,
+        ports: [],
+        error: `Failed to connect to server: ${error}`,
+      });
+    } finally {
+      if (sshClient) {
+        await sshClient.close();
+      }
+    }
+  }
+
+  return { proxyStatuses };
 }
 
 /**
@@ -284,6 +434,9 @@ async function getAppStatus(
 
   const aggregated = aggregateAppStatus(appEntry, serverStatuses);
 
+  // Get domain/SSL status
+  const domains = await getDomainStatus(appEntry, context);
+
   return {
     name: appEntry.name,
     status: aggregated.status,
@@ -295,6 +448,7 @@ async function getAppStatus(
       green: aggregated.totalGreen,
     },
     servers: appEntry.servers,
+    domains: domains.length > 0 ? domains : undefined,
   };
 }
 
@@ -330,9 +484,23 @@ function displayAppStatus(appStatus: AppStatus): void {
     }
   }
 
+  // Display domain/SSL status if available
+  if (appStatus.domains && appStatus.domains.length > 0) {
+    for (const domainStatus of appStatus.domains) {
+      const domainLines = formatDomainStatus(domainStatus);
+      for (const line of domainLines) {
+        console.log(line);
+      }
+    }
+  }
+
+  const hasDomainsOrLastDeployed =
+    (appStatus.domains && appStatus.domains.length > 0) ||
+    appStatus.lastDeployed;
+
   console.log(
     `     ${
-      appStatus.lastDeployed ? "├─" : "└─"
+      hasDomainsOrLastDeployed ? "├─" : "└─"
     } Servers: ${appStatus.servers.join(", ")}`
   );
 
@@ -431,12 +599,11 @@ async function checkAndDisplayStatus(
     return;
   }
 
-  // Collect app statuses first (this is what takes time)
-  const appStatuses: AppStatus[] = [];
-  for (const app of filteredApps) {
-    const appStatus = await getAppStatus(app, context);
-    appStatuses.push(appStatus);
-  }
+  // Collect app statuses and proxy status in parallel
+  const [appStatuses, proxyStatusSummary] = await Promise.all([
+    Promise.all(filteredApps.map((app) => getAppStatus(app, context))),
+    getProxyStatusSummary(context),
+  ]);
 
   // Complete the checking phase before displaying results
   logger.phaseComplete("Checking deployment status");
@@ -451,6 +618,7 @@ async function checkAndDisplayStatus(
   // Now display the collected results
   displayCollectedAppsStatus(filteredApps, appStatuses);
   displayServicesStatus(filteredServices);
+  displayProxyStatus(proxyStatusSummary);
 }
 
 /**
@@ -483,6 +651,44 @@ function displayServicesStatus(services: ServiceEntry[]): void {
   for (const service of services) {
     displayServiceStatus(service);
   }
+}
+
+/**
+ * Displays proxy status information
+ */
+function displayProxyStatus(proxyStatusSummary: ProxyStatusSummary): void {
+  const proxyStatuses = proxyStatusSummary.proxyStatuses;
+
+  if (proxyStatuses.length === 0) {
+    logger.info("No proxy statuses found.");
+    return;
+  }
+
+  console.log(`Proxy Statuses (${proxyStatuses.length}):`);
+  for (const proxyStatus of proxyStatuses) {
+    displayProxyStatusInfo(proxyStatus);
+  }
+}
+
+/**
+ * Displays proxy status information for a single proxy status
+ */
+function displayProxyStatusInfo(proxyStatus: ProxyStatus): void {
+  const statusIcon = proxyStatus.running ? "[✓]" : "[✗]";
+  const serverId = proxyStatus.serverId || "unknown";
+  const containerName = proxyStatus.containerName || "unknown";
+  const ports =
+    proxyStatus.ports.length > 0 ? `:${proxyStatus.ports.join(", ")}` : "";
+
+  console.log(
+    `  └─ Proxy Status: ${statusIcon} ${serverId} - ${containerName}${ports}`
+  );
+
+  if (proxyStatus.error) {
+    console.log(`     └─ Error: ${proxyStatus.error}`);
+  }
+
+  console.log(); // Add spacing between proxy statuses
 }
 
 /**
