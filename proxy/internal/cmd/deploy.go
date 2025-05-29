@@ -3,7 +3,9 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"time"
 
 	"github.com/elitan/luma-proxy/internal/cert"
 	"github.com/elitan/luma-proxy/internal/config"
@@ -77,7 +79,17 @@ func (c *DeployCmd) Execute() error {
 	log.Printf("Route for host '%s' successfully configured to target '%s' in project '%s' with health path '%s'",
 		*c.host, *c.target, projectName, *c.healthPath)
 
-	// Add to retry queue for background certificate processing
+	// Immediately add domain to certificate manager for fast SSL provisioning
+	log.Printf("Adding domain to certificate manager for immediate SSL provisioning...")
+	if err := c.addDomainToCertificateManager(*c.host, certEmail); err != nil {
+		log.Printf("Warning: Failed to add domain to certificate manager: %v", err)
+		// Fall back to retry queue system
+		log.Printf("Falling back to retry queue system...")
+	} else {
+		log.Printf("✅ Domain %s added to certificate manager - SSL certificates will provision immediately", *c.host)
+	}
+
+	// Add to retry queue for background certificate processing as backup
 	// Let autocert handle certificate provisioning naturally via HTTP-01 challenges
 	log.Printf("Scheduling SSL certificate provisioning for %s...", *c.host)
 	if err := c.addToRetryQueue(*c.host, certEmail); err != nil {
@@ -101,5 +113,22 @@ func (c *DeployCmd) addToRetryQueue(hostname, email string) error {
 	}
 
 	log.Printf("Added %s to certificate retry queue (email: %s)", hostname, email)
+	return nil
+}
+
+// addDomainToCertificateManager adds a domain to the certificate manager
+func (c *DeployCmd) addDomainToCertificateManager(hostname, email string) error {
+	// Create a trigger file that signals the proxy to reload certificate domains
+	// This provides immediate certificate domain addition without waiting for requests
+	triggerFile := "/tmp/luma-proxy-cert-reload-trigger"
+
+	// Write the current timestamp to the trigger file
+	// The proxy will monitor this file and reload domains when it changes
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	if err := ioutil.WriteFile(triggerFile, []byte(timestamp), 0644); err != nil {
+		return fmt.Errorf("failed to create certificate reload trigger: %w", err)
+	}
+
+	log.Printf("Created certificate reload trigger for immediate SSL provisioning")
 	return nil
 }

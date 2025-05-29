@@ -943,8 +943,9 @@ EOF`);
 
     const isHealthy = await this.checkHealthWithLumaProxy(
       proxyContainerName,
-      targetIP,
+      targetNetworkName,
       containerName,
+      projectName,
       appPort,
       healthCheckPath
     );
@@ -953,36 +954,82 @@ EOF`);
   }
 
   /**
-   * Run a health check using the luma-proxy container
+   * Run a health check using network-scoped DNS within the correct project context
    * @param proxyContainerName Name of the luma-proxy container (should be "luma-proxy")
-   * @param targetContainerIP IP address of the container to check
+   * @param targetNetworkAlias Network alias of the container to check (e.g., "web")
    * @param targetContainerName Name of the container to check
+   * @param projectName The project name for network isolation
    * @param appPort The port the app is listening on (default: 80)
    * @param healthCheckPath The health check endpoint path (default: "/up")
    * @returns true if the health check endpoint returns 200, false otherwise
    */
   async checkHealthWithLumaProxy(
     proxyContainerName: string,
-    targetContainerIP: string,
+    targetNetworkAlias: string,
     targetContainerName: string,
+    projectName: string,
     appPort: number = 80,
     healthCheckPath: string = "/up"
   ): Promise<boolean> {
     try {
       this.log(
-        `Using luma-proxy container for health check of ${targetContainerName} (IP: ${targetContainerIP}:${appPort}${healthCheckPath})`
+        `Using project-scoped health check for ${targetContainerName} (project: ${projectName}, alias: ${targetNetworkAlias}:${appPort}${healthCheckPath})`
       );
+
+      // Create project-specific helper container for network-isolated health checks
+      const helperName = `luma-hc-helper-${projectName}`;
+      const networkName = `${projectName}-network`;
+
+      // Check if helper container exists
+      const helperExists = await this.containerExists(helperName);
+      if (!helperExists) {
+        this.log(
+          `Creating project-specific health check helper for project ${projectName}`
+        );
+
+        // Create helper container connected only to the specific project network
+        const createResult = await this.createContainer({
+          name: helperName,
+          image: "alpine:latest",
+          network: networkName,
+          restart: "unless-stopped",
+          labels: {
+            "luma.managed": "true",
+            "luma.type": "health-helper",
+            "luma.project": projectName,
+          },
+        });
+
+        if (!createResult) {
+          this.logError(
+            `Failed to create helper container for project ${projectName}`
+          );
+          return false;
+        }
+
+        // Install curl in the helper container
+        try {
+          await this.execRemote(
+            `exec ${helperName} sh -c "apk add --no-cache curl"`
+          );
+          this.log(`Installed curl in helper container ${helperName}`);
+        } catch (error) {
+          this.logError(`Failed to install curl in helper container: ${error}`);
+          return false;
+        }
+      }
 
       // Retry the curl command if it fails. Give containers up to 30 seconds to start up.
       let statusCode = "";
       let success = false;
-      const maxAttempts = 30; // 30 seconds total
+      const maxAttempts = 30;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          // Use curl from within the luma-proxy container
-          // The luma-proxy container should have curl available, but if not we'll install it
-          const execCmd = `exec ${proxyContainerName} sh -c "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y curl); curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 http://${targetContainerIP}:${appPort}${healthCheckPath} || echo 'failed'"`;
+          // Use network-scoped DNS resolution within the project-specific helper container
+          // This ensures we resolve 'web:3000' within the correct project network context
+          const targetURL = `http://${targetNetworkAlias}:${appPort}${healthCheckPath}`;
+          const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 ${targetURL}`;
           statusCode = await this.execRemote(execCmd);
 
           // Check if we got a successful status code
@@ -992,7 +1039,7 @@ EOF`);
             this.log(
               `Health check for ${targetContainerName} passed on attempt ${
                 attempt + 1
-              }/${maxAttempts} (IP: ${targetContainerIP}:${appPort}${healthCheckPath})`
+              }/${maxAttempts} (project: ${projectName}, alias: ${targetNetworkAlias}:${appPort}${healthCheckPath})`
             );
             break;
           } else {
@@ -1028,7 +1075,7 @@ EOF`);
 
       if (!success) {
         this.logError(
-          `All ${maxAttempts} health check attempts failed for ${targetContainerName}`
+          `All ${maxAttempts} health check attempts failed for ${targetContainerName} in project ${projectName}`
         );
         return false;
       }

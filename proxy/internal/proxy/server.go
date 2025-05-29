@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/elitan/luma-proxy/internal/cert"
 	"github.com/elitan/luma-proxy/internal/service"
@@ -61,11 +63,45 @@ func (s *Server) ReloadCertificateDomains() {
 func (s *Server) Start() error {
 	log.Println("Starting Luma proxy server...")
 
+	// Start certificate domain reload monitoring
+	go s.monitorCertificateReloadTrigger()
+
 	// Start HTTPS server in a goroutine
 	go s.startHTTPSServer()
 
 	// Start HTTP server for redirects and ACME challenges
 	return s.startHTTPServer()
+}
+
+// monitorCertificateReloadTrigger monitors for certificate reload triggers and updates the certificate manager
+func (s *Server) monitorCertificateReloadTrigger() {
+	triggerFile := "/tmp/luma-proxy-cert-reload-trigger"
+	var lastModTime int64
+
+	log.Printf("Starting certificate domain reload monitoring...")
+
+	// Check for trigger file changes every 2 seconds
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Check if trigger file exists and has been modified
+			if info, err := os.Stat(triggerFile); err == nil {
+				modTime := info.ModTime().Unix()
+				if modTime > lastModTime {
+					lastModTime = modTime
+					log.Printf("Certificate reload trigger detected - reloading certificate domains...")
+
+					// Reload all domains from configuration into certificate manager
+					s.ReloadCertificateDomains()
+
+					log.Printf("✅ Certificate domains reloaded for immediate SSL provisioning")
+				}
+			}
+		}
+	}
 }
 
 // startHTTPSServer starts the HTTPS server
