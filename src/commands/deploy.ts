@@ -87,6 +87,9 @@ function appEntryToContainerOptions(
   const envVars = resolveEnvironmentVariables(appEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
 
+  // Dual alias approach: generic name for internal communication + project-specific for proxy routing
+  const projectSpecificAlias = `${projectName}-${appEntry.name}`;
+
   return {
     name: containerName,
     image: imageNameWithRelease,
@@ -94,7 +97,10 @@ function appEntryToContainerOptions(
     volumes: appEntry.volumes,
     envVars: envVars,
     network: networkName,
-    networkAlias: appEntry.name,
+    networkAliases: [
+      appEntry.name, // "web" - for internal project communication
+      projectSpecificAlias, // "gmail-web" - for proxy routing
+    ],
     restart: "unless-stopped",
     // TODO: Add healthcheck options if DockerContainerOptions supports them directly,
     // or handle healthcheck separately after container start.
@@ -1099,15 +1105,18 @@ async function configureProxyForApp(
   const appPort = appEntry.proxy.app_port || 80;
   const healthPath = appEntry.health_check?.path || "/up";
 
+  // Use project-specific target for proxy routing (dual alias solution)
+  const projectSpecificTarget = `${projectName}-${appEntry.name}`;
+
   for (const host of hosts) {
     logger.verboseLog(
-      `Configuring proxy for ${host} -> ${appEntry.name}:${appPort}`
+      `Configuring proxy for ${host} -> ${projectSpecificTarget}:${appPort}`
     );
 
-    // First configure the proxy route
+    // Configure the proxy route with project-specific target
     const success = await proxyClient.configureProxy(
       host,
-      appEntry.name,
+      projectSpecificTarget, // Use "gmail-web" instead of "web"
       appPort,
       projectName,
       healthPath
@@ -1119,7 +1128,7 @@ async function configureProxyForApp(
 
     // Then verify the health and update the proxy with the correct status
     logger.verboseLog(
-      `Verifying health for ${host} -> ${appEntry.name}:${appPort}${healthPath}`
+      `Verifying health for ${host} -> ${projectSpecificTarget}:${appPort}${healthPath}`
     );
 
     try {
@@ -1143,8 +1152,9 @@ async function configureProxyForApp(
         );
       }
     } catch (healthError) {
-      logger.verboseLog(`Health check failed for ${host}: ${healthError}`);
-      // Don't fail the deployment, just log the issue
+      logger.warn(
+        `Health check failed for ${host}, but continuing with deployment: ${healthError}`
+      );
     }
   }
 }

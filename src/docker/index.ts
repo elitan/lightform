@@ -21,7 +21,7 @@ export interface DockerContainerOptions {
   name: string;
   image: string;
   network?: string;
-  networkAlias?: string;
+  networkAliases?: string[];
   ports?: string[];
   volumes?: string[];
   envVars?: Record<string, string>;
@@ -671,9 +671,11 @@ EOF`);
       if (options.network) {
         cmd += ` --network ${options.network}`;
 
-        // Add network alias if specified
-        if (options.networkAlias) {
-          cmd += ` --network-alias ${options.networkAlias}`;
+        // Add network aliases if specified
+        if (options.networkAliases && options.networkAliases.length > 0) {
+          options.networkAliases.forEach((alias) => {
+            cmd += ` --network-alias ${alias}`;
+          });
         }
       }
 
@@ -871,92 +873,9 @@ EOF`);
   }
 
   /**
-   * Check container's health by making an HTTP request to an endpoint using the luma-proxy container
-   * @param containerName The name of the container to check
-   * @param reuseHelper Whether to create the helper container but return a container name for reuse (legacy parameter, always uses luma-proxy now)
-   * @param projectName The project name for network verification
-   * @param appPort The port the app is listening on (default: 80)
-   * @param healthCheckPath The health check endpoint path (default: "/up")
-   * @returns true if the health check endpoint returns 200, false otherwise. When reuseHelper is true, returns [boolean, string] with container name
-   */
-  async checkContainerEndpoint(
-    containerName: string,
-    reuseHelper: boolean = false,
-    projectName?: string,
-    appPort: number = 80,
-    healthCheckPath: string = "/up"
-  ): Promise<boolean | [boolean, string]> {
-    if (!projectName) {
-      this.logError(
-        "Project name is required for checkContainerEndpoint to ensure correct network communication."
-      );
-      return reuseHelper ? [false, ""] : false;
-    }
-
-    this.log(
-      `Performing endpoint health check for ${containerName} (project: ${projectName}, using luma-proxy, port: ${appPort}, path: ${healthCheckPath})`
-    );
-
-    const targetNetworkName = await this.getContainerNetworkName(
-      containerName,
-      projectName
-    );
-
-    if (!targetNetworkName) {
-      this.logError(
-        `Container ${containerName} is not on the expected project network. Aborting health check.`
-      );
-      return reuseHelper ? [false, ""] : false;
-    }
-
-    const targetIP = await this.getContainerIPAddress(
-      containerName,
-      targetNetworkName
-    );
-
-    if (!targetIP) {
-      this.logError(
-        `Failed to get IP address for ${containerName} on network ${targetNetworkName}. Aborting health check.`
-      );
-      return reuseHelper ? [false, ""] : false;
-    }
-
-    // Use the luma-proxy container for health checks
-    const proxyContainerName = "luma-proxy";
-
-    // Verify luma-proxy container exists and is running
-    const proxyExists = await this.containerExists(proxyContainerName);
-    if (!proxyExists) {
-      this.logError(
-        `luma-proxy container not found. Cannot perform health check.`
-      );
-      return reuseHelper ? [false, ""] : false;
-    }
-
-    const proxyRunning = await this.containerIsRunning(proxyContainerName);
-    if (!proxyRunning) {
-      this.logError(
-        `luma-proxy container is not running. Cannot perform health check.`
-      );
-      return reuseHelper ? [false, ""] : false;
-    }
-
-    const isHealthy = await this.checkHealthWithLumaProxy(
-      proxyContainerName,
-      targetNetworkName,
-      containerName,
-      projectName,
-      appPort,
-      healthCheckPath
-    );
-
-    return reuseHelper ? [isHealthy, proxyContainerName] : isHealthy;
-  }
-
-  /**
-   * Run a health check using network-scoped DNS within the correct project context
+   * Run a health check using project-specific DNS targets
    * @param proxyContainerName Name of the luma-proxy container (should be "luma-proxy")
-   * @param targetNetworkAlias Network alias of the container to check (e.g., "web")
+   * @param targetNetworkAlias Network alias of the container to check (e.g., "web") - DEPRECATED, use projectSpecificTarget
    * @param targetContainerName Name of the container to check
    * @param projectName The project name for network isolation
    * @param appPort The port the app is listening on (default: 80)
@@ -972,64 +891,24 @@ EOF`);
     healthCheckPath: string = "/up"
   ): Promise<boolean> {
     try {
+      // Use project-specific target directly (dual alias solution)
+      const appName = targetNetworkAlias; // Assuming targetNetworkAlias is the app name
+      const projectSpecificTarget = `${projectName}-${appName}`;
+
       this.log(
-        `Using project-scoped health check for ${targetContainerName} (project: ${projectName}, alias: ${targetNetworkAlias}:${appPort}${healthCheckPath})`
+        `Using project-specific health check for ${targetContainerName} (project: ${projectName}, target: ${projectSpecificTarget}:${appPort}${healthCheckPath})`
       );
 
-      // Create project-specific helper container for network-isolated health checks
-      const helperName = `luma-hc-helper-${projectName}`;
-      const networkName = `${projectName}-network`;
-
-      // Check if helper container exists
-      const helperExists = await this.containerExists(helperName);
-      if (!helperExists) {
-        this.log(
-          `Creating project-specific health check helper for project ${projectName}`
-        );
-
-        // Create helper container connected only to the specific project network
-        const createResult = await this.createContainer({
-          name: helperName,
-          image: "alpine:latest",
-          network: networkName,
-          restart: "unless-stopped",
-          labels: {
-            "luma.managed": "true",
-            "luma.type": "health-helper",
-            "luma.project": projectName,
-          },
-        });
-
-        if (!createResult) {
-          this.logError(
-            `Failed to create helper container for project ${projectName}`
-          );
-          return false;
-        }
-
-        // Install curl in the helper container
-        try {
-          await this.execRemote(
-            `exec ${helperName} sh -c "apk add --no-cache curl"`
-          );
-          this.log(`Installed curl in helper container ${helperName}`);
-        } catch (error) {
-          this.logError(`Failed to install curl in helper container: ${error}`);
-          return false;
-        }
-      }
-
-      // Retry the curl command if it fails. Give containers up to 30 seconds to start up.
+      // Retry the health check if it fails. Give containers up to 30 seconds to start up.
       let statusCode = "";
       let success = false;
       const maxAttempts = 30;
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          // Use network-scoped DNS resolution within the project-specific helper container
-          // This ensures we resolve 'web:3000' within the correct project network context
-          const targetURL = `http://${targetNetworkAlias}:${appPort}${healthCheckPath}`;
-          const execCmd = `exec ${helperName} curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 ${targetURL}`;
+          // Use project-specific DNS target directly
+          const targetURL = `http://${projectSpecificTarget}:${appPort}${healthCheckPath}`;
+          const execCmd = `exec ${proxyContainerName} sh -c "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y curl); curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 ${targetURL} || echo 'failed'"`;
           statusCode = await this.execRemote(execCmd);
 
           // Check if we got a successful status code
@@ -1039,7 +918,7 @@ EOF`);
             this.log(
               `Health check for ${targetContainerName} passed on attempt ${
                 attempt + 1
-              }/${maxAttempts} (project: ${projectName}, alias: ${targetNetworkAlias}:${appPort}${healthCheckPath})`
+              }/${maxAttempts} (project: ${projectName}, target: ${projectSpecificTarget}:${appPort}${healthCheckPath})`
             );
             break;
           } else {
@@ -1705,7 +1584,7 @@ EOF`);
         return false;
       }
 
-      // For each new container, disconnect from network and reconnect with main alias
+      // For each new container, disconnect from network and reconnect with dual aliases
       for (const containerName of newColorContainers) {
         try {
           // Disconnect from network (removes temporary alias)
@@ -1713,9 +1592,10 @@ EOF`);
             `network disconnect ${networkName} ${containerName} || true`
           );
 
-          // Reconnect with the main alias
+          // Reconnect with both aliases (dual alias approach)
+          const projectSpecificAlias = `${projectName}-${appName}`;
           await this.execRemote(
-            `network connect --alias ${appName} ${networkName} ${containerName}`
+            `network connect --alias ${appName} --alias ${projectSpecificAlias} ${networkName} ${containerName}`
           );
 
           this.log(`Updated network alias for container ${containerName}`);

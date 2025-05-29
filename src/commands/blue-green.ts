@@ -102,6 +102,9 @@ function createBlueGreenContainerOptions(
   const imageNameWithRelease = buildImageName(appEntry, releaseId);
   const envVars = resolveEnvironmentVariables(appEntry, secrets);
 
+  // Dual alias approach: generic name for internal communication + project-specific for proxy routing
+  const projectSpecificAlias = `${projectName}-${appEntry.name}`;
+
   return {
     name: containerName,
     image: imageNameWithRelease,
@@ -109,7 +112,10 @@ function createBlueGreenContainerOptions(
     volumes: appEntry.volumes,
     envVars: envVars,
     network: `${projectName}-network`,
-    networkAlias: appEntry.name, // Will be modified during deployment
+    networkAliases: [
+      appEntry.name, // "web" - for internal project communication
+      projectSpecificAlias, // "gmail-web" - for proxy routing
+    ],
     restart: "unless-stopped",
     labels: {
       "luma.managed": "true",
@@ -166,23 +172,22 @@ async function performBlueGreenHealthChecks(
 ): Promise<boolean> {
   if (verbose) {
     console.log(
-      `    [${serverHostname}] Performing health checks on ${containerNames.length} containers...`
+      `    [${serverHostname}] Running health checks for ${containerNames.length} containers...`
     );
   }
 
-  const appPort = appEntry.proxy?.app_port || 80;
+  const appPort = appEntry.proxy?.app_port || 3000;
   const healthCheckPath = appEntry.health_check?.path || "/up";
   const healthPromises = containerNames.map(async (containerName) => {
     try {
-      const result = await dockerClient.checkContainerEndpoint(
+      const healthCheckPassed = await dockerClient.checkHealthWithLumaProxy(
+        "luma-proxy",
+        appEntry.name,
         containerName,
-        true,
         projectName,
         appPort,
         healthCheckPath
       );
-
-      const [healthCheckPassed] = result as [boolean, string];
 
       if (healthCheckPassed) {
         if (verbose) {
