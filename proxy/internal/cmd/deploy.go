@@ -3,8 +3,8 @@ package cmd
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
+	"os"
 	"time"
 
 	"github.com/elitan/luma-proxy/internal/cert"
@@ -125,7 +125,7 @@ func (c *DeployCmd) addDomainToCertificateManager(hostname, email string) error 
 	// Write the current timestamp to the trigger file
 	// The proxy will monitor this file and reload domains when it changes
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
-	if err := ioutil.WriteFile(triggerFile, []byte(timestamp), 0644); err != nil {
+	if err := os.WriteFile(triggerFile, []byte(timestamp), 0644); err != nil {
 		return fmt.Errorf("failed to create certificate reload trigger: %w", err)
 	}
 

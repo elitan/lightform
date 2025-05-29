@@ -98,13 +98,10 @@ function appEntryToContainerOptions(
     envVars: envVars,
     network: networkName,
     networkAliases: [
-      appEntry.name, // "web" - for internal project communication
-      projectSpecificAlias, // "gmail-web" - for proxy routing
+      appEntry.name, // internal project docker network alias for internal project communication (e.g. "web")
+      projectSpecificAlias, // globally unique docker network alias used by the luma proxy to healthcheck and route traffic to the app (e.g. "gmail-web")
     ],
     restart: "unless-stopped",
-    // TODO: Add healthcheck options if DockerContainerOptions supports them directly,
-    // or handle healthcheck separately after container start.
-    // Dockerode, for example, allows specifying Healthcheck in HostConfig
   };
 }
 
@@ -122,12 +119,12 @@ function serviceEntryToContainerOptions(
 
   return {
     name: containerName,
-    image: serviceEntry.image, // Includes tag, e.g., "postgres:15"
+    image: serviceEntry.image,
     ports: serviceEntry.ports,
     volumes: serviceEntry.volumes,
     envVars: envVars,
-    network: networkName, // Assumes network is named project_name-network
-    restart: "unless-stopped", // Default restart policy for services
+    network: networkName,
+    restart: "unless-stopped",
     labels: {
       "luma.managed": "true",
       "luma.project": projectName,

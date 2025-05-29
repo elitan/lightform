@@ -55,21 +55,11 @@ async function getCertificateQueueStatus(
   verbose: boolean = false
 ): Promise<CertificateQueueEntry[]> {
   try {
-    // Execute the luma-proxy status command inside the container with correct path
     const statusOutput = await sshClient.exec(
       `docker exec luma-proxy /app/luma-proxy status 2>/dev/null || echo "PROXY_NOT_AVAILABLE"`
     );
 
-    if (verbose) {
-      console.log(`[DEBUG] Proxy status output: ${statusOutput}`);
-    }
-
     if (statusOutput.includes("PROXY_NOT_AVAILABLE") || !statusOutput.trim()) {
-      if (verbose) {
-        console.log(
-          "[DEBUG] Proxy status command not available or empty output"
-        );
-      }
       return [];
     }
 
@@ -83,31 +73,14 @@ async function getCertificateQueueStatus(
     for (const line of lines) {
       const trimmedLine = line.trim();
 
-      if (verbose) {
-        console.log(`[DEBUG] Processing line: "${trimmedLine}"`);
-      }
-
       // Check for "No domains pending certificate provisioning" message
       if (trimmedLine.includes("No domains pending certificate provisioning")) {
-        if (verbose) {
-          console.log(
-            "[DEBUG] Found 'No domains pending' message - queue is empty"
-          );
-        }
         return [];
       }
 
       // Look for certificate retry queue section
       if (trimmedLine.includes("Certificate Retry Queue")) {
         foundCertSection = true;
-        const match = trimmedLine.match(
-          /Certificate Retry Queue \((\d+) domains?\):/
-        );
-        if (match && verbose) {
-          console.log(
-            `[DEBUG] Found certificate queue section with ${match[1]} domains`
-          );
-        }
         continue;
       }
 
@@ -130,12 +103,6 @@ async function getCertificateQueueStatus(
           const attemptMatch = trimmedLine.match(/attempt (\d+)/);
           const attempts = attemptMatch ? parseInt(attemptMatch[1]) : 0;
 
-          if (verbose) {
-            console.log(
-              `[DEBUG] Found entry - hostname: "${hostname}", status: "${status}", attempts: ${attempts}`
-            );
-          }
-
           entries.push({
             hostname,
             status,
@@ -145,15 +112,6 @@ async function getCertificateQueueStatus(
           });
         }
       }
-    }
-
-    if (verbose) {
-      console.log(`[DEBUG] Parsed ${entries.length} certificate queue entries`);
-      entries.forEach((entry, i) => {
-        console.log(
-          `[DEBUG] Entry ${i}: ${entry.hostname} (${entry.status}, attempts: ${entry.attempts})`
-        );
-      });
     }
 
     return entries;

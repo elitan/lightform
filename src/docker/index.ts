@@ -118,6 +118,12 @@ export class DockerClient {
         return "success";
       }
 
+      // For exec commands that might be successful proxy operations, don't log immediately
+      // Let the calling method (like execInContainer) determine if it's actually an error
+      if (command.includes("exec")) {
+        throw error; // Rethrow without logging to let execInContainer handle it
+      }
+
       this.logError(`Remote Docker command failed: ${error}`);
       throw error;
     }
@@ -923,11 +929,38 @@ EOF`);
       if (
         errorOutput.includes("Route deployed successfully") ||
         errorOutput.includes("successfully configured") ||
-        errorOutput.includes("SSL certificate obtained")
+        errorOutput.includes("SSL certificate obtained") ||
+        errorOutput.includes("Health status for") ||
+        errorOutput.includes("updated to true") ||
+        errorOutput.includes("updated to false") ||
+        (errorOutput.includes("Domain") &&
+          errorOutput.includes("added to certificate manager")) ||
+        errorOutput.includes(
+          "SSL certificate will be provisioned automatically"
+        ) ||
+        errorOutput.includes("Adding domain to certificate manager") ||
+        errorOutput.includes("Created certificate reload trigger") ||
+        errorOutput.includes("Scheduling SSL certificate provisioning") ||
+        (errorOutput.includes("Added") &&
+          errorOutput.includes("to certificate retry queue")) ||
+        (errorOutput.includes("Added") &&
+          errorOutput.includes("to background certificate retry queue")) ||
+        (errorOutput.includes("Route for host") &&
+          errorOutput.includes("successfully configured")) ||
+        errorOutput.includes("✅") ||
+        errorOutput.includes("📋") // Success emojis from proxy
       ) {
-        this.log(
-          `Command succeeded despite non-zero exit code in container ${containerName}.`
-        );
+        // For proxy commands, only show detailed output in verbose mode
+        if (this.verbose) {
+          this.log(
+            `Command succeeded despite non-zero exit code in container ${containerName}:`
+          );
+          console.log(errorOutput); // Show the full output in verbose mode
+        } else {
+          this.log(
+            `Command succeeded despite non-zero exit code in container ${containerName}.`
+          );
+        }
         return { success: true, output: errorOutput };
       }
 
