@@ -1,13 +1,9 @@
 package cmd
 
 import (
-	"context"
-	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
-	"time"
 
 	"github.com/elitan/luma-proxy/internal/cert"
 	"github.com/elitan/luma-proxy/internal/config"
@@ -81,70 +77,18 @@ func (c *DeployCmd) Execute() error {
 	log.Printf("Route for host '%s' successfully configured to target '%s' in project '%s' with health path '%s'",
 		*c.host, *c.target, projectName, *c.healthPath)
 
-	// Always attempt immediate certificate provisioning
-	log.Printf("Attempting SSL certificate provisioning for %s...", *c.host)
-	if err := c.attemptImmediateCertificate(*c.host, certEmail); err != nil {
-		log.Printf("⚠️  Certificate provisioning failed: %v", err)
-
-		// Add to retry queue for background processing
-		if err := c.addToRetryQueue(*c.host, certEmail); err != nil {
-			log.Printf("Warning: Failed to add %s to retry queue: %v", *c.host, err)
-		} else {
-			log.Printf("📋 Added %s to background retry queue", *c.host)
-		}
+	// Add to retry queue for background certificate processing
+	// Let autocert handle certificate provisioning naturally via HTTP-01 challenges
+	log.Printf("Scheduling SSL certificate provisioning for %s...", *c.host)
+	if err := c.addToRetryQueue(*c.host, certEmail); err != nil {
+		log.Printf("Warning: Failed to add %s to retry queue: %v", *c.host, err)
 	} else {
-		log.Printf("✅ SSL certificate obtained for %s", *c.host)
+		log.Printf("📋 Added %s to background certificate retry queue", *c.host)
+		log.Printf("✅ SSL certificate will be provisioned automatically via background service")
 	}
 
 	log.Printf("Route deployed successfully")
 	return nil
-}
-
-// attemptImmediateCertificate tries to get a certificate immediately
-func (c *DeployCmd) attemptImmediateCertificate(hostname, email string) error {
-	if email == "" {
-		log.Printf("Warning: No email provided for Let's Encrypt. This is recommended for certificate expiry notifications.")
-	}
-
-	// Create a context with short timeout for immediate attempt
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Try to make an HTTPS request to trigger certificate provisioning
-	client := &http.Client{
-		Timeout: 20 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Allow self-signed certs during provisioning
-			},
-		},
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://%s/luma-proxy/health", hostname), nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("certificate provisioning request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	// Verify we got a real certificate (not self-signed)
-	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
-		cert := resp.TLS.PeerCertificates[0]
-		if err := cert.VerifyHostname(hostname); err == nil {
-			log.Printf("Certificate verified for %s (expires: %s)", hostname, cert.NotAfter.Format("2006-01-02"))
-			return nil
-		}
-	}
-
-	return fmt.Errorf("no valid certificate obtained")
 }
 
 // addToRetryQueue adds a domain to the background certificate retry queue

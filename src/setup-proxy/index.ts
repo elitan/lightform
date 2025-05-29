@@ -92,6 +92,7 @@ export async function setupLumaProxy(
       volumes: [
         "luma-proxy-certs:/var/lib/luma-proxy/certs",
         "luma-proxy-config:/tmp", // Persist config and cert queue files
+        "/var/run/docker.sock:/var/run/docker.sock", // Docker socket access for backend resolution
       ],
       restart: "always",
     };

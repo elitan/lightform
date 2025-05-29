@@ -19,8 +19,8 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-w -s
 # Stage 2: Create the final lightweight image
 FROM alpine:latest
 
-# Add ca-certificates and curl for health checks
-RUN apk --no-cache add ca-certificates curl
+# Add ca-certificates, curl for health checks, and docker CLI for backend resolution
+RUN apk --no-cache add ca-certificates curl docker
 
 WORKDIR /app
 

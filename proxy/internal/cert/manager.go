@@ -113,7 +113,7 @@ func (m *Manager) startBackgroundRetry() {
 	}()
 }
 
-// processRetryQueue attempts to provision certificates for domains in the retry queue
+// processRetryQueue ensures domains in the retry queue are added to the allowed list
 func (m *Manager) processRetryQueue() {
 	pending := m.retryQueue.GetPendingEntries()
 
@@ -121,70 +121,24 @@ func (m *Manager) processRetryQueue() {
 		return
 	}
 
-	log.Printf("Processing %d pending certificate requests", len(pending))
+	log.Printf("Processing %d domains for certificate management", len(pending))
 
 	for _, entry := range pending {
-		log.Printf("Retrying certificate provisioning for %s (attempt %d)", entry.Hostname, entry.Attempts+1)
+		log.Printf("Adding domain %s to certificate manager (attempt %d)", entry.Hostname, entry.Attempts+1)
 
 		// Update attempt count
 		m.retryQueue.UpdateAttempt(entry.Hostname)
 
-		// Add domain to allowed list if not already present
+		// Add domain to allowed list - this is all we need to do
 		m.AddDomain(entry.Hostname)
 
-		// Attempt certificate provisioning
-		if err := m.attemptCertificateProvisioning(entry.Hostname); err != nil {
-			log.Printf("Certificate provisioning failed for %s: %v", entry.Hostname, err)
+		// Remove from retry queue immediately since we've done what we need
+		if err := m.retryQueue.Remove(entry.Hostname); err != nil {
+			log.Printf("Warning: Failed to remove %s from retry queue: %v", entry.Hostname, err)
 		} else {
-			log.Printf("✅ Certificate successfully provisioned for %s", entry.Hostname)
-			// Remove from retry queue on success
-			if err := m.retryQueue.Remove(entry.Hostname); err != nil {
-				log.Printf("Warning: Failed to remove %s from retry queue: %v", entry.Hostname, err)
-			}
+			log.Printf("✅ Domain %s is now configured for automatic certificate provisioning", entry.Hostname)
 		}
 	}
-}
-
-// attemptCertificateProvisioning tries to provision a certificate for the given hostname
-func (m *Manager) attemptCertificateProvisioning(hostname string) error {
-	// Create a context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	// Try to make an HTTPS request to trigger certificate provisioning
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://%s/luma-proxy/health", hostname), nil)
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	// Verify we got a valid certificate
-	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
-		cert := resp.TLS.PeerCertificates[0]
-		if err := cert.VerifyHostname(hostname); err == nil && !cert.NotAfter.Before(time.Now()) {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("no valid certificate obtained")
 }
 
 // Stop stops the background retry service

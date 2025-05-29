@@ -208,4 +208,55 @@ export class LumaProxyClient {
       return null;
     }
   }
+
+  /**
+   * Update the health status of a service in the proxy
+   * @param host The hostname to update
+   * @param healthy Whether the service is healthy
+   * @returns true if the update was successful
+   */
+  async updateServiceHealth(host: string, healthy: boolean): Promise<boolean> {
+    try {
+      // Check if luma-proxy is running
+      if (!(await this.isProxyRunning())) {
+        this.logError(
+          "Cannot update service health: luma-proxy container is not running"
+        );
+        return false;
+      }
+
+      this.log(
+        `Updating health status for ${host}: ${
+          healthy ? "healthy" : "unhealthy"
+        }`
+      );
+
+      // Build the proxy update health command
+      const healthStatus = healthy ? "true" : "false";
+      const proxyCmd = `/app/luma-proxy updatehealth --host ${host} --healthy ${healthStatus}`;
+
+      // Execute the command in the luma-proxy container
+      const execResult = await this.dockerClient.execInContainer(
+        "luma-proxy",
+        proxyCmd
+      );
+
+      if (execResult.success || execResult.output.includes("updated")) {
+        this.log(
+          `Successfully updated health status for ${host} to ${
+            healthy ? "healthy" : "unhealthy"
+          }`
+        );
+        return true;
+      } else {
+        this.logError(
+          `Failed to update health status for ${host}: ${execResult.output}`
+        );
+        return false;
+      }
+    } catch (error) {
+      this.logError(`Error updating health status for ${host}: ${error}`);
+      return false;
+    }
+  }
 }

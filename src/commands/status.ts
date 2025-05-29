@@ -9,11 +9,6 @@ import { DockerClient } from "../docker";
 import { SSHClient, getSSHCredentials, SSHClientOptions } from "../ssh";
 import { Logger } from "../utils/logger";
 import {
-  checkDomainStatus,
-  formatDomainStatus,
-  DomainStatus,
-} from "../utils/ssl-checker";
-import {
   checkProxyStatus,
   formatProxyStatus,
   ProxyStatus,
@@ -27,6 +22,7 @@ interface StatusContext {
   secrets: LumaSecrets;
   verboseFlag: boolean;
   verboseMessages: string[]; // Store verbose messages for later display
+  projectName: string;
 }
 
 interface ParsedStatusArgs {
@@ -46,7 +42,6 @@ interface AppStatus {
   };
   lastDeployed?: string;
   servers: string[];
-  domains?: DomainStatus[];
 }
 
 interface ServerAppStatus {
@@ -139,15 +134,17 @@ async function establishSSHConnection(
  */
 async function getAppContainersOnServer(
   appEntry: AppEntry,
-  dockerClient: DockerClient
+  dockerClient: DockerClient,
+  projectName: string
 ): Promise<{
   allContainers: string[];
   blueContainers: string[];
   greenContainers: string[];
   runningContainers: string[];
 }> {
-  const allContainers = await dockerClient.findContainersByLabel(
-    `luma.app=${appEntry.name}`
+  const allContainers = await dockerClient.findContainersByLabelAndProject(
+    `luma.app=${appEntry.name}`,
+    projectName
   );
 
   const blueContainers: string[] = [];
@@ -176,70 +173,6 @@ async function getAppContainersOnServer(
     greenContainers,
     runningContainers,
   };
-}
-
-/**
- * Gets domain/SSL status for an app
- */
-async function getDomainStatus(
-  appEntry: AppEntry,
-  context: StatusContext
-): Promise<DomainStatus[]> {
-  const domains = appEntry.proxy?.hosts || [];
-
-  if (domains.length === 0) {
-    return [];
-  }
-
-  const domainStatuses: DomainStatus[] = [];
-
-  // Use the first server to check domain status
-  // Domains should be accessible from any server, so we only need to check once
-  if (appEntry.servers.length > 0) {
-    const serverHostname = appEntry.servers[0];
-    let sshClient: SSHClient | undefined;
-
-    try {
-      sshClient = await establishSSHConnection(serverHostname, context);
-
-      for (const domain of domains) {
-        if (context.verboseFlag) {
-          context.verboseMessages.push(
-            `Checking domain status for ${domain}...`
-          );
-        }
-
-        const domainStatus = await checkDomainStatus(
-          domain,
-          sshClient,
-          context.verboseFlag
-        );
-        domainStatuses.push(domainStatus);
-      }
-    } catch (error) {
-      if (context.verboseFlag) {
-        context.verboseMessages.push(
-          `Failed to check domain status for ${appEntry.name}: ${error}`
-        );
-      }
-
-      // Add error status for all domains
-      for (const domain of domains) {
-        domainStatuses.push({
-          domain,
-          accessible: false,
-          hasSSL: false,
-          error: `Failed to connect to server: ${error}`,
-        });
-      }
-    } finally {
-      if (sshClient) {
-        await sshClient.close();
-      }
-    }
-  }
-
-  return domainStatuses;
 }
 
 /**
@@ -332,12 +265,16 @@ async function getAppStatusOnServer(
     );
 
     // Get active color
-    const activeColor = await dockerClient.getCurrentActiveColor(appEntry.name);
+    const activeColor = await dockerClient.getCurrentActiveColorForProject(
+      appEntry.name,
+      context.projectName
+    );
 
     // Get container information
     const containerInfo = await getAppContainersOnServer(
       appEntry,
-      dockerClient
+      dockerClient,
+      context.projectName
     );
 
     return {
@@ -434,9 +371,6 @@ async function getAppStatus(
 
   const aggregated = aggregateAppStatus(appEntry, serverStatuses);
 
-  // Get domain/SSL status
-  const domains = await getDomainStatus(appEntry, context);
-
   return {
     name: appEntry.name,
     status: aggregated.status,
@@ -448,7 +382,6 @@ async function getAppStatus(
       green: aggregated.totalGreen,
     },
     servers: appEntry.servers,
-    domains: domains.length > 0 ? domains : undefined,
   };
 }
 
@@ -484,29 +417,7 @@ function displayAppStatus(appStatus: AppStatus): void {
     }
   }
 
-  // Display domain/SSL status if available
-  if (appStatus.domains && appStatus.domains.length > 0) {
-    for (const domainStatus of appStatus.domains) {
-      const domainLines = formatDomainStatus(domainStatus);
-      for (const line of domainLines) {
-        console.log(line);
-      }
-    }
-  }
-
-  const hasDomainsOrLastDeployed =
-    (appStatus.domains && appStatus.domains.length > 0) ||
-    appStatus.lastDeployed;
-
-  console.log(
-    `     ${
-      hasDomainsOrLastDeployed ? "├─" : "└─"
-    } Servers: ${appStatus.servers.join(", ")}`
-  );
-
-  if (appStatus.lastDeployed) {
-    console.log(`     └─ Last deployed: ${appStatus.lastDeployed}`);
-  }
+  console.log(`     └─ Servers: ${appStatus.servers.join(", ")}`);
 
   console.log(); // Add spacing between apps
 }
@@ -704,6 +615,7 @@ export async function statusCommand(
       secrets,
       verboseFlag: parsedArgs.verboseFlag,
       verboseMessages: [], // Initialize verboseMessages
+      projectName: config.name,
     };
 
     // Check and display status (this will complete the phase internally)

@@ -1285,7 +1285,7 @@ EOF`);
   /**
    * Find containers by label filter
    * @param labelFilter Docker label filter string (e.g., "luma.app=blog", "luma.color=blue")
-   * @returns Array of container names matching the label filter
+   * @returns Array of container names matching the filter
    */
   async findContainersByLabel(labelFilter: string): Promise<string[]> {
     try {
@@ -1299,6 +1299,32 @@ EOF`);
     } catch (error) {
       this.logError(
         `Failed to find containers by label ${labelFilter}: ${error}`
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Find containers by label filter within a specific project
+   * @param labelFilter Docker label filter string (e.g., "luma.app=web", "luma.color=blue")
+   * @param projectName Project name to scope the search to
+   * @returns Array of container names matching the filter within the project
+   */
+  async findContainersByLabelAndProject(
+    labelFilter: string,
+    projectName: string
+  ): Promise<string[]> {
+    try {
+      const result = await this.execRemote(
+        `ps -a --filter "label=${labelFilter}" --filter "label=luma.project=${projectName}" --format "{{.Names}}"`
+      );
+      if (!result.trim()) {
+        return [];
+      }
+      return result.trim().split("\n");
+    } catch (error) {
+      this.logError(
+        `Failed to find containers by label ${labelFilter} in project ${projectName}: ${error}`
       );
       return [];
     }
@@ -1395,12 +1421,98 @@ EOF`);
   }
 
   /**
+   * Determines the current active color (blue/green) for an app within a specific project
+   * @param appName Name of the app
+   * @param projectName Project name to scope the search to
+   * @returns 'blue', 'green', or null if no containers exist
+   */
+  async getCurrentActiveColorForProject(
+    appName: string,
+    projectName: string
+  ): Promise<"blue" | "green" | null> {
+    try {
+      const containers = await this.findContainersByLabelAndProject(
+        `luma.app=${appName}`,
+        projectName
+      );
+
+      if (containers.length === 0) {
+        return null; // No containers exist
+      }
+
+      // First, try to find containers explicitly marked as active
+      for (const containerName of containers) {
+        const labels = await this.getContainerLabels(containerName);
+        if (labels["luma.active"] === "true") {
+          return labels["luma.color"] as "blue" | "green";
+        }
+      }
+
+      // If no containers are marked as active, check which containers have the main network alias
+      // This handles the case where containers exist but active labels aren't set
+      for (const containerName of containers) {
+        try {
+          // Check if this container has the main network alias (indicating it's active)
+          const inspectOutput = await this.execRemote(
+            `inspect ${containerName} --format "{{json .NetworkSettings.Networks}}"`
+          );
+          const networks = JSON.parse(inspectOutput);
+
+          // Look for the main app alias in any network
+          for (const networkData of Object.values(networks) as any[]) {
+            if (networkData.Aliases && networkData.Aliases.includes(appName)) {
+              const labels = await this.getContainerLabels(containerName);
+              return labels["luma.color"] as "blue" | "green";
+            }
+          }
+        } catch (error) {
+          // Continue checking other containers if one fails
+          continue;
+        }
+      }
+
+      // If we still can't determine active color, return the color of the first running container
+      for (const containerName of containers) {
+        const isRunning = await this.containerIsRunning(containerName);
+        if (isRunning) {
+          const labels = await this.getContainerLabels(containerName);
+          return labels["luma.color"] as "blue" | "green";
+        }
+      }
+
+      return null;
+    } catch (error) {
+      this.logError(
+        `Failed to determine active color for app ${appName} in project ${projectName}: ${error}`
+      );
+      return null;
+    }
+  }
+
+  /**
    * Gets the inactive color (opposite of current active)
    * @param appName Name of the app
    * @returns 'blue' or 'green' - the color that should be used for new deployment
    */
   async getInactiveColor(appName: string): Promise<"blue" | "green"> {
     const activeColor = await this.getCurrentActiveColor(appName);
+    return activeColor === "blue" ? "green" : "blue";
+  }
+
+  /**
+   * Gets the inactive color (opposite of current active) for a specific project
+   * @param appName Name of the app
+   * @param projectName Project name to scope the search to
+   * @returns 'blue' or 'green' - the color that should be used for new deployment
+   */
+  async getInactiveColorForProject(
+    appName: string,
+    projectName: string
+  ): Promise<"blue" | "green"> {
+    const activeColor = await this.getCurrentActiveColorForProject(
+      appName,
+      projectName
+    );
     return activeColor === "blue" ? "green" : "blue";
   }
 
@@ -1502,6 +1614,77 @@ EOF`);
       return true;
     } catch (error) {
       this.logError(`Failed to switch network alias for ${appName}: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Switches network aliases from old color to new color atomically within a specific project
+   * @param appName Name of the app
+   * @param newColor The color to switch to
+   * @param networkName The network name
+   * @param projectName Project name to scope the search to
+   * @returns true if successful
+   */
+  async switchNetworkAliasForProject(
+    appName: string,
+    newColor: "blue" | "green",
+    networkName: string,
+    projectName: string
+  ): Promise<boolean> {
+    try {
+      this.log(
+        `Switching network alias for ${appName} to ${newColor} containers in project ${projectName}`
+      );
+
+      // Get all containers for the new color within the project
+      const newContainers = await this.findContainersByLabelAndProject(
+        `luma.app=${appName}`,
+        projectName
+      );
+      const newColorContainers = [];
+
+      for (const containerName of newContainers) {
+        const labels = await this.getContainerLabels(containerName);
+        if (labels["luma.color"] === newColor) {
+          newColorContainers.push(containerName);
+        }
+      }
+
+      if (newColorContainers.length === 0) {
+        this.logError(
+          `No ${newColor} containers found for app ${appName} in project ${projectName}`
+        );
+        return false;
+      }
+
+      // For each new container, disconnect from network and reconnect with main alias
+      for (const containerName of newColorContainers) {
+        try {
+          // Disconnect from network (removes temporary alias)
+          await this.execRemote(
+            `network disconnect ${networkName} ${containerName} || true`
+          );
+
+          // Reconnect with the main alias
+          await this.execRemote(
+            `network connect --alias ${appName} ${networkName} ${containerName}`
+          );
+
+          this.log(`Updated network alias for container ${containerName}`);
+        } catch (error) {
+          this.logError(
+            `Failed to update network alias for ${containerName}: ${error}`
+          );
+          return false;
+        }
+      }
+
+      return true;
+    } catch (error) {
+      this.logError(
+        `Failed to switch network alias for ${appName} in project ${projectName}: ${error}`
+      );
       return false;
     }
   }

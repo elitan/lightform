@@ -35,6 +35,18 @@ func main() {
 			log.Fatalf("Failed to parse status command arguments: %v", err)
 		}
 		err = statusCmd.Execute()
+	case "list":
+		listCmd := cmd.NewListCmd()
+		if err = listCmd.Parse(os.Args[2:]); err != nil {
+			log.Fatalf("Failed to parse list command arguments: %v", err)
+		}
+		err = listCmd.Execute()
+	case "updatehealth":
+		updateHealthCmd := cmd.NewUpdateHealthCmd()
+		if err = updateHealthCmd.Parse(os.Args[2:]); err != nil {
+			log.Fatalf("Failed to parse updatehealth command arguments: %v", err)
+		}
+		err = updateHealthCmd.Execute()
 	default:
 		fmt.Printf("Unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -56,6 +68,12 @@ func printUsage() {
 	fmt.Println("      Configure routing for a hostname")
 	fmt.Println("  status")
 	fmt.Println("      Check the certificate retry queue status")
+	fmt.Println("  list")
+	fmt.Println("      List the current routes configured in the proxy")
+	fmt.Println("  updatehealth")
+	fmt.Println("      Update the health status of a service")
+	fmt.Println("        --host <hostname>       Hostname to update")
+	fmt.Println("        --healthy <true/false>  Health status")
 	fmt.Println("\nLet's Encrypt certificate options for 'run' command:")
 	fmt.Println("  --cert-email <email>   Email address for Let's Encrypt registration (recommended)")
 	fmt.Println("\nDeploy command options:")

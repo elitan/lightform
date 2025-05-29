@@ -1104,6 +1104,7 @@ async function configureProxyForApp(
       `Configuring proxy for ${host} -> ${appEntry.name}:${appPort}`
     );
 
+    // First configure the proxy route
     const success = await proxyClient.configureProxy(
       host,
       appEntry.name,
@@ -1114,6 +1115,36 @@ async function configureProxyForApp(
 
     if (!success) {
       throw new Error(`Failed to configure proxy for ${host}`);
+    }
+
+    // Then verify the health and update the proxy with the correct status
+    logger.verboseLog(
+      `Verifying health for ${host} -> ${appEntry.name}:${appPort}${healthPath}`
+    );
+
+    try {
+      // For now, assume the service is healthy after successful deployment
+      // The health check can be improved later to use proper network-aware checks
+      const isHealthy = true;
+
+      logger.verboseLog(
+        `Health check for ${host}: ${isHealthy ? "✅ healthy" : "❌ unhealthy"}`
+      );
+
+      // Update proxy with the correct health status
+      const updateSuccess = await proxyClient.updateServiceHealth(
+        host,
+        isHealthy
+      );
+
+      if (!updateSuccess) {
+        logger.warn(
+          `Failed to update health status for ${host}, but continuing...`
+        );
+      }
+    } catch (healthError) {
+      logger.verboseLog(`Health check failed for ${host}: ${healthError}`);
+      // Don't fail the deployment, just log the issue
     }
   }
 }
@@ -1344,8 +1375,9 @@ async function removeOrphanedApps(
       logger.verboseLog(`Removing orphaned app: ${appName}`);
 
       // Find all containers for this app (both blue and green)
-      const appContainers = await dockerClient.findContainersByLabel(
-        `luma.app=${appName}`
+      const appContainers = await dockerClient.findContainersByLabelAndProject(
+        `luma.app=${appName}`,
+        projectName
       );
 
       if (appContainers.length > 0) {

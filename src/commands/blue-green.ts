@@ -290,9 +290,11 @@ export async function performBlueGreenDeployment(
 
   try {
     // Step 1: Determine deployment color
-    const currentActiveColor = await dockerClient.getCurrentActiveColor(
-      appEntry.name
-    );
+    const currentActiveColor =
+      await dockerClient.getCurrentActiveColorForProject(
+        appEntry.name,
+        projectName
+      );
     const newColor = currentActiveColor === "blue" ? "green" : "blue";
 
     if (verbose) {
@@ -426,10 +428,11 @@ export async function performBlueGreenDeployment(
       );
     }
 
-    const aliasSwitch = await dockerClient.switchNetworkAlias(
+    const aliasSwitch = await dockerClient.switchNetworkAliasForProject(
       appEntry.name,
       newColor,
-      networkName
+      networkName,
+      projectName
     );
 
     if (!aliasSwitch) {
@@ -452,8 +455,9 @@ export async function performBlueGreenDeployment(
 
     // Step 7: Graceful shutdown of old containers
     if (currentActiveColor) {
-      const oldContainers = await dockerClient.findContainersByLabel(
-        `luma.app=${appEntry.name}`
+      const oldContainers = await dockerClient.findContainersByLabelAndProject(
+        `luma.app=${appEntry.name}`,
+        projectName
       );
 
       const oldActiveContainers = [];

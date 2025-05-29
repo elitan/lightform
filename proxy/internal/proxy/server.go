@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -9,11 +10,19 @@ import (
 	"net/url"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/elitan/luma-proxy/internal/cert"
 	"github.com/elitan/luma-proxy/internal/service"
 	"github.com/elitan/luma-proxy/pkg/models"
 )
+
+// BackendCache represents a cached backend resolution
+type BackendCache struct {
+	Target    string
+	ExpiresAt time.Time
+}
 
 // Server represents the proxy server
 type Server struct {
@@ -21,6 +30,8 @@ type Server struct {
 	serviceManager *service.Manager
 	certManager    *cert.Manager
 	certConfig     models.CertConfig
+	backendCache   map[string]BackendCache // Cache key: "project:hostname:port"
+	cacheMutex     sync.RWMutex
 }
 
 // NewServer creates a new proxy server
@@ -29,6 +40,7 @@ func NewServer(httpsPort string, serviceManager *service.Manager, certConfig mod
 		httpsPort:      httpsPort,
 		serviceManager: serviceManager,
 		certConfig:     certConfig,
+		backendCache:   make(map[string]BackendCache),
 	}
 
 	// Initialize the certificate manager
@@ -40,7 +52,60 @@ func NewServer(httpsPort string, serviceManager *service.Manager, certConfig mod
 		server.certManager.AddDomain(svc.Host)
 	}
 
+	// Start cache cleanup routine
+	go server.startCacheCleanupRoutine()
+
 	return server
+}
+
+// startCacheCleanupRoutine starts a background routine to clean expired cache entries
+func (s *Server) startCacheCleanupRoutine() {
+	ticker := time.NewTicker(60 * time.Second) // Clean every minute
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.cleanExpiredCacheEntries()
+		}
+	}
+}
+
+// cleanExpiredCacheEntries removes expired entries from the cache
+func (s *Server) cleanExpiredCacheEntries() {
+	s.cacheMutex.Lock()
+	defer s.cacheMutex.Unlock()
+
+	now := time.Now()
+	for key, cache := range s.backendCache {
+		if now.After(cache.ExpiresAt) {
+			delete(s.backendCache, key)
+		}
+	}
+}
+
+// getCachedBackend retrieves a cached backend or returns empty string if not found/expired
+func (s *Server) getCachedBackend(cacheKey string) string {
+	s.cacheMutex.RLock()
+	defer s.cacheMutex.RUnlock()
+
+	cache, exists := s.backendCache[cacheKey]
+	if !exists || time.Now().After(cache.ExpiresAt) {
+		return ""
+	}
+
+	return cache.Target
+}
+
+// setCachedBackend stores a backend in the cache with 30-second TTL
+func (s *Server) setCachedBackend(cacheKey, target string) {
+	s.cacheMutex.Lock()
+	defer s.cacheMutex.Unlock()
+
+	s.backendCache[cacheKey] = BackendCache{
+		Target:    target,
+		ExpiresAt: time.Now().Add(30 * time.Second), // 30s TTL for blue-green switches
+	}
 }
 
 // Start starts the proxy server
@@ -135,12 +200,104 @@ func (s *Server) handleHTTPSRequest(w http.ResponseWriter, r *http.Request) {
 	s.routeToTarget(w, r, targetService)
 }
 
-// routeToTarget routes requests to the service target (network alias)
-func (s *Server) routeToTarget(w http.ResponseWriter, r *http.Request, service models.Service) {
-	// Parse the target URL (network alias:port)
-	targetURL, err := url.Parse("http://" + service.Target)
+// NetworkContainerInfo represents container information in a Docker network
+type NetworkContainerInfo struct {
+	Name        string `json:"Name"`
+	IPv4Address string `json:"IPv4Address"`
+}
+
+// NetworkInspectResult represents the result of docker network inspect
+type NetworkInspectResult struct {
+	Containers map[string]NetworkContainerInfo `json:"Containers"`
+}
+
+// resolveBackendIP resolves the IP address of a backend service within its project network
+func (s *Server) resolveBackendIP(service models.Service) (string, error) {
+	// Parse the target to extract hostname and port
+	parts := strings.Split(service.Target, ":")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid target format: %s (expected hostname:port)", service.Target)
+	}
+
+	hostname := parts[0]
+	port := parts[1]
+
+	// Get the project network name
+	projectNetworkName := fmt.Sprintf("%s-network", service.Project)
+
+	// Inspect the project network to find containers with the hostname alias
+	cmd := exec.Command("docker", "network", "inspect", projectNetworkName)
+	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Error parsing target URL for service %s: %v", service.Name, err)
+		return "", fmt.Errorf("failed to inspect network %s: %v", projectNetworkName, err)
+	}
+
+	var networks []NetworkInspectResult
+	if err := json.Unmarshal(output, &networks); err != nil {
+		return "", fmt.Errorf("failed to parse network inspect result: %v", err)
+	}
+
+	if len(networks) == 0 {
+		return "", fmt.Errorf("network %s not found", projectNetworkName)
+	}
+
+	network := networks[0]
+
+	// Find containers in this network and check which ones have the hostname alias
+	for containerID, containerInfo := range network.Containers {
+		// Get the container's aliases in this network
+		aliasCmd := exec.Command("docker", "inspect", containerID,
+			"--format", fmt.Sprintf("{{range $net, $conf := .NetworkSettings.Networks}}{{if eq $net \"%s\"}}{{range $conf.Aliases}}{{.}} {{end}}{{end}}{{end}}", projectNetworkName))
+		aliasOutput, err := aliasCmd.Output()
+		if err != nil {
+			log.Printf("Failed to get aliases for container %s: %v", containerID, err)
+			continue
+		}
+
+		aliases := strings.Fields(strings.TrimSpace(string(aliasOutput)))
+		for _, alias := range aliases {
+			if alias == hostname {
+				// This container has the hostname alias, use its IP
+				// Extract just the IP address (remove /subnet if present)
+				ipAddr := strings.Split(containerInfo.IPv4Address, "/")[0]
+				resolvedTarget := fmt.Sprintf("%s:%s", ipAddr, port)
+				log.Printf("Resolved %s in project %s to %s (container: %s)", service.Target, service.Project, resolvedTarget, containerInfo.Name)
+				return resolvedTarget, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no container found with alias %s in network %s", hostname, projectNetworkName)
+}
+
+// routeToTarget routes requests to the service target using cached project-aware IP resolution
+func (s *Server) routeToTarget(w http.ResponseWriter, r *http.Request, service models.Service) {
+	// Create cache key
+	cacheKey := fmt.Sprintf("%s:%s", service.Project, service.Target)
+
+	// Try to get cached backend first
+	resolvedTarget := s.getCachedBackend(cacheKey)
+
+	// If not cached or expired, resolve backend IP
+	if resolvedTarget == "" {
+		var err error
+		resolvedTarget, err = s.resolveBackendIP(service)
+		if err != nil {
+			log.Printf("Error resolving backend for service %s: %v", service.Name, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, "Luma Proxy: Error resolving backend")
+			return
+		}
+
+		// Cache the result
+		s.setCachedBackend(cacheKey, resolvedTarget)
+		log.Printf("Cached backend resolution for %s: %s", cacheKey, resolvedTarget)
+	}
+
+	// Parse the resolved target URL (IP:port)
+	targetURL, err := url.Parse("http://" + resolvedTarget)
+	if err != nil {
+		log.Printf("Error parsing resolved target URL for service %s: %v", service.Name, err)
 		w.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(w, "Luma Proxy: Error routing request")
 		return
@@ -152,8 +309,7 @@ func (s *Server) routeToTarget(w http.ResponseWriter, r *http.Request, service m
 	// Update the request's Host header to match the target's host
 	r.Host = targetURL.Host
 
-	// Proxy the request to network alias (Docker load balances to active containers)
-	log.Printf("HTTPS: Routing request to %s (zero-downtime deployment ready)", service.Target)
+	// Proxy the request to the resolved IP (project-aware backend resolution with caching)
 	proxy.ServeHTTP(w, r)
 }
 
@@ -162,6 +318,7 @@ func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	// Get parameters from query string
 	targetParam := r.URL.Query().Get("target")
 	pathParam := r.URL.Query().Get("path")
+	projectParam := r.URL.Query().Get("project")
 
 	// Default path to /up if not specified
 	if pathParam == "" {
@@ -174,10 +331,41 @@ func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Health check request for target %s, path %s", targetParam, pathParam)
+	if projectParam == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "Error: Missing required 'project' parameter for project-aware health check")
+		return
+	}
 
-	// Build the URL to check
-	targetURL := fmt.Sprintf("http://%s%s", targetParam, pathParam)
+	log.Printf("Health check request for target %s in project %s, path %s", targetParam, projectParam, pathParam)
+
+	// Create a temporary service object for resolution
+	tempService := models.Service{
+		Target:  targetParam,
+		Project: projectParam,
+	}
+
+	// Create cache key and try cached resolution first
+	cacheKey := fmt.Sprintf("%s:%s", projectParam, targetParam)
+	resolvedTarget := s.getCachedBackend(cacheKey)
+
+	// If not cached, resolve backend IP using project context
+	if resolvedTarget == "" {
+		var err error
+		resolvedTarget, err = s.resolveBackendIP(tempService)
+		if err != nil {
+			log.Printf("Health check failed - could not resolve backend for %s in project %s: %v", targetParam, projectParam, err)
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, "Health check failed: Could not resolve backend - %v", err)
+			return
+		}
+
+		// Cache the result
+		s.setCachedBackend(cacheKey, resolvedTarget)
+	}
+
+	// Build the URL to check using resolved IP
+	targetURL := fmt.Sprintf("http://%s%s", resolvedTarget, pathParam)
 
 	// Execute curl command to check service health
 	// Using curl with timeout options for reliability
@@ -185,13 +373,13 @@ func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
-		log.Printf("Health check failed for %s: %v", targetURL, err)
+		log.Printf("Health check failed for %s (resolved: %s): %v", targetParam, resolvedTarget, err)
 		w.WriteHeader(http.StatusServiceUnavailable)
 		fmt.Fprintf(w, "Health check failed: %s", string(output))
 		return
 	}
 
-	log.Printf("Health check succeeded for %s", targetURL)
+	log.Printf("Health check succeeded for %s (resolved: %s)", targetParam, resolvedTarget)
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "OK")
 }
