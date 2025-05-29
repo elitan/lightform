@@ -45,11 +45,11 @@ func (m *Manager) Deploy(host, target, project string) error {
 // DeployWithHealthPath configures routing for a hostname with custom health check path
 func (m *Manager) DeployWithHealthPath(host, target, project, healthPath string) error {
 	m.config.Lock()
-	defer m.config.Unlock()
 
 	// Check for conflicts with other projects
 	for _, service := range m.config.Services {
 		if service.Host == host && service.Project != project {
+			m.config.Unlock()
 			return fmt.Errorf("host %s is already used in project %s",
 				host, service.Project)
 		}
@@ -71,21 +71,25 @@ func (m *Manager) DeployWithHealthPath(host, target, project, healthPath string)
 	}
 
 	m.config.Services[host] = service
+	m.config.Unlock()
+
 	return m.config.Save()
 }
 
 // UpdateServiceHealth updates the health status of a service
 func (m *Manager) UpdateServiceHealth(hostname string, healthy bool) error {
 	m.config.Lock()
-	defer m.config.Unlock()
 
 	service, exists := m.config.Services[hostname]
 	if !exists {
+		m.config.Unlock()
 		return fmt.Errorf("service not found: %s", hostname)
 	}
 
 	service.Healthy = healthy
 	m.config.Services[hostname] = service
+	m.config.Unlock()
+
 	return m.config.Save()
 }
 

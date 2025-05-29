@@ -103,7 +103,7 @@ func (c *DeployCmd) Execute() error {
 // attemptImmediateCertificate tries to get a certificate immediately
 func (c *DeployCmd) attemptImmediateCertificate(hostname, email string) error {
 	if email == "" {
-		return fmt.Errorf("no email configured for Let's Encrypt (use --cert-email or configure in proxy)")
+		log.Printf("Warning: No email provided for Let's Encrypt. This is recommended for certificate expiry notifications.")
 	}
 
 	// Create a context with short timeout for immediate attempt

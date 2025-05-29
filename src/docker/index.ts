@@ -1076,6 +1076,20 @@ EOF`);
       return { success: true, output };
     } catch (error) {
       const errorOutput = String(error);
+
+      // Check if this is actually a successful operation based on output patterns
+      // This handles cases where commands work correctly but return non-zero exit codes
+      if (
+        errorOutput.includes("Route deployed successfully") ||
+        errorOutput.includes("successfully configured") ||
+        errorOutput.includes("SSL certificate obtained")
+      ) {
+        this.log(
+          `Command succeeded despite non-zero exit code in container ${containerName}.`
+        );
+        return { success: true, output: errorOutput };
+      }
+
       this.logError(
         `Failed to execute command in container ${containerName}: ${errorOutput}`
       );

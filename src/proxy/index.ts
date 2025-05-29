@@ -83,7 +83,7 @@ export class LumaProxyClient {
    * @param targetContainer The container name to route traffic to
    * @param targetPort The port on the target container
    * @param projectName The name of the project (used for network connectivity)
-   * @param healthPath The health check endpoint path (default: "/up") - NOTE: Not supported in current proxy version
+   * @param healthPath The health check endpoint path (default: "/up")
    * @returns true if the configuration was successful
    */
   async configureProxy(
@@ -103,6 +103,8 @@ export class LumaProxyClient {
         `${targetContainer}:${targetPort}`,
         "--project",
         projectName,
+        "--health-path",
+        healthPath,
       ];
 
       const command = `/app/luma-proxy ${args.join(" ")}`;
@@ -118,7 +120,9 @@ export class LumaProxyClient {
       return (
         execResult.success ||
         execResult.output.includes("Added") ||
-        execResult.output.includes("Updated")
+        execResult.output.includes("Updated") ||
+        execResult.output.includes("Route deployed successfully") ||
+        execResult.output.includes("successfully configured")
       );
     } catch (error) {
       if (this.verbose) {
