@@ -17,5 +17,3 @@ apps:
       hosts:
         - nextjs.example.myluma.cloud
       app_port: 3000
-    health_check:
-      path: /up
