@@ -53,7 +53,7 @@ apps:
 `;
 }
 
-export async function initCommand() {
+export async function initCommand(nonInteractive: boolean = false) {
   let configCreated = false;
   let secretsCreated = false;
 
@@ -80,7 +80,9 @@ export async function initCommand() {
     console.log(`Configuration file ${ACTUAL_CONFIG_PATH} already exists.`);
   } else {
     try {
-      const configData = await promptForConfig();
+      const configData = nonInteractive
+        ? { projectName: "test-project" }
+        : await promptForConfig();
       const configContent = generateConfigContent(configData);
 
       await writeFile(ACTUAL_CONFIG_PATH, configContent, "utf8");

@@ -1,19 +1,19 @@
 import { describe, expect, test } from "bun:test";
 import {
-  LumaServiceSchema,
+  ServiceEntryWithoutNameSchema,
   LumaConfigSchema,
   LumaSecretsSchema,
 } from "../src/config/types";
 
 describe("type schemas", () => {
-  describe("LumaServiceSchema", () => {
+  describe("ServiceEntryWithoutNameSchema", () => {
     test("should validate a minimal valid service", () => {
       const validService = {
         image: "nginx:latest",
         servers: ["server1.example.com"],
       };
 
-      const result = LumaServiceSchema.safeParse(validService);
+      const result = ServiceEntryWithoutNameSchema.safeParse(validService);
       expect(result.success).toBe(true);
     });
 
@@ -21,10 +21,6 @@ describe("type schemas", () => {
       const validService = {
         image: "nginx:latest",
         servers: ["server1.example.com", "server2.example.com"],
-        build: {
-          context: ".",
-          dockerfile: "Dockerfile",
-        },
         ports: ["80:80", "443:443"],
         volumes: ["/data:/usr/share/nginx/html"],
         environment: {
@@ -34,11 +30,11 @@ describe("type schemas", () => {
         registry: {
           url: "registry.example.com",
           username: "user",
-          password: ["REGISTRY_PASSWORD"],
+          password_secret: "REGISTRY_PASSWORD",
         },
       };
 
-      const result = LumaServiceSchema.safeParse(validService);
+      const result = ServiceEntryWithoutNameSchema.safeParse(validService);
       expect(result.success).toBe(true);
     });
 
@@ -47,7 +43,7 @@ describe("type schemas", () => {
         servers: ["server1.example.com"], // missing 'image'
       };
 
-      const result = LumaServiceSchema.safeParse(invalidService);
+      const result = ServiceEntryWithoutNameSchema.safeParse(invalidService);
       expect(result.success).toBe(false);
 
       if (!result.success) {
@@ -62,7 +58,7 @@ describe("type schemas", () => {
         servers: "server1.example.com", // should be an array
       };
 
-      const result = LumaServiceSchema.safeParse(invalidService);
+      const result = ServiceEntryWithoutNameSchema.safeParse(invalidService);
       expect(result.success).toBe(false);
 
       if (!result.success) {
@@ -75,6 +71,7 @@ describe("type schemas", () => {
   describe("LumaConfigSchema", () => {
     test("should validate a minimal valid config", () => {
       const validConfig = {
+        name: "test-project",
         services: {
           web: {
             image: "nginx:latest",
@@ -116,7 +113,13 @@ describe("type schemas", () => {
 
     test("should reject a config missing required fields", () => {
       const invalidConfig = {
-        // Missing 'services' field
+        // Missing required 'name' field
+        services: {
+          web: {
+            image: "nginx:latest",
+            servers: ["server1.example.com"],
+          },
+        },
       };
 
       const result = LumaConfigSchema.safeParse(invalidConfig);
@@ -124,7 +127,7 @@ describe("type schemas", () => {
 
       if (!result.success) {
         const errorPaths = result.error.errors.map((e) => e.path.join("."));
-        expect(errorPaths).toContain("services");
+        expect(errorPaths).toContain("name");
       }
     });
   });

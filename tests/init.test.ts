@@ -31,8 +31,8 @@ describe("init command", () => {
   });
 
   test("should create luma.yml and .luma/secrets files", async () => {
-    // Run the init command
-    await initCommand();
+    // Run the init command in non-interactive mode
+    await initCommand(true);
 
     // Check that files were created
     expect(existsSync("luma.yml")).toBe(true);
@@ -42,8 +42,8 @@ describe("init command", () => {
     // Check file contents
     const configFile = Bun.file("luma.yml");
     const configContent = await configFile.text();
-    expect(configContent).toContain("services:");
-    expect(configContent).toContain("gmail-web:");
+    expect(configContent).toContain("apps:");
+    expect(configContent).toContain("web:");
 
     // Secrets file should be empty
     const secretsFile = Bun.file(join(".luma", "secrets"));
@@ -61,8 +61,8 @@ describe("init command", () => {
     const customSecrets = "API_KEY=1234";
     await Bun.write(join(".luma", "secrets"), customSecrets);
 
-    // Run the init command
-    await initCommand();
+    // Run the init command in non-interactive mode
+    await initCommand(true);
 
     // Verify files still have original content
     const configFile = Bun.file("luma.yml");

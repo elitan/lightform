@@ -67,17 +67,18 @@ services:
 
       // Verify the loaded config
       expect(config.name).toBe("test-project");
-      expect(config.services["web-app"]).not.toBeUndefined();
-      expect(config.services["web-app"].image).toBe("test/webapp:latest");
-      expect(config.services["web-app"].servers).toContain(
+      expect(config.services).toBeDefined();
+      expect(config.services!["web-app"]).not.toBeUndefined();
+      expect(config.services!["web-app"].image).toBe("test/webapp:latest");
+      expect(config.services!["web-app"].servers).toContain(
         "server1.example.com"
       );
-      expect(config.services["web-app"].ports).toContain("80:8080");
-      expect(config.services["web-app"].volumes).toContain("data:/app/data");
-      expect(config.services["web-app"].environment?.plain).toContain(
+      expect(config.services!["web-app"].ports).toContain("80:8080");
+      expect(config.services!["web-app"].volumes).toContain("data:/app/data");
+      expect(config.services!["web-app"].environment?.plain).toContain(
         "NODE_ENV=production"
       );
-      expect(config.services["web-app"].environment?.secret).toContain(
+      expect(config.services!["web-app"].environment?.secret).toContain(
         "API_KEY"
       );
     });
@@ -85,6 +86,7 @@ services:
     test("should throw an error for invalid config", async () => {
       // Create an invalid config file (missing required 'image' field)
       const invalidConfig = `
+name: test-project
 services:
   web-app:
     # Missing required 'image' field
