@@ -36,11 +36,25 @@ func NewServer(httpsPort string, serviceManager *service.Manager, certConfig mod
 	server.certManager = cert.NewManager(certConfig.Email)
 
 	// Add all known domains to the certificate manager
-	for _, svc := range serviceManager.GetAllServices() {
+	allServices := serviceManager.GetAllServices()
+	for _, svc := range allServices {
 		server.certManager.AddDomain(svc.Host)
+		log.Printf("Pre-configured SSL domain: %s", svc.Host)
+	}
+
+	if len(allServices) == 0 {
+		log.Printf("No domains configured yet - SSL certificates will be added as domains are deployed")
 	}
 
 	return server
+}
+
+// ReloadCertificateDomains reloads all domains from the service manager into the certificate manager
+func (s *Server) ReloadCertificateDomains() {
+	allServices := s.serviceManager.GetAllServices()
+	for _, svc := range allServices {
+		s.certManager.AddDomain(svc.Host)
+	}
 }
 
 // Start starts the proxy server
@@ -122,6 +136,10 @@ func (s *Server) handleHTTPSRequest(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Luma Proxy: No service configured for host: %s", host)
 		return
 	}
+
+	// Reload certificate domains to ensure newly deployed domains are in the certificate manager
+	// This ensures SSL certificates can be provisioned for domains deployed after server startup
+	s.ReloadCertificateDomains()
 
 	// Check if service is healthy
 	if !targetService.Healthy {
