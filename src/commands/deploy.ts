@@ -1099,9 +1099,6 @@ async function configureProxyForApp(
   const appPort = appEntry.proxy.app_port || 80;
   const healthPath = appEntry.health_check?.path || "/up";
 
-  // Get Let's Encrypt email from global proxy options - it's optional
-  const certEmail = config.proxy_options?.lets_encrypt_email;
-
   for (const host of hosts) {
     logger.verboseLog(
       `Configuring proxy for ${host} -> ${appEntry.name}:${appPort}`
@@ -1112,8 +1109,7 @@ async function configureProxyForApp(
       appEntry.name,
       appPort,
       projectName,
-      healthPath,
-      certEmail // Pass undefined if not provided - proxy will handle gracefully
+      healthPath
     );
 
     if (!success) {

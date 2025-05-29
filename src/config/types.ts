@@ -46,16 +46,6 @@ export const AppProxyConfigSchema = z.object({
 });
 export type AppProxyConfig = z.infer<typeof AppProxyConfigSchema>;
 
-// Zod schema for Global Proxy Options
-export const GlobalProxyOptionsSchema = z.object({
-  lets_encrypt_email: z
-    .string()
-    .email()
-    .describe("Email address for Let's Encrypt registration.")
-    .optional(),
-});
-export type GlobalProxyOptions = z.infer<typeof GlobalProxyOptionsSchema>;
-
 // Zod schema for AppEntry without name (used in record format)
 export const AppEntryWithoutNameSchema = z.object({
   image: z.string().optional(),
@@ -186,7 +176,6 @@ export const LumaConfigSchema = z.object({
         .optional(),
     })
     .optional(),
-  proxy_options: GlobalProxyOptionsSchema.optional(),
 });
 export type LumaConfig = z.infer<typeof LumaConfigSchema>;
 

@@ -84,7 +84,6 @@ export class LumaProxyClient {
    * @param targetPort The port on the target container
    * @param projectName The name of the project (used for network connectivity)
    * @param healthPath The health check endpoint path (default: "/up") - NOTE: Not supported in current proxy version
-   * @param certEmail Optional email address for Let's Encrypt certificate provisioning
    * @returns true if the configuration was successful
    */
   async configureProxy(
@@ -92,8 +91,7 @@ export class LumaProxyClient {
     targetContainer: string,
     targetPort: number,
     projectName: string,
-    healthPath: string = "/up",
-    certEmail?: string
+    healthPath: string = "/up"
   ): Promise<boolean> {
     try {
       // Build the command arguments
@@ -107,32 +105,24 @@ export class LumaProxyClient {
         projectName,
       ];
 
-      // Only add cert-email if provided
-      if (certEmail) {
-        args.push("--cert-email", certEmail);
-      }
-
-      const result = await this.dockerClient.executeInContainer("luma-proxy", [
-        "/app/luma-proxy",
-        ...args,
-      ]);
+      const command = `/app/luma-proxy ${args.join(" ")}`;
+      const execResult = await this.dockerClient.execInContainer(
+        "luma-proxy",
+        command
+      );
 
       if (this.verbose) {
-        this.verboseMessages.push(
-          `Proxy configuration result: ${result.trim()}`
-        );
+        this.log(`Proxy configuration result: ${execResult.output.trim()}`);
       }
 
       return (
-        result.includes("success") ||
-        result.includes("Added") ||
-        result.includes("Updated")
+        execResult.success ||
+        execResult.output.includes("Added") ||
+        execResult.output.includes("Updated")
       );
     } catch (error) {
       if (this.verbose) {
-        this.verboseMessages.push(
-          `Failed to configure proxy for ${host}: ${error}`
-        );
+        this.log(`Failed to configure proxy for ${host}: ${error}`);
       }
       return false;
     }
