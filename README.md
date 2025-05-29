@@ -3,20 +3,22 @@
 Zero-downtime deployments and automatic HTTPS on your own servers.
 
 ```
-❯ luma deploy
-Using Git SHA for release ID: 9d8209a
-Starting deployment with release 9d8209a
+❯ luma deploy --force
+Using Git SHA for release ID: 80d0f8c
+Starting deployment with release 80d0f8c
 
-[✓] Configuration loaded (0ms)
-[✓] Git status verified (3ms)
-[✓] Infrastructure ready (1.2s)
-[✓] web → elitan/luma-test-web:9d8209a (3.3s)
-[✓] Building Images (3.3s)
-  └─ 157.180.25.101
-     ├─ [✓] Loading image (2.5s)
-     ├─ [✓] Zero-downtime deployment (1.4s)
-     └─ [✓] Configuring proxy (319ms)
-[✓] Deployment completed successfully in 8.8s
+[✓] Configuration loaded (1ms)
+[✓] Git status verified (4ms)
+[✓] Infrastructure ready (879ms)
+[✓] web → web:80d0f8c (1.8s)
+[✓] Building Images (1.8s)
+[✓] App State Reconciliation (884ms)
+  └─ web → 157.180.25.101
+     ├─ [✓] Loading web image (1.7s)
+     ├─ [✓] Zero-downtime deployment of web (3.5s)
+     └─ [✓] Configuring proxy for web (805ms)
+[✓] Deploying Apps (6.2s)
+[✓] Deployment completed successfully in 9.8s
 
 Your app is live at:
   └─ https://test.eliasson.me
@@ -91,29 +93,7 @@ Luma will:
 luma deploy
 ```
 
-Watch as Luma builds, deploys, and switches traffic with zero downtime:
-
-```
-Starting deployment with release a1b2c3d
-
-[✓] Configuration loaded (2.3s)
-[✓] Git status verified (1.2s)
-[✓] Infrastructure ready (0.8s)
-
-Building Images
-  [✓] web → my-app/web:a1b2c3d (2.1s)
-
-Deploying to Servers
-  └─ your-server.com
-     ├─ [✓] Loading image (1.3s)
-     ├─ [✓] Zero-downtime deployment (3.8s)
-     └─ [✓] Configuring SSL proxy (0.5s)
-
-[✓] Deployment completed successfully in 7.7s
-
-Your app is live at:
-  └─ https://myapp.com
-```
+Watch as Luma builds, deploys, and switches traffic with zero downtime.
 
 ---
 
