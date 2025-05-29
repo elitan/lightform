@@ -810,6 +810,7 @@ async function deployAppToServer(
       dockerClient,
       serverHostname,
       context.projectName,
+      context.config,
       context.verboseFlag
     );
     logger.serverStepComplete(
@@ -1082,6 +1083,7 @@ async function configureProxyForApp(
   dockerClient: DockerClient,
   serverHostname: string,
   projectName: string,
+  config: LumaConfig,
   verbose: boolean = false
 ): Promise<void> {
   if (!appEntry.proxy?.hosts?.length) return;
@@ -1097,25 +1099,25 @@ async function configureProxyForApp(
   const appPort = appEntry.proxy.app_port || 80;
   const healthPath = appEntry.health_check?.path || "/up";
 
-  for (const host of hosts) {
-    try {
-      const configSuccess = await proxyClient.configureProxy(
-        host,
-        appEntry.name,
-        appPort,
-        projectName,
-        healthPath
-      );
+  // Get Let's Encrypt email from global proxy options - it's optional
+  const certEmail = config.proxy_options?.lets_encrypt_email;
 
-      if (!configSuccess) {
-        logger.error(`Failed to configure proxy for host ${host}`);
-      } else {
-        logger.verboseLog(
-          `Configured proxy for ${host} → ${appEntry.name}:${appPort} (health: ${healthPath})`
-        );
-      }
-    } catch (proxyError) {
-      logger.error(`Error configuring proxy for host ${host}`, proxyError);
+  for (const host of hosts) {
+    logger.verboseLog(
+      `Configuring proxy for ${host} -> ${appEntry.name}:${appPort}`
+    );
+
+    const success = await proxyClient.configureProxy(
+      host,
+      appEntry.name,
+      appPort,
+      projectName,
+      healthPath,
+      certEmail // Pass undefined if not provided - proxy will handle gracefully
+    );
+
+    if (!success) {
+      throw new Error(`Failed to configure proxy for ${host}`);
     }
   }
 }

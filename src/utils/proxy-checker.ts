@@ -55,12 +55,21 @@ async function getCertificateQueueStatus(
   verbose: boolean = false
 ): Promise<CertificateQueueEntry[]> {
   try {
-    // Execute the luma-proxy status command inside the container
+    // Execute the luma-proxy status command inside the container with correct path
     const statusOutput = await sshClient.exec(
-      `docker exec luma-proxy luma-proxy status 2>/dev/null || echo "PROXY_NOT_AVAILABLE"`
+      `docker exec luma-proxy /app/luma-proxy status 2>/dev/null || echo "PROXY_NOT_AVAILABLE"`
     );
 
+    if (verbose) {
+      console.log(`[DEBUG] Proxy status output: ${statusOutput}`);
+    }
+
     if (statusOutput.includes("PROXY_NOT_AVAILABLE") || !statusOutput.trim()) {
+      if (verbose) {
+        console.log(
+          "[DEBUG] Proxy status command not available or empty output"
+        );
+      }
       return [];
     }
 
@@ -68,47 +77,83 @@ async function getCertificateQueueStatus(
     const entries: CertificateQueueEntry[] = [];
     const lines = statusOutput.split("\n");
 
-    let currentEntry: Partial<CertificateQueueEntry> | null = null;
+    // Look for the specific output format from luma-proxy status
+    let foundCertSection = false;
 
     for (const line of lines) {
       const trimmedLine = line.trim();
 
-      // Look for hostname entries (lines that start with status emojis)
-      if (trimmedLine.match(/^[⏳🔄] (Pending|Retrying)/)) {
-        if (currentEntry && currentEntry.hostname) {
-          entries.push(currentEntry as CertificateQueueEntry);
+      if (verbose) {
+        console.log(`[DEBUG] Processing line: "${trimmedLine}"`);
+      }
+
+      // Check for "No domains pending certificate provisioning" message
+      if (trimmedLine.includes("No domains pending certificate provisioning")) {
+        if (verbose) {
+          console.log(
+            "[DEBUG] Found 'No domains pending' message - queue is empty"
+          );
         }
+        return [];
+      }
 
-        const hostname = trimmedLine.split(" ").pop(); // Get the last word (hostname)
-        const status = trimmedLine.includes("Pending") ? "pending" : "retrying";
+      // Look for certificate retry queue section
+      if (trimmedLine.includes("Certificate Retry Queue")) {
+        foundCertSection = true;
+        const match = trimmedLine.match(
+          /Certificate Retry Queue \((\d+) domains?\):/
+        );
+        if (match && verbose) {
+          console.log(
+            `[DEBUG] Found certificate queue section with ${match[1]} domains`
+          );
+        }
+        continue;
+      }
 
-        currentEntry = {
-          hostname: hostname || "",
-          status,
-          attempts: 0,
-          email: "",
-          addedAt: "",
-        };
-      } else if (currentEntry && trimmedLine.startsWith("Email:")) {
-        currentEntry.email = trimmedLine.replace("Email:", "").trim();
-      } else if (currentEntry && trimmedLine.startsWith("Added:")) {
-        currentEntry.addedAt = trimmedLine.replace("Added:", "").trim();
-      } else if (currentEntry && trimmedLine.startsWith("Last attempt:")) {
-        currentEntry.lastAttempt = trimmedLine
-          .replace("Last attempt:", "")
-          .trim();
-      } else if (currentEntry && trimmedLine.includes("attempt")) {
-        // Extract attempt number from status line
-        const attemptMatch = trimmedLine.match(/attempt (\d+)/);
-        if (attemptMatch) {
-          currentEntry.attempts = parseInt(attemptMatch[1]);
+      // If we're in the certificate section, parse entries
+      if (foundCertSection) {
+        // Look for status lines with emojis or specific patterns
+        if (
+          trimmedLine.match(/^[⏳🔄] (Pending|Retrying)/) ||
+          trimmedLine.includes("⏳ Pending") ||
+          trimmedLine.includes("🔄 Retrying")
+        ) {
+          // Extract hostname (last word on the line)
+          const parts = trimmedLine.split(" ");
+          const hostname = parts[parts.length - 1];
+          const status = trimmedLine.includes("Retrying")
+            ? "retrying"
+            : "pending";
+
+          // Extract attempt count if present
+          const attemptMatch = trimmedLine.match(/attempt (\d+)/);
+          const attempts = attemptMatch ? parseInt(attemptMatch[1]) : 0;
+
+          if (verbose) {
+            console.log(
+              `[DEBUG] Found entry - hostname: "${hostname}", status: "${status}", attempts: ${attempts}`
+            );
+          }
+
+          entries.push({
+            hostname,
+            status,
+            attempts,
+            email: "",
+            addedAt: "",
+          });
         }
       }
     }
 
-    // Add the last entry if exists
-    if (currentEntry && currentEntry.hostname) {
-      entries.push(currentEntry as CertificateQueueEntry);
+    if (verbose) {
+      console.log(`[DEBUG] Parsed ${entries.length} certificate queue entries`);
+      entries.forEach((entry, i) => {
+        console.log(
+          `[DEBUG] Entry ${i}: ${entry.hostname} (${entry.status}, attempts: ${entry.attempts})`
+        );
+      });
     }
 
     return entries;
@@ -150,15 +195,55 @@ export async function checkProxyStatus(
       ? await getCertificateQueueStatus(sshClient, verbose)
       : [];
 
-    // Get proxy configurations
+    // Get recent proxy logs to show domain activity and configuration issues
     let configurations: string[] = [];
+    let configurationIssues: string[] = [];
+
     if (isRunning) {
-      const configsOutput = await proxyClient.listProxyConfigs();
-      if (configsOutput) {
-        // Parse the configurations output - this would depend on the actual format
-        configurations = configsOutput
-          .split("\n")
-          .filter((line) => line.trim());
+      try {
+        // Get more recent logs to analyze domain activity
+        const recentLogs = await sshClient.exec(
+          `docker logs ${containerName} --tail 10 2>/dev/null`
+        );
+
+        if (recentLogs && recentLogs.trim()) {
+          const domains = new Set<string>();
+          const logLines = recentLogs.split("\n");
+
+          for (const line of logLines) {
+            // Look for domain patterns in logs
+            const hostMatch = line.match(/Host: ([^,\s)]+)/);
+            if (hostMatch) {
+              const domain = hostMatch[1];
+              if (domain && !domain.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+                // Skip IP addresses
+                domains.add(domain);
+              }
+            }
+
+            // Look for configuration issues
+            if (line.includes("not configured in Luma proxy")) {
+              const domainMatch = line.match(/domain "([^"]+)" not configured/);
+              if (domainMatch) {
+                configurationIssues.push(`${domainMatch[1]} not configured`);
+              }
+            }
+
+            // Look for TLS handshake errors without domain names (general SSL issues)
+            if (
+              line.includes("TLS handshake error") &&
+              line.includes("missing server name")
+            ) {
+              configurationIssues.push("SSL handshake errors (missing SNI)");
+            }
+          }
+
+          configurations = Array.from(domains);
+        }
+      } catch (error) {
+        if (verbose) {
+          console.warn(`Failed to get proxy activity: ${error}`);
+        }
       }
     }
 
@@ -169,6 +254,10 @@ export async function checkProxyStatus(
       ports,
       certificateQueue,
       configurations,
+      error:
+        configurationIssues.length > 0
+          ? configurationIssues.join("; ")
+          : undefined,
     };
   } catch (error) {
     return {
@@ -200,8 +289,14 @@ export function formatProxyStatus(proxyStatus: ProxyStatus): string[] {
 
   if (proxyStatus.configurations && proxyStatus.configurations.length > 0) {
     lines.push(
-      `     ├─ Configurations: ${proxyStatus.configurations.length} active`
+      `     ├─ Recent Domain Activity: ${proxyStatus.configurations.length} domain(s) detected`
     );
+    // Show the domains that have been seen in recent logs
+    for (const domain of proxyStatus.configurations) {
+      lines.push(`     │  ├─ ${domain}`);
+    }
+  } else if (proxyStatus.running) {
+    lines.push(`     ├─ Recent Domain Activity: No domain traffic detected`);
   }
 
   if (proxyStatus.certificateQueue && proxyStatus.certificateQueue.length > 0) {
@@ -222,7 +317,7 @@ export function formatProxyStatus(proxyStatus: ProxyStatus): string[] {
   }
 
   if (proxyStatus.error) {
-    lines.push(`     ├─ Error: ${proxyStatus.error}`);
+    lines.push(`     ├─ ⚠️  Configuration Issues: ${proxyStatus.error}`);
   }
 
   return lines;

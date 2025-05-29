@@ -83,7 +83,8 @@ export class LumaProxyClient {
    * @param targetContainer The container name to route traffic to
    * @param targetPort The port on the target container
    * @param projectName The name of the project (used for network connectivity)
-   * @param healthPath The health check endpoint path (default: "/up")
+   * @param healthPath The health check endpoint path (default: "/up") - NOTE: Not supported in current proxy version
+   * @param certEmail Optional email address for Let's Encrypt certificate provisioning
    * @returns true if the configuration was successful
    */
   async configureProxy(
@@ -91,41 +92,48 @@ export class LumaProxyClient {
     targetContainer: string,
     targetPort: number,
     projectName: string,
-    healthPath: string = "/up"
+    healthPath: string = "/up",
+    certEmail?: string
   ): Promise<boolean> {
     try {
-      // Check if luma-proxy is running
-      if (!(await this.isProxyRunning())) {
-        this.logError(
-          "Cannot configure proxy: luma-proxy container is not running"
-        );
-        return false;
+      // Build the command arguments
+      const args = [
+        "deploy",
+        "--host",
+        host,
+        "--target",
+        `${targetContainer}:${targetPort}`,
+        "--project",
+        projectName,
+      ];
+
+      // Only add cert-email if provided
+      if (certEmail) {
+        args.push("--cert-email", certEmail);
       }
 
-      this.log(
-        `Configuring luma-proxy for host: ${host} -> ${targetContainer}:${targetPort} (health: ${healthPath})`
-      );
+      const result = await this.dockerClient.executeInContainer("luma-proxy", [
+        "/app/luma-proxy",
+        ...args,
+      ]);
 
-      // Build the proxy configuration command (SSL certificates are now always attempted automatically)
-      const proxyCmd = `luma-proxy deploy --host ${host} --target ${targetContainer}:${targetPort} --project ${projectName} --health-path ${healthPath}`;
-
-      // Execute the command in the luma-proxy container
-      const execResult = await this.dockerClient.execInContainer(
-        "luma-proxy",
-        proxyCmd
-      );
-
-      if (execResult.success) {
-        this.log(
-          `Successfully configured luma-proxy for ${host} -> ${targetContainer}:${targetPort} (health: ${healthPath})`
+      if (this.verbose) {
+        this.verboseMessages.push(
+          `Proxy configuration result: ${result.trim()}`
         );
-        return true;
-      } else {
-        this.logError(`Failed to configure luma-proxy: ${execResult.output}`);
-        return false;
       }
+
+      return (
+        result.includes("success") ||
+        result.includes("Added") ||
+        result.includes("Updated")
+      );
     } catch (error) {
-      this.logError(`Error configuring luma-proxy: ${error}`);
+      if (this.verbose) {
+        this.verboseMessages.push(
+          `Failed to configure proxy for ${host}: ${error}`
+        );
+      }
       return false;
     }
   }

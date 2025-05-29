@@ -674,20 +674,10 @@ function displayProxyStatus(proxyStatusSummary: ProxyStatusSummary): void {
  * Displays proxy status information for a single proxy status
  */
 function displayProxyStatusInfo(proxyStatus: ProxyStatus): void {
-  const statusIcon = proxyStatus.running ? "[✓]" : "[✗]";
-  const serverId = proxyStatus.serverId || "unknown";
-  const containerName = proxyStatus.containerName || "unknown";
-  const ports =
-    proxyStatus.ports.length > 0 ? `:${proxyStatus.ports.join(", ")}` : "";
-
-  console.log(
-    `  └─ Proxy Status: ${statusIcon} ${serverId} - ${containerName}${ports}`
-  );
-
-  if (proxyStatus.error) {
-    console.log(`     └─ Error: ${proxyStatus.error}`);
+  const formattedLines = formatProxyStatus(proxyStatus);
+  for (const line of formattedLines) {
+    console.log(line);
   }
-
   console.log(); // Add spacing between proxy statuses
 }
 
