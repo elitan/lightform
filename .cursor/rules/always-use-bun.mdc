@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+this project is using `bun` and not `npm` or some other package manager.

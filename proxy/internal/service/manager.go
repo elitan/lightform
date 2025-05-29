@@ -1,11 +1,10 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/elitan/luma-proxy/internal/config"
@@ -26,6 +25,19 @@ func NewManager(cfg *config.ProxyConfig) *Manager {
 
 // FindByHost returns a service by its hostname
 func (m *Manager) FindByHost(hostname string) (models.Service, bool) {
+	return m.findByHostWithReload(hostname, true)
+}
+
+// findByHostWithReload returns a service by its hostname with optional configuration reload
+func (m *Manager) findByHostWithReload(hostname string, shouldReload bool) (models.Service, bool) {
+	// Only reload configuration if requested and the config file exists (production mode)
+	// In tests, we work with in-memory configuration
+	if shouldReload {
+		if _, err := os.Stat("/tmp/luma-proxy-config.json"); err == nil {
+			m.reloadConfiguration()
+		}
+	}
+
 	m.config.RLock()
 	defer m.config.RUnlock()
 
@@ -99,14 +111,42 @@ func (m *Manager) PerformHealthChecks() {
 	services := m.GetAllServices()
 
 	for _, service := range services {
-		healthy := m.checkServiceHealth(service.Target)
+		healthy := m.checkServiceHealthForService(service)
 		if err := m.UpdateServiceHealth(service.Host, healthy); err != nil {
 			log.Printf("Failed to update health for %s: %v", service.Host, err)
 		}
 	}
 }
 
-// checkServiceHealth performs HTTP health check on a service target
+// checkServiceHealthForService performs HTTP health check on a specific service using network-scoped DNS
+func (m *Manager) checkServiceHealthForService(service models.Service) bool {
+	log.Printf("Performing network-scoped health check for %s (project: %s) at %s%s",
+		service.Host, service.Project, service.Target, service.HealthPath)
+
+	// Use Docker exec to perform health check from within the proxy container
+	// This leverages Docker's network-scoped DNS resolution within the project network
+	targetURL := fmt.Sprintf("http://%s%s", service.Target, service.HealthPath)
+
+	// Execute curl command from within the luma-proxy container
+	// The proxy container is connected to all project networks, so DNS resolution
+	// will automatically resolve within the correct project network context
+	cmd := exec.Command("docker", "exec", "luma-proxy",
+		"curl", "-s", "-f", "--max-time", "5", "--connect-timeout", "3", targetURL)
+
+	output, err := cmd.CombinedOutput()
+
+	if err != nil {
+		log.Printf("Network-scoped health check failed for %s (project: %s, target: %s): %v - output: %s",
+			service.Host, service.Project, service.Target, err, string(output))
+		return false
+	}
+
+	log.Printf("Network-scoped health check succeeded for %s (project: %s, target: %s)",
+		service.Host, service.Project, service.Target)
+	return true
+}
+
+// checkServiceHealth performs HTTP health check on a service target (DEPRECATED - use checkServiceHealthForService)
 func (m *Manager) checkServiceHealth(target string) bool {
 	// Find the service to get its health path and project
 	m.config.RLock()
@@ -127,100 +167,7 @@ func (m *Manager) checkServiceHealth(target string) bool {
 		return false
 	}
 
-	log.Printf("Performing direct health check for %s (project: %s) at %s%s",
-		service.Host, service.Project, service.Target, service.HealthPath)
-
-	// Resolve the backend IP directly using Docker network inspection
-	resolvedTarget, err := m.resolveBackendIP(service)
-	if err != nil {
-		log.Printf("Health check failed - could not resolve backend for %s in project %s: %v",
-			service.Target, service.Project, err)
-		return false
-	}
-
-	// Build the direct URL to check using resolved IP
-	targetURL := fmt.Sprintf("http://%s%s", resolvedTarget, service.HealthPath)
-
-	// Execute curl command directly to check service health
-	cmd := exec.Command("curl", "-s", "-f", "--max-time", "5", "--connect-timeout", "3", targetURL)
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		log.Printf("Health check failed for %s (project: %s, resolved: %s): %v - output: %s",
-			service.Host, service.Project, resolvedTarget, err, string(output))
-		return false
-	}
-
-	log.Printf("Health check succeeded for %s (project: %s, resolved: %s)",
-		service.Host, service.Project, resolvedTarget)
-	return true
-}
-
-// resolveBackendIP resolves the IP address of a backend service within its project network
-func (m *Manager) resolveBackendIP(service models.Service) (string, error) {
-	// Parse the target to extract hostname and port
-	parts := strings.Split(service.Target, ":")
-	if len(parts) != 2 {
-		return "", fmt.Errorf("invalid target format: %s (expected hostname:port)", service.Target)
-	}
-
-	hostname := parts[0]
-	port := parts[1]
-
-	// Get the project network name
-	projectNetworkName := fmt.Sprintf("%s-network", service.Project)
-
-	// Inspect the project network to find containers with the hostname alias
-	cmd := exec.Command("docker", "network", "inspect", projectNetworkName)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to inspect network %s: %v", projectNetworkName, err)
-	}
-
-	var networks []NetworkInspectResult
-	if err := json.Unmarshal(output, &networks); err != nil {
-		return "", fmt.Errorf("failed to parse network inspect result: %v", err)
-	}
-
-	if len(networks) == 0 {
-		return "", fmt.Errorf("network %s not found", projectNetworkName)
-	}
-
-	network := networks[0]
-
-	// Find containers in this network and check which ones have the hostname alias
-	for containerID, containerInfo := range network.Containers {
-		// Get the container's aliases in this network
-		aliasCmd := exec.Command("docker", "inspect", containerID,
-			"--format", fmt.Sprintf("{{range $net, $conf := .NetworkSettings.Networks}}{{if eq $net \"%s\"}}{{range $conf.Aliases}}{{.}} {{end}}{{end}}{{end}}", projectNetworkName))
-		aliasOutput, err := aliasCmd.Output()
-		if err != nil {
-			continue
-		}
-
-		aliases := strings.Fields(strings.TrimSpace(string(aliasOutput)))
-		for _, alias := range aliases {
-			if alias == hostname {
-				// This container has the hostname alias, use its IP
-				// Extract just the IP address (remove /subnet if present)
-				ipAddr := strings.Split(containerInfo.IPv4Address, "/")[0]
-				resolvedTarget := fmt.Sprintf("%s:%s", ipAddr, port)
-				log.Printf("Resolved %s in project %s to %s (container: %s)", service.Target, service.Project, resolvedTarget, containerInfo.Name)
-				return resolvedTarget, nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("no container found with alias %s in network %s", hostname, projectNetworkName)
-}
-
-type NetworkContainerInfo struct {
-	Name        string `json:"Name"`
-	IPv4Address string `json:"IPv4Address"`
-}
-
-type NetworkInspectResult struct {
-	Containers map[string]NetworkContainerInfo `json:"Containers"`
+	return m.checkServiceHealthForService(service)
 }
 
 // StartHealthCheckRoutine starts a background routine for health checking
@@ -232,10 +179,34 @@ func (m *Manager) StartHealthCheckRoutine() {
 		for {
 			select {
 			case <-ticker.C:
+				// Reload configuration before performing health checks
+				// This ensures we stay in sync with any manual configuration updates
+				m.reloadConfiguration()
 				m.PerformHealthChecks()
 			}
 		}
 	}()
+}
+
+// reloadConfiguration reloads the configuration from the file to stay in sync
+func (m *Manager) reloadConfiguration() {
+	// Create a new config instance and load from file
+	newConfig := config.New()
+	newConfig.Load()
+
+	// Update our manager's config reference
+	m.config.Lock()
+
+	// Copy services from the loaded config
+	m.config.Services = make(map[string]models.Service)
+	for key, service := range newConfig.Services {
+		m.config.Services[key] = service
+	}
+
+	// Copy certificate config
+	m.config.Certs = newConfig.Certs
+
+	m.config.Unlock()
 }
 
 // GetAllServices returns all registered services
