@@ -1,6 +1,10 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Next.js + Luma Deployment Example
 
-## Getting Started
+This is a [Next.js](https://nextjs.org) project that demonstrates zero-downtime deployments using [Luma](https://github.com/elitan/luma).
+
+## 🚀 Quick Start with Luma
+
+### 1. Development Setup
 
 First, run the development server:
 
@@ -16,69 +20,49 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Deploy with Luma
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Docker
-
-This project includes Docker support for containerized deployment.
-
-### Quick Start with Docker
-
-Use the provided script for a quick setup:
+This example includes a complete Luma configuration for zero-downtime deployment:
 
 ```bash
-./docker-build.sh
+# Set up your servers
+luma setup
+
+# Deploy with zero downtime!
+luma deploy
 ```
 
-### Manual Docker Commands
+## 🐳 Docker Configuration
 
-Build the Docker image:
+The included `Dockerfile` is optimized for Next.js deployments with Luma:
 
-```bash
-docker build -t nextjs-app .
-```
-
-Run the container:
-
-```bash
-docker run -p 3000:3000 --name nextjs-container -d nextjs-app
-```
-
-### Docker Compose
-
-For easier management, use Docker Compose:
-
-```bash
-# Build and run
-docker compose up --build
-
-# Run in detached mode
-docker compose up -d
-
-# Stop the services
-docker compose down
-```
-
-### Docker Features
+### Features
 
 - **Multi-stage build**: Optimized for production with minimal image size
 - **Standalone output**: Uses Next.js standalone mode for efficient containerization
 - **Security**: Runs as non-root user
 - **Cache optimization**: Leverages Docker layer caching for faster builds
 
-## Learn More
+## 📚 Learn More
 
-To learn more about Next.js, take a look at the following resources:
+### Next.js Resources
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Luma Resources
 
-## Deploy on Vercel
+- [Luma Documentation](https://github.com/elitan/luma) - zero-downtime Docker deployments
+- [Luma Examples](https://github.com/elitan/luma/tree/main/examples) - more deployment examples
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🆚 Why Luma vs Vercel?
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Your own servers** - full control, no vendor lock-in
+- **Cost-effective** - pay only for your servers, not per deployment
+- **No cold starts** - your containers are always running
+- **Zero-downtime deployments** - blue-green deployments out of the box
+- **Automatic SSL** - Let's Encrypt certificates managed automatically
+
+---
+
+**This example demonstrates how easy it is to deploy Next.js applications with zero downtime using Luma! 🚀**
