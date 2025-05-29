@@ -1,0 +1,370 @@
+---
+title: Commands
+description: Complete reference for all Luma CLI commands
+---
+
+# Commands
+
+Complete reference for all available Luma CLI commands.
+
+## `luma init`
+
+Initialize a new Luma project with configuration files.
+
+### Usage
+
+```bash
+luma init
+```
+
+### What it does
+
+- Creates `luma.yml` with basic configuration template
+- Creates `.luma/secrets` file for sensitive environment variables
+- Prompts you to add `.luma/secrets` to `.gitignore`
+
+### Example Output
+
+```bash
+❯ luma init
+✓ Created luma.yml
+✓ Created .luma/secrets
+! Add .luma/secrets to your .gitignore file
+```
+
+### Generated Files
+
+**`luma.yml`**:
+
+```yaml
+name: my-project
+
+ssh:
+  username: root
+
+apps:
+  web:
+    image: my-project/web
+    servers:
+      - your-server.com
+    build:
+      context: .
+      dockerfile: Dockerfile
+    proxy:
+      hosts:
+        - example.com
+      app_port: 3000
+```
+
+**`.luma/secrets`**:
+
+```bash
+# Add your secrets here
+# DATABASE_URL=postgres://...
+# API_KEY=your-secret-key
+```
+
+---
+
+## `luma setup`
+
+Prepare servers for deployment by installing Docker and setting up infrastructure.
+
+### Usage
+
+```bash
+luma setup [service...]               # Set up servers for specific services
+luma setup                           # Set up all servers
+luma setup --verbose                 # Show detailed output
+```
+
+### Examples
+
+```bash
+luma setup                           # Set up all servers
+luma setup web api                   # Set up only servers for web and api
+luma setup --verbose                 # Detailed logging
+```
+
+### What it does
+
+1. **Connects to servers** via SSH
+2. **Installs Docker** if not present
+3. **Creates Docker networks** for app communication
+4. **Sets up reverse proxy** (Traefik) for automatic HTTPS
+5. **Configures SSL** certificate automation via Let's Encrypt
+6. **Verifies connectivity** and reports status
+
+### Example Output
+
+```bash
+❯ luma setup
+Setting up servers for deployment...
+
+[✓] server1.com
+    ├─ [✓] SSH connection verified
+    ├─ [✓] Docker installed and running
+    ├─ [✓] Luma network created
+    ├─ [✓] Reverse proxy configured
+    └─ [✓] SSL automation enabled
+
+[✓] server2.com
+    ├─ [✓] SSH connection verified
+    ├─ [✓] Docker installed and running
+    ├─ [✓] Luma network created
+    ├─ [✓] Reverse proxy configured
+    └─ [✓] SSL automation enabled
+
+✓ All servers ready for deployment
+```
+
+---
+
+## `luma deploy`
+
+Deploy applications or services with zero downtime.
+
+### Usage
+
+```bash
+luma deploy [app...]                 # Deploy specific apps
+luma deploy                          # Deploy all apps
+luma deploy --services               # Deploy services instead of apps
+luma deploy --force                  # Skip git status checks
+luma deploy --verbose                # Show detailed output
+luma deploy -c config.yml            # Use specific config file
+```
+
+### Examples
+
+```bash
+luma deploy                          # Deploy all apps
+luma deploy web                      # Deploy only the web app
+luma deploy web api                  # Deploy web and api apps
+luma deploy --services               # Deploy all services
+luma deploy backend --force          # Force deploy (skip git checks)
+luma deploy --verbose                # Detailed logging
+luma deploy -c luma.staging.yml      # Use staging configuration
+```
+
+### Deployment Process
+
+1. **Configuration validation** - Verify luma.yml syntax
+2. **Git status check** - Ensure working directory is clean (unless `--force`)
+3. **Infrastructure verification** - Check servers are ready
+4. **Image building** - Build Docker images locally
+5. **Image transfer** - Securely upload to servers via SSH
+6. **Zero-downtime deployment** - Blue-green deployment strategy
+7. **Health checks** - Verify new version is healthy
+8. **Traffic switching** - Atomically switch traffic to new version
+9. **Cleanup** - Remove old versions
+
+### Example Output
+
+```bash
+❯ luma deploy
+Using Git SHA for release ID: a1b2c3d
+Starting deployment with release a1b2c3d
+
+[✓] Configuration loaded (2ms)
+[✓] Git status verified (15ms)
+[✓] Infrastructure ready (450ms)
+
+Building Images
+  [✓] web → my-app/web:a1b2c3d (45.2s)
+  [✓] api → my-app/api:a1b2c3d (32.1s)
+
+Deploying to Servers
+  └─ server1.com
+     ├─ [✓] Loading web image (3.2s)
+     ├─ [✓] Zero-downtime deployment (2.8s)
+     ├─ [✓] Loading api image (2.1s)
+     ├─ [✓] Zero-downtime deployment (1.9s)
+     └─ [✓] Configuring SSL proxy (0.8s)
+
+[✓] Deployment completed successfully in 89.1s
+
+Your apps are live at:
+  ├─ https://myapp.com (web)
+  └─ https://api.myapp.com (api)
+```
+
+### Deploy Options
+
+- **`--services`** - Deploy services (databases, caches) instead of apps
+- **`--force`** - Skip git working directory checks
+- **`--verbose`** - Show detailed build and deployment logs
+- **`-c, --config`** - Use a specific configuration file
+
+---
+
+## `luma status`
+
+Check the status of your deployments.
+
+### Usage
+
+```bash
+luma status [app...]                 # Status of specific apps
+luma status                          # Status of all apps
+luma status --verbose                # Show detailed status
+```
+
+### Examples
+
+```bash
+luma status                          # All apps status
+luma status web                      # Status of web app only
+luma status web api                  # Status of web and api apps
+luma status --verbose                # Detailed status information
+```
+
+### Example Output
+
+```bash
+❯ luma status
+📱 App: web
+   Status: ✅ RUNNING (green active)
+   Replicas: 2/2 running
+   Servers: server1.com, server2.com
+   Last deployed: 2 hours ago (release a1b2c3d)
+   Health: ✅ All replicas healthy
+   URL: https://myapp.com
+
+📱 App: api
+   Status: ✅ RUNNING (blue active)
+   Replicas: 1/1 running
+   Servers: api.server.com
+   Last deployed: 30 minutes ago (release b2c3d4e)
+   Health: ✅ All replicas healthy
+   URL: https://api.myapp.com
+
+🔧 Service: postgres
+   Status: ✅ RUNNING
+   Servers: db.server.com
+   Image: postgres:15
+   Health: ✅ Ready
+```
+
+### Status Information
+
+For each app/service, status shows:
+
+- **Status** - Current state (RUNNING, STOPPED, ERROR, DEPLOYING)
+- **Active color** - Which deployment slot is active (blue/green)
+- **Replicas** - Number of running/desired replicas
+- **Servers** - Which servers are hosting the app
+- **Last deployed** - When and which release was last deployed
+- **Health** - Health check status
+- **URL** - Live application URLs
+
+### Detailed Status
+
+With `--verbose`, you get additional information:
+
+- Container IDs and detailed status
+- Resource usage (CPU, memory)
+- Network configuration
+- Volume mounts
+- Environment variables (non-sensitive)
+
+---
+
+## Global Flags
+
+These flags work with most commands:
+
+### `--verbose`
+
+Show detailed output including:
+
+- SSH connection details
+- Docker command execution
+- Build progress
+- Deployment steps
+- Error diagnostics
+
+```bash
+luma deploy --verbose
+luma setup --verbose
+luma status --verbose
+```
+
+### `--config` / `-c`
+
+Use a specific configuration file instead of `luma.yml`:
+
+```bash
+luma deploy -c luma.staging.yml
+luma deploy -c luma.production.yml
+luma setup -c environments/prod.yml
+```
+
+This enables multi-environment deployments with different configurations.
+
+---
+
+## Command Chaining
+
+Common command sequences for different workflows:
+
+### First Deployment
+
+```bash
+luma init                            # Initialize project
+# Edit luma.yml and .luma/secrets
+luma setup                           # Prepare servers
+luma deploy                          # Deploy apps
+luma status                          # Verify deployment
+```
+
+### Regular Deployments
+
+```bash
+luma deploy                          # Deploy latest changes
+luma status                          # Check status
+```
+
+### Multi-Environment Workflow
+
+```bash
+# Deploy to staging
+luma deploy -c luma.staging.yml
+
+# Deploy to production
+luma deploy -c luma.production.yml
+
+# Check production status
+luma status -c luma.production.yml
+```
+
+### Service Management
+
+```bash
+luma deploy --services               # Deploy/update services
+luma status --verbose                # Check all services
+```
+
+---
+
+## Exit Codes
+
+Luma commands return standard exit codes:
+
+- **0** - Success
+- **1** - General error (configuration, network, etc.)
+- **2** - Command line usage error
+- **130** - Interrupted by user (Ctrl+C)
+
+This makes Luma suitable for use in CI/CD pipelines:
+
+```bash
+#!/bin/bash
+luma deploy -c luma.production.yml
+if [ $? -eq 0 ]; then
+    echo "✅ Deployment successful"
+else
+    echo "❌ Deployment failed"
+    exit 1
+fi
+```

@@ -1,0 +1,380 @@
+---
+title: Core Concepts
+description: Understanding the fundamental concepts of Luma deployments
+---
+
+# Core Concepts
+
+Understanding these core concepts will help you get the most out of Luma.
+
+## Apps vs Services
+
+Luma distinguishes between two types of deployments:
+
+### Apps
+
+**Apps** are your main applications that you build and deploy with zero-downtime:
+
+- Built from your source code using Dockerfiles
+- Support zero-downtime blue-green deployments
+- Include automatic health checks
+- Can be load balanced across multiple servers
+- Have automatic SSL and reverse proxy configuration
+
+```yaml
+apps:
+  web:
+    image: my-app/web
+    build:
+      context: .
+      dockerfile: Dockerfile
+    proxy:
+      hosts:
+        - example.com
+      app_port: 3000
+    health_check:
+      path: /health
+```
+
+### Services
+
+**Services** are supporting infrastructure that use pre-built images:
+
+- Use existing Docker images (postgres, redis, etc.)
+- Deployed normally without blue-green strategy
+- Focused on data persistence and supporting functionality
+- Can have health checks but no automatic proxy configuration
+
+```yaml
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      secret: [POSTGRES_PASSWORD]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+```
+
+## Zero-Downtime Deployments
+
+Luma automatically provides zero-downtime deployments for apps using a blue-green deployment strategy.
+
+### How It Works
+
+1. **Current State**: Your app is running (let's say in "blue" state)
+2. **New Deployment**: Luma deploys the new version alongside the current one ("green" state)
+3. **Health Checks**: The new version is health checked to ensure it's working properly
+4. **Traffic Switch**: Traffic is atomically switched from blue to green (sub-millisecond)
+5. **Cleanup**: The old version (blue) is stopped and removed
+
+### Benefits
+
+- **No service interruption** - Users never experience downtime
+- **Instant rollback** - If something goes wrong, traffic can be instantly switched back
+- **Risk mitigation** - New version is fully tested before receiving traffic
+- **Graceful updates** - No abrupt connection drops
+
+### Example Flow
+
+```bash
+❯ luma deploy
+[✓] Building new version (green)
+[✓] Health checking green version
+[✓] Switching traffic: blue → green
+[✓] Stopping old version (blue)
+```
+
+## Registry-Free Operation
+
+One of Luma's key features is that it doesn't require a Docker registry for your apps.
+
+### Traditional Approach (with Registry)
+
+```
+Developer → Build → Push to Registry → Server pulls from Registry → Deploy
+```
+
+Problems:
+
+- Need to set up and maintain a registry
+- Network dependency on registry during deployment
+- Security concerns with registry access
+- Additional infrastructure cost
+
+### Luma's Approach (Registry-Free)
+
+```
+Developer → Build → Transfer directly to Server → Deploy
+```
+
+Benefits:
+
+- **No registry needed** - One less piece of infrastructure
+- **Direct transfer** - Images go straight from your machine to servers
+- **Secure** - Uses your existing SSH connection
+- **Faster** - No intermediate registry step
+- **Offline capable** - Works without internet once images are built
+
+### How It Works
+
+1. **Build locally** - Docker images are built on your development machine
+2. **Save as archive** - Images are saved as tar archives using `docker save`
+3. **Transfer via SSH** - Archives are securely uploaded to servers
+4. **Load remotely** - Servers load images using `docker load`
+
+```bash
+# What Luma does internally:
+docker build -t my-app:v1.0.0 .
+docker save my-app:v1.0.0 | ssh user@server 'docker load'
+```
+
+### Services Can Still Use Registries
+
+Services (like databases) can still pull from public or private registries:
+
+```yaml
+services:
+  postgres:
+    image: postgres:15 # Pulled from Docker Hub
+
+  private-service:
+    image: ghcr.io/company/private:latest # Private registry
+```
+
+## Health Checks
+
+Luma provides automatic health checking for reliable deployments.
+
+### App Health Checks
+
+For apps, health checks are automatic and highly opinionated for reliability:
+
+```yaml
+apps:
+  web:
+    health_check:
+      path: /health # Only configurable option (default: /up)
+```
+
+**Automatic behavior:**
+
+- **Method**: HTTP GET
+- **Success**: HTTP 200 response
+- **Timeout**: 5 seconds
+- **Retries**: 3 attempts
+- **Port**: Uses the configured `app_port`
+
+### Implementation
+
+Your app needs to implement the health check endpoint:
+
+```javascript
+// Express.js example
+app.get("/health", (req, res) => {
+  // Check database connectivity, external services, etc.
+  res.status(200).send("OK");
+});
+```
+
+```go
+// Go example
+http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+    fmt.Fprint(w, "OK")
+})
+```
+
+### Service Health Checks
+
+For services, use Docker's standard healthcheck format:
+
+```yaml
+services:
+  postgres:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+```
+
+## Automatic SSL and Proxy
+
+Luma includes a built-in reverse proxy with automatic SSL certificate management.
+
+### How It Works
+
+1. **Traefik Proxy** - Luma deploys Traefik as the reverse proxy
+2. **Automatic Discovery** - Apps are automatically discovered and routed
+3. **Let's Encrypt** - SSL certificates are obtained automatically
+4. **HTTP → HTTPS** - All HTTP traffic is redirected to HTTPS
+
+### Configuration
+
+Simply specify which domains should route to your app:
+
+```yaml
+apps:
+  web:
+    proxy:
+      hosts:
+        - example.com
+        - www.example.com
+      app_port: 3000
+```
+
+### What Happens
+
+- `example.com` → SSL certificate obtained → routes to your app on port 3000
+- `www.example.com` → SSL certificate obtained → routes to your app on port 3000
+- HTTP requests → automatically redirected to HTTPS
+
+## Multi-Server Deployments
+
+Luma supports deploying across multiple servers for high availability and load distribution.
+
+### Configuration
+
+```yaml
+apps:
+  web:
+    servers:
+      - web1.example.com
+      - web2.example.com
+      - web3.example.com
+    replicas: 2 # Deploy 2 instances per server
+```
+
+### Load Balancing
+
+Traffic is automatically load balanced across:
+
+- Multiple servers
+- Multiple replicas per server
+- Different apps on the same domain (if configured)
+
+### Rolling Deployments
+
+When deploying to multiple servers:
+
+1. Deploys to servers one at a time
+2. Health checks each server before moving to the next
+3. If any server fails, deployment stops
+4. Maintains availability throughout the process
+
+## Release Management
+
+Luma uses Git SHAs for release tracking and identification.
+
+### Release IDs
+
+Every deployment gets a unique release ID based on your Git commit:
+
+```bash
+❯ luma deploy
+Using Git SHA for release ID: a1b2c3d
+```
+
+### Image Tagging
+
+Docker images are tagged with the release ID:
+
+```
+my-app/web:a1b2c3d
+my-app/api:a1b2c3d
+```
+
+### Benefits
+
+- **Traceability** - Know exactly which code is deployed
+- **Reproducibility** - Can rebuild the exact same image
+- **Rollback capability** - Can identify and rollback to specific versions
+- **Debugging** - Easy to correlate issues with specific deployments
+
+## Environment Management
+
+Luma supports multiple environments through configuration files.
+
+### Environment-Specific Configs
+
+```bash
+luma.staging.yml     # Staging environment
+luma.production.yml  # Production environment
+luma.dev.yml         # Development environment
+```
+
+### Usage
+
+```bash
+luma deploy -c luma.staging.yml     # Deploy to staging
+luma deploy -c luma.production.yml  # Deploy to production
+```
+
+### Benefits
+
+- **Environment isolation** - Different servers, domains, and secrets
+- **Promotion workflow** - Test in staging before production
+- **Configuration drift prevention** - Environments are explicitly defined
+
+## Security Model
+
+Luma's security is based on SSH and existing server security practices.
+
+### SSH-Based Security
+
+- Uses your existing SSH keys and access
+- No additional authentication required
+- Leverages proven SSH security model
+- Works with SSH jump hosts, bastion servers, etc.
+
+### Secrets Management
+
+```bash
+# .luma/secrets - stored locally, never transmitted
+DATABASE_URL=postgres://...
+API_KEY=secret-key
+```
+
+- Secrets stored locally in `.luma/secrets`
+- Transmitted securely over SSH
+- Available as environment variables in containers
+- Never stored in logs or configuration files
+
+### Principle of Least Privilege
+
+- Use dedicated deployment users (not root)
+- Minimal required permissions (Docker, file system)
+- SSH key-based authentication only
+- No persistent tokens or credentials
+
+## Networking
+
+Luma creates isolated Docker networks for secure communication between containers.
+
+### Network Architecture
+
+```
+Internet → Traefik Proxy → Luma Network → Your Apps
+                        → Services (Database, Cache)
+```
+
+### Automatic Service Discovery
+
+Apps and services can communicate using their names:
+
+```javascript
+// In your app, connect to database service
+const db = new Client({
+  host: "postgres", // Service name from luma.yml
+  port: 5432,
+});
+```
+
+### Port Management
+
+- **Automatic port assignment** - Luma handles internal port mapping
+- **External ports** - Only Traefik proxy exposed (80, 443)
+- **Service ports** - Optional external access for databases, etc.
+
+Understanding these concepts will help you design and deploy robust applications with Luma. Each concept builds on the others to provide a complete, reliable deployment solution.

@@ -1,0 +1,754 @@
+---
+title: Examples
+description: Real-world examples and configurations for Luma deployments
+---
+
+# Examples
+
+Real-world examples showing how to deploy different types of applications with Luma.
+
+## Basic Web Application
+
+A simple HTTP server deployed with zero-downtime.
+
+### Go Application
+
+Here's a complete example of deploying a Go web application:
+
+**main.go**:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "net/http"
+    "os"
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
+    hostname, _ := os.Hostname()
+    fmt.Fprintf(w, "Hello from %s!\n", hostname)
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+    w.WriteHeader(http.StatusOK)
+    fmt.Fprint(w, "OK")
+}
+
+func main() {
+    http.HandleFunc("/", handler)
+    http.HandleFunc("/api/health", healthHandler)
+
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "3000"
+    }
+
+    log.Printf("Server starting on port %s", port)
+    log.Fatal(http.ListenAndServe(":"+port, nil))
+}
+```
+
+**Dockerfile**:
+
+```dockerfile
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN go build -o main .
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+
+COPY --from=builder /app/main .
+
+EXPOSE 3000
+
+CMD ["./main"]
+```
+
+**luma.yml**:
+
+```yaml
+name: my-go-app
+
+ssh:
+  username: deploy
+
+apps:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    servers:
+      - your-server.com
+    environment:
+      plain:
+        - PORT=3000
+      secret:
+        - SECRET_VAR
+    proxy:
+      hosts:
+        - myapp.com
+      app_port: 3000
+    health_check:
+      path: /api/health
+```
+
+### Deployment
+
+```bash
+luma init                  # Creates configuration files
+# Edit luma.yml with your settings
+luma setup                 # Prepare server
+luma deploy                # Deploy app
+```
+
+---
+
+## Next.js Application
+
+Deploy a full-stack Next.js application with production optimizations.
+
+**next.config.ts**:
+
+```javascript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: "standalone",
+  experimental: {
+    outputFileTracingRoot: undefined,
+  },
+};
+
+module.exports = nextConfig;
+```
+
+**Dockerfile**:
+
+```dockerfile
+FROM node:18-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+RUN apk add --no-cache libc6-compat
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm ci
+
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+ENV NEXT_TELEMETRY_DISABLED 1
+RUN npm run build
+
+# Production image, copy all the files and run next
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV production
+ENV NEXT_TELEMETRY_DISABLED 1
+
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/public ./public
+
+# Set the correct permission for prerender cache
+RUN mkdir .next
+RUN chown nextjs:nodejs .next
+
+# Automatically leverage output traces to reduce image size
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT 3000
+ENV HOSTNAME "0.0.0.0"
+
+# Health check endpoint
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/up || exit 1
+
+CMD ["node", "server.js"]
+```
+
+**luma.yml**:
+
+```yaml
+name: my-nextjs-app
+
+ssh:
+  username: deploy
+
+apps:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    servers:
+      - your-server.com
+    environment:
+      plain:
+        - NODE_ENV=production
+    proxy:
+      hosts:
+        - mynextapp.com
+      app_port: 3000
+    health_check:
+      path: /up
+```
+
+**Health check page** (`src/pages/up.tsx`):
+
+```typescript
+import { NextApiRequest, NextApiResponse } from "next";
+
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  res.status(200).json({ status: "ok" });
+}
+```
+
+---
+
+## Full-Stack Application with Database
+
+Deploy a complete application with frontend, API, and PostgreSQL database.
+
+**luma.yml**:
+
+```yaml
+name: ecommerce-app
+
+ssh:
+  username: deploy
+  port: 22
+
+apps:
+  frontend:
+    image: ecommerce/frontend
+    servers:
+      - web1.mysite.com
+      - web2.mysite.com
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    proxy:
+      hosts:
+        - shop.mysite.com
+        - www.shop.mysite.com
+      app_port: 3000
+    environment:
+      plain:
+        - NODE_ENV=production
+        - API_URL=https://api.shop.mysite.com
+      secret:
+        - STRIPE_PUBLIC_KEY
+    health_check:
+      path: /health
+
+  api:
+    image: ecommerce/backend
+    servers:
+      - api.mysite.com
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    proxy:
+      hosts:
+        - api.shop.mysite.com
+      app_port: 8080
+    environment:
+      plain:
+        - NODE_ENV=production
+        - PORT=8080
+      secret:
+        - DATABASE_URL
+        - JWT_SECRET
+        - STRIPE_SECRET_KEY
+    health_check:
+      path: /api/health
+
+services:
+  postgres:
+    image: postgres:15
+    servers:
+      - db.mysite.com
+    environment:
+      plain:
+        - POSTGRES_DB=ecommerce
+        - POSTGRES_USER=ecommerce
+      secret:
+        - POSTGRES_PASSWORD
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecommerce"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7
+    servers:
+      - cache.mysite.com
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+```
+
+**.luma/secrets**:
+
+```bash
+DATABASE_URL=postgres://ecommerce:secure_password@db.mysite.com:5432/ecommerce
+POSTGRES_PASSWORD=secure_password
+JWT_SECRET=your-jwt-secret
+STRIPE_PUBLIC_KEY=pk_live_...
+STRIPE_SECRET_KEY=sk_live_...
+```
+
+### Deployment Steps
+
+```bash
+# Deploy services first (database, cache)
+luma deploy --services
+
+# Then deploy applications
+luma deploy
+
+# Check everything is running
+luma status
+```
+
+---
+
+## Microservices Architecture
+
+Deploy multiple microservices with load balancing and service discovery.
+
+**luma.yml**:
+
+```yaml
+name: microservices-platform
+
+ssh:
+  username: deploy
+
+apps:
+  gateway:
+    image: platform/gateway
+    servers:
+      - gateway.platform.com
+    build:
+      context: ./gateway
+    proxy:
+      hosts:
+        - api.platform.com
+      app_port: 8080
+    environment:
+      secret:
+        - JWT_SECRET
+    health_check:
+      path: /health
+
+  user-service:
+    image: platform/users
+    replicas: 3
+    servers:
+      - app1.platform.com
+      - app2.platform.com
+    build:
+      context: ./services/users
+    proxy:
+      hosts:
+        - users.platform.com
+      app_port: 8081
+    environment:
+      secret:
+        - DATABASE_URL
+        - JWT_SECRET
+    health_check:
+      path: /api/users/health
+
+  order-service:
+    image: platform/orders
+    replicas: 2
+    servers:
+      - app1.platform.com
+      - app2.platform.com
+    build:
+      context: ./services/orders
+    proxy:
+      hosts:
+        - orders.platform.com
+      app_port: 8082
+    environment:
+      secret:
+        - DATABASE_URL
+        - PAYMENT_SERVICE_URL
+    health_check:
+      path: /api/orders/health
+
+  payment-service:
+    image: platform/payments
+    servers:
+      - secure.platform.com
+    build:
+      context: ./services/payments
+    proxy:
+      hosts:
+        - payments.platform.com
+      app_port: 8083
+    environment:
+      secret:
+        - DATABASE_URL
+        - STRIPE_SECRET_KEY
+        - ENCRYPTION_KEY
+    health_check:
+      path: /api/payments/health
+
+services:
+  postgres:
+    image: postgres:15
+    servers:
+      - db1.platform.com
+    environment:
+      plain:
+        - POSTGRES_DB=platform
+        - POSTGRES_USER=platform
+      secret:
+        - POSTGRES_PASSWORD
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    servers:
+      - cache.platform.com
+    volumes:
+      - redis_data:/data
+```
+
+---
+
+## Multi-Environment Setup
+
+Deploy the same application to different environments with environment-specific configurations.
+
+**luma.staging.yml**:
+
+```yaml
+name: myapp-staging
+
+ssh:
+  username: deploy
+
+apps:
+  web:
+    image: myapp/web
+    servers:
+      - staging.myapp.com
+    build:
+      context: .
+      dockerfile: Dockerfile
+    proxy:
+      hosts:
+        - staging.myapp.com
+      app_port: 3000
+    environment:
+      plain:
+        - NODE_ENV=staging
+        - API_URL=https://staging-api.myapp.com
+      secret:
+        - DATABASE_URL_STAGING
+        - STRIPE_TEST_KEY
+
+  api:
+    image: myapp/api
+    servers:
+      - staging.myapp.com
+    build:
+      context: ./api
+    proxy:
+      hosts:
+        - staging-api.myapp.com
+      app_port: 8080
+    environment:
+      secret:
+        - DATABASE_URL_STAGING
+
+services:
+  postgres:
+    image: postgres:15
+    servers:
+      - staging.myapp.com
+    environment:
+      plain:
+        - POSTGRES_DB=myapp_staging
+      secret:
+        - POSTGRES_PASSWORD_STAGING
+    volumes:
+      - postgres_staging_data:/var/lib/postgresql/data
+```
+
+**luma.production.yml**:
+
+```yaml
+name: myapp-production
+
+ssh:
+  username: deploy
+
+apps:
+  web:
+    image: myapp/web
+    replicas: 3
+    servers:
+      - web1.myapp.com
+      - web2.myapp.com
+      - web3.myapp.com
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    proxy:
+      hosts:
+        - myapp.com
+        - www.myapp.com
+      app_port: 3000
+    environment:
+      plain:
+        - NODE_ENV=production
+        - API_URL=https://api.myapp.com
+      secret:
+        - DATABASE_URL_PROD
+        - STRIPE_LIVE_KEY
+
+  api:
+    image: myapp/api
+    replicas: 2
+    servers:
+      - api1.myapp.com
+      - api2.myapp.com
+    build:
+      context: ./api
+      dockerfile: Dockerfile.prod
+    proxy:
+      hosts:
+        - api.myapp.com
+      app_port: 8080
+    environment:
+      secret:
+        - DATABASE_URL_PROD
+
+services:
+  postgres:
+    image: postgres:15
+    servers:
+      - db1.myapp.com
+      - db2.myapp.com # Primary/replica setup
+    environment:
+      plain:
+        - POSTGRES_DB=myapp_production
+      secret:
+        - POSTGRES_PASSWORD_PROD
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+```
+
+### Environment Deployment
+
+```bash
+# Deploy to staging
+luma deploy -c luma.staging.yml
+
+# Test staging environment
+curl https://staging.myapp.com/health
+
+# Deploy to production
+luma deploy -c luma.production.yml
+
+# Monitor production
+luma status -c luma.production.yml
+```
+
+---
+
+## CI/CD Integration
+
+### GitHub Actions
+
+**.github/workflows/deploy.yml**:
+
+```yaml
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install Luma
+        run: npm install -g @elitan/luma
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Create secrets file
+        run: |
+          mkdir -p .luma
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .luma/secrets
+          echo "API_KEY=${{ secrets.API_KEY }}" >> .luma/secrets
+
+      - name: Deploy to production
+        run: luma deploy -c luma.production.yml
+```
+
+### GitLab CI
+
+**.gitlab-ci.yml**:
+
+```yaml
+stages:
+  - deploy
+
+deploy:
+  stage: deploy
+  image: node:18
+  before_script:
+    - npm install -g @elitan/luma
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H $SERVER_HOST >> ~/.ssh/known_hosts
+    - mkdir -p .luma
+    - echo "DATABASE_URL=$DATABASE_URL" >> .luma/secrets
+  script:
+    - luma deploy -c luma.production.yml
+  only:
+    - main
+```
+
+---
+
+## Best Practices
+
+### Security
+
+1. **Use dedicated deployment user**:
+
+```yaml
+ssh:
+  username: deploy # Not root
+```
+
+2. **Separate environment secrets**:
+
+```bash
+# .luma/secrets.staging
+DATABASE_URL=postgres://...staging...
+
+# .luma/secrets.production
+DATABASE_URL=postgres://...production...
+```
+
+3. **Network security**:
+
+```yaml
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432" # Bind to localhost only
+```
+
+### Performance
+
+1. **Multi-stage Docker builds**:
+
+```dockerfile
+FROM node:18 AS builder
+# Build steps...
+
+FROM node:18-alpine AS runtime
+COPY --from=builder /app/dist ./dist
+```
+
+2. **Health check optimization**:
+
+```yaml
+health_check:
+  path: /health # Lightweight endpoint
+```
+
+3. **Resource limits**:
+
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 512M
+      cpus: "0.5"
+```
+
+### Monitoring
+
+1. **Comprehensive health checks**:
+
+```javascript
+app.get("/health", async (req, res) => {
+  try {
+    await db.ping();
+    await redis.ping();
+    res.status(200).json({ status: "healthy" });
+  } catch (error) {
+    res.status(503).json({ status: "unhealthy", error: error.message });
+  }
+});
+```
+
+2. **Status monitoring**:
+
+```bash
+# Check all environments
+luma status -c luma.staging.yml
+luma status -c luma.production.yml
+```
+
+These examples provide a solid foundation for deploying various types of applications with Luma. Adapt them to your specific needs and infrastructure requirements.

@@ -1,0 +1,490 @@
+---
+title: Configuration Reference
+description: Complete reference for luma.yml configuration options
+---
+
+# Configuration Reference
+
+Complete reference for all configuration options available in `luma.yml`.
+
+## Basic Structure
+
+```yaml
+name: my-project # Required: Project name
+
+# Global settings
+ssh: # SSH connection settings
+  username: deploy # SSH username (default: root)
+  port: 22 # SSH port (default: 22)
+
+docker: # Docker registry settings (optional)
+  registry: ghcr.io # Registry URL
+  username: myuser # Registry username
+
+apps: # Applications (built and deployed)
+  web:# App name
+    # App configuration here
+
+services: # Services (pre-built images)
+  database:# Service name
+    # Service configuration here
+```
+
+## Apps Configuration
+
+Apps are your main applications that Luma builds and deploys with zero-downtime.
+
+### Basic App Configuration
+
+```yaml
+apps:
+  web:
+    image: my-app/web # Docker image name
+    servers: # Target servers
+      - server1.com
+      - server2.com
+
+    build: # Build configuration
+      context: . # Build context (default: .)
+      dockerfile: Dockerfile # Dockerfile path (default: Dockerfile)
+      platform: linux/amd64 # Target platform (optional)
+
+    proxy: # Reverse proxy configuration
+      hosts: # Domains for this app
+        - example.com
+        - www.example.com
+      app_port: 3000 # Port your app runs on
+
+    environment: # Environment variables
+      plain: # Plain text variables
+        - NODE_ENV=production
+        - PORT=3000
+      secret: # Variables from .luma/secrets
+        - DATABASE_URL
+        - API_KEY
+
+    health_check: # Health check configuration
+      path: /health # Health endpoint (default: /up)
+```
+
+### Advanced App Options
+
+```yaml
+apps:
+  api:
+    image: my-app/api
+    servers:
+      - api.example.com
+
+    # Multiple replicas (load balancing)
+    replicas: 3
+
+    # Custom registry for this app
+    registry:
+      url: ghcr.io
+      username: different-user
+      password_secret: GITHUB_TOKEN
+
+    # Port mapping (rarely needed)
+    ports:
+      - "8080:8080"
+
+    # Volume mounts
+    volumes:
+      - ./logs:/app/logs
+      - app_data:/data
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+```
+
+## Services Configuration
+
+Services are supporting infrastructure like databases and caches that use pre-built images.
+
+### Basic Service Configuration
+
+```yaml
+services:
+  postgres:
+    image: postgres:15 # Pre-built image
+    servers: # Target servers
+      - db.example.com
+
+    environment: # Environment variables
+      plain:
+        - POSTGRES_DB=myapp
+      secret:
+        - POSTGRES_PASSWORD # From .luma/secrets
+
+    ports: # Port mapping
+      - "5432:5432"
+
+    volumes: # Volume mounts
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+```
+
+### Service with Health Checks
+
+```yaml
+services:
+  redis:
+    image: redis:7
+    servers:
+      - cache.example.com
+
+    # Health check for services
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    # Restart policy
+    restart: unless-stopped
+```
+
+## Global Settings
+
+### SSH Configuration
+
+```yaml
+ssh:
+  username: deploy # SSH username (default: root)
+  port: 22 # SSH port (default: 22)
+  key_file: ~/.ssh/id_rsa # SSH key file (optional)
+
+  # Per-server SSH settings
+  servers:
+    server1.com:
+      username: ubuntu
+      port: 2222
+    server2.com:
+      username: debian
+```
+
+### Docker Registry
+
+```yaml
+docker:
+  registry: ghcr.io # Default registry
+  username: myuser # Registry username
+
+  # Alternative registries
+  registries:
+    ghcr.io:
+      username: github-user
+      password_secret: GITHUB_TOKEN
+    docker.io:
+      username: docker-user
+      password_secret: DOCKER_PASSWORD
+```
+
+## Environment Variables
+
+Luma supports both plain text and secret environment variables.
+
+### Plain Variables
+
+```yaml
+environment:
+  plain:
+    - NODE_ENV=production
+    - PORT=3000
+    - API_URL=https://api.example.com
+```
+
+### Secret Variables
+
+Store sensitive values in `.luma/secrets`:
+
+```bash
+# .luma/secrets
+DATABASE_URL=postgres://user:pass@localhost:5432/myapp
+JWT_SECRET=supersecretkey
+API_KEY=secret-api-key
+```
+
+Reference them in your configuration:
+
+```yaml
+environment:
+  secret:
+    - DATABASE_URL
+    - JWT_SECRET
+    - API_KEY
+```
+
+### Variable Interpolation
+
+Use environment variables from your local machine:
+
+```yaml
+environment:
+  plain:
+    - BUILD_VERSION=${BUILD_VERSION:-latest}
+    - COMMIT_SHA=${GITHUB_SHA}
+```
+
+## Health Checks
+
+### App Health Checks
+
+Health checks are automatic for apps with configurable endpoint:
+
+```yaml
+apps:
+  web:
+    health_check:
+      path: /health # Health endpoint (default: /up)
+
+
+    # Health check behavior (automatic):
+    # - Method: GET
+    # - Success: HTTP 200
+    # - Timeout: 5 seconds
+    # - Retries: 3 attempts
+    # - Port: Uses app_port
+```
+
+### Service Health Checks
+
+For services, use Docker's healthcheck format:
+
+```yaml
+services:
+  postgres:
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+```
+
+## Proxy Configuration
+
+### Basic Proxy Setup
+
+```yaml
+apps:
+  web:
+    proxy:
+      hosts: # Domains to route
+        - example.com
+        - www.example.com
+      app_port: 3000 # Port your app uses
+```
+
+### Advanced Proxy Options
+
+```yaml
+apps:
+  api:
+    proxy:
+      hosts:
+        - api.example.com
+      app_port: 8080
+
+      # Custom proxy settings
+      timeout: 60s
+      max_body_size: 10M
+
+      # Custom headers
+      headers:
+        X-Forwarded-Proto: https
+        X-Real-IP: $remote_addr
+```
+
+## Build Configuration
+
+### Basic Build
+
+```yaml
+apps:
+  web:
+    build:
+      context: . # Build context
+      dockerfile: Dockerfile # Dockerfile path
+```
+
+### Advanced Build Options
+
+```yaml
+apps:
+  web:
+    build:
+      context: ./frontend # Custom context
+      dockerfile: docker/Dockerfile.prod # Custom Dockerfile
+      platform: linux/amd64 # Target platform
+
+      # Build arguments
+      args:
+        NODE_VERSION: 18
+        BUILD_ENV: production
+
+      # Build secrets (from .luma/secrets)
+      secrets:
+        - PRIVATE_NPM_TOKEN
+```
+
+## Volume Management
+
+### Named Volumes
+
+```yaml
+services:
+  postgres:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  web:
+    volumes:
+      - app_uploads:/app/uploads
+```
+
+### Bind Mounts
+
+```yaml
+services:
+  nginx:
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/ssl/certs:ro
+```
+
+## Multi-Environment Configuration
+
+### Environment-Specific Files
+
+```yaml
+# luma.staging.yml
+name: myapp-staging
+apps:
+  web:
+    servers:
+      - staging.example.com
+    proxy:
+      hosts:
+        - staging.myapp.com
+
+# luma.production.yml
+name: myapp-prod
+apps:
+  web:
+    servers:
+      - prod1.example.com
+      - prod2.example.com
+    proxy:
+      hosts:
+        - myapp.com
+        - www.myapp.com
+```
+
+Deploy with specific configuration:
+
+```bash
+luma deploy -c luma.staging.yml
+luma deploy -c luma.production.yml
+```
+
+## Complete Example
+
+Here's a complete example with multiple apps and services:
+
+```yaml
+name: ecommerce-platform
+
+ssh:
+  username: deploy
+  port: 22
+
+docker:
+  registry: ghcr.io
+  username: mycompany
+
+apps:
+  frontend:
+    image: ecommerce/frontend
+    servers:
+      - web1.example.com
+      - web2.example.com
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    proxy:
+      hosts:
+        - shop.com
+        - www.shop.com
+      app_port: 3000
+    environment:
+      plain:
+        - NODE_ENV=production
+        - API_URL=https://api.shop.com
+      secret:
+        - STRIPE_PUBLIC_KEY
+    health_check:
+      path: /health
+
+  api:
+    image: ecommerce/api
+    servers:
+      - api.example.com
+    build:
+      context: ./backend
+    proxy:
+      hosts:
+        - api.shop.com
+      app_port: 8080
+    environment:
+      plain:
+        - NODE_ENV=production
+        - PORT=8080
+      secret:
+        - DATABASE_URL
+        - JWT_SECRET
+        - STRIPE_SECRET_KEY
+    health_check:
+      path: /api/health
+
+services:
+  postgres:
+    image: postgres:15
+    servers:
+      - db.example.com
+    environment:
+      plain:
+        - POSTGRES_DB=ecommerce
+        - POSTGRES_USER=ecommerce
+      secret:
+        - POSTGRES_PASSWORD
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecommerce"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7
+    servers:
+      - cache.example.com
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+```

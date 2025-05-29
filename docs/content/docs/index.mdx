@@ -1,13 +1,75 @@
 ---
-title: Hello World
-description: Your first document
+title: Welcome to Luma
+description: Zero-downtime deployments for your own servers
 ---
 
-Welcome to the docs! You can start writing documents in `/content/docs`.
+# Luma: Ship Docker Anywhere ⚡
 
-## What is Next?
+Luma is a TypeScript CLI tool that provides **zero-downtime deployments** and **automatic HTTPS** on your own servers. Deploy any Docker application with blue-green deployments, automatic SSL certificates, health checks, and multi-server support.
+
+## Key Features
+
+- ✅ **Zero-downtime blue-green deployments** - No service interruption during updates
+- ✅ **Automatic SSL certificates** via Let's Encrypt - HTTPS out of the box
+- ✅ **Health checks and automatic rollbacks** - Reliability built-in
+- ✅ **Docker image building and secure transfer** - No registry required
+- ✅ **Multi-server deployments** - Scale across multiple machines
+- ✅ **Registry-free operation** - Images transferred directly via SSH
+
+## Quick Start
+
+Get started with Luma in just a few minutes:
 
 <Cards>
-  <Card title="Learn more about Next.js" href="https://nextjs.org/docs" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.vercel.app" />
+  <Card title='Installation' href='/docs/installation' />
+  <Card title='Your First Deployment' href='/docs/quick-start' />
+  <Card title='Configuration Reference' href='/docs/configuration' />
+  <Card title='Examples' href='/docs/examples' />
 </Cards>
+
+## Why Choose Luma?
+
+### vs Kamal (37signals)
+
+- **TypeScript/Bun** instead of Ruby
+- **Registry-less deployments** - no need for external Docker registries
+
+### vs Vercel/Netlify
+
+- **Your own servers** - full control, no vendor lock-in
+- **Any Docker app** - not limited to specific frameworks
+- **Cost-effective** - pay only for your servers
+- **No cold starts** - your containers are always running
+
+### vs Docker Compose
+
+- **Zero-downtime deployments** - compose restarts cause downtime
+- **Multi-server support** - deploy across multiple machines
+- **Automatic SSL** and reverse proxy included
+- **Git-based releases** and rollback capabilities
+
+## Example Deployment
+
+```bash
+❯ luma deploy
+Using Git SHA for release ID: 9d8209a
+Starting deployment with release 9d8209a
+
+[✓] Configuration loaded (0ms)
+[✓] Git status verified (3ms)
+[✓] Infrastructure ready (1.2s)
+[✓] web → elitan/luma-test-web:9d8209a (3.3s)
+[✓] Building Images (3.3s)
+  └─ 157.180.25.101
+     ├─ [✓] Loading image (2.5s)
+     ├─ [✓] Zero-downtime deployment (1.4s)
+     └─ [✓] Configuring proxy (319ms)
+[✓] Deployment completed successfully in 8.8s
+
+Your app is live at:
+  └─ https://test.eliasson.me
+```
+
+## Get Started
+
+Ready to deploy? Follow our [Quick Start guide](/docs/quick-start) to deploy your first application with Luma.
