@@ -13,7 +13,7 @@ func helloHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	fmt.Fprintf(w, "Hello World 2")
+	fmt.Fprintf(w, "Hello World 1")
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {

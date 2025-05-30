@@ -209,6 +209,8 @@ Luma includes a smart reverse proxy that automatically:
 
 Luma performs automatic health checks during deployments to ensure zero-downtime deployments. Your application must implement a health check endpoint that returns HTTP 200 when healthy.
 
+The default health check endpoint is `/up` but you can configure it to any path you want.
+
 ```yaml
 apps:
   api:
@@ -462,31 +464,115 @@ apps:
 
 ## 🔒 Security Best Practices
 
-### Server Setup
+### Server Preparation Guide (from root)
 
-1. **Create a dedicated deployment user**:
+Follow these steps to securely prepare your server for Luma deployments. All commands should be run as the `root` user (or with `sudo`).
 
-   ```bash
-   sudo useradd -m -s /bin/bash deploy
-   sudo usermod -aG docker,sudo deploy
-   ```
+1. **Create a dedicated user for Luma:**
 
-2. **Set up SSH keys**:
+```bash
+sudo adduser luma
+# Follow the prompts to set a password (it will be disabled later) and user details.
+sudo usermod -aG sudo luma # Add luma to the sudo group
+```
 
-   ```bash
-   ssh-copy-id deploy@your-server.com
-   ```
+2. **Install Docker Engine:**
 
-3. **Configure Luma**:
-   ```yaml
-   ssh:
-     username: deploy
-   ```
+Luma requires Docker to be installed on your target servers.
 
-### Network Security
+```bash
+# Update package lists
+sudo apt-get update
 
-- Use a firewall to restrict access
-- Keep your servers updated
+# Install prerequisites
+sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+
+# Add Docker's official GPG key
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+
+# Add Docker's stable repository
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+
+# Update package lists again
+sudo apt-get update
+
+# Install Docker CE
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+
+# Add the luma user to the docker group
+sudo usermod -aG docker luma
+```
+
+_Note: You might need to log out and log back in as the `luma` user for the group changes to take effect, or use `newgrp docker` in the `luma` user's session._
+
+3. **Set up SSH Key-Based Authentication for `luma`:**
+
+   **Prerequisites:** This step assumes you already have SSH keys generated on your local machine. If you don't have SSH keys yet, generate them first:
+
+```bash
+ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
+# Follow the prompts. It's recommended to use a passphrase for your key.
+```
+
+**Copy your public key to the server:**
+Replace `your-server.com` with your server's IP address or hostname.
+
+```bash
+ssh-copy-id luma@your-server.com
+```
+
+This command will copy your local machine's public SSH key to the `luma` user's `~/.ssh/authorized_keys` file on the server.
+
+4. **Secure SSH Configuration:**
+
+Disable password authentication and make other security improvements to your SSH server. Edit the SSH daemon configuration file (`/etc/ssh/sshd_config`) on the server:
+
+```bash
+sudo nano /etc/ssh/sshd_config
+```
+
+Make the following changes:
+
+```
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM no # If you are sure you don't need PAM for SSH
+```
+
+After saving the changes, restart the SSH service:
+
+```bash
+sudo systemctl restart sshd
+```
+
+**Important:** Ensure your SSH key authentication is working correctly before disabling password authentication, or you could lock yourself out of the server. Test by logging in from a new terminal window: `ssh luma@your-server.com`.
+
+5. **Install Fail2Ban:**
+
+Fail2Ban helps protect your server from brute-force attacks.
+
+```bash
+sudo apt-get update
+sudo apt-get install -y fail2ban
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
+```
+
+Fail2Ban works out-of-the-box with default settings for SSH. You can customize its configuration in `/etc/fail2ban/jail.local`.
+
+6. **Configure Luma:**
+
+In your `luma.yml` file, ensure you specify the `luma` user for SSH connections:
+
+```yaml
+ssh:
+  username: luma
+  # port: 22 # If you changed the SSH port
+```
+
+After completing these steps, your server will be more secure and ready for Luma deployments.
 
 ### Secrets Management
 

@@ -1,5 +1,11 @@
 import path from "path";
-import { mkdir, writeFile, access } from "node:fs/promises";
+import {
+  mkdir,
+  writeFile,
+  access,
+  readFile,
+  appendFile,
+} from "node:fs/promises";
 import { constants } from "node:fs";
 import { createInterface } from "readline";
 
@@ -51,6 +57,48 @@ apps:
         - your-domain.com
       app_port: 3000
 `;
+}
+
+async function ensureSecretsInGitignore(): Promise<void> {
+  const gitignorePath = ".gitignore";
+  const secretsPath = ACTUAL_SECRETS_PATH;
+
+  try {
+    // Check if .gitignore exists
+    let gitignoreContent = "";
+    try {
+      gitignoreContent = await readFile(gitignorePath, "utf8");
+    } catch {
+      // .gitignore doesn't exist, create it
+      gitignoreContent = "";
+    }
+
+    // Check if secrets path is already in .gitignore
+    const lines = gitignoreContent.split("\n");
+    const secretsAlreadyIgnored = lines.some(
+      (line) =>
+        line.trim() === secretsPath ||
+        line.trim() === `/${secretsPath}` ||
+        line.trim() === secretsPath.replace(/\\/g, "/")
+    );
+
+    if (!secretsAlreadyIgnored) {
+      const newEntry =
+        gitignoreContent.endsWith("\n") || gitignoreContent === ""
+          ? secretsPath
+          : `\n${secretsPath}`;
+
+      if (gitignoreContent === "") {
+        await writeFile(gitignorePath, `${secretsPath}\n`, "utf8");
+      } else {
+        await appendFile(gitignorePath, `\n${secretsPath}\n`, "utf8");
+      }
+      console.log(`Added ${secretsPath} to .gitignore`);
+    }
+  } catch (e) {
+    const error = e as Error;
+    console.error(`Warning: Could not update .gitignore: ${error.message}`);
+  }
 }
 
 export async function initCommand(nonInteractive: boolean = false) {
@@ -115,6 +163,9 @@ export async function initCommand(nonInteractive: boolean = false) {
       console.error(`Error creating ${ACTUAL_SECRETS_PATH}: ${error.message}`);
     }
   }
+
+  // Ensure secrets file is in .gitignore
+  await ensureSecretsInGitignore();
 
   // Final status messages for files that were attempted to be created but failed
   if (!configCreated && !configExistsInitially) {
