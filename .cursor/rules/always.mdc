@@ -4,7 +4,7 @@ globs:
 alwaysApply: true
 ---
 - this project is using `bun` and not `npm` or some other package manager.
-- If you want to debug live, check out the DEBUG.md file in the root.
+- If you want to debug live, check out the ./DEBUG.md file in the root.
 
 ## CLI
 

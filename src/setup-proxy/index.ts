@@ -90,9 +90,9 @@ export async function setupLumaProxy(
       image: proxyImage,
       ports: ["80:80", "443:443"],
       volumes: [
-        "luma-proxy-certs:/var/lib/luma-proxy/certs",
-        "luma-proxy-config:/tmp", // Persist config and cert queue files
-        "/var/run/docker.sock:/var/run/docker.sock", // Docker socket access for backend resolution
+        "./luma/luma-proxy-certs:/var/lib/luma-proxy/certs",
+        "./luma/luma-proxy-config:/tmp",
+        "/var/run/docker.sock:/var/run/docker.sock",
       ],
       restart: "always",
     };
