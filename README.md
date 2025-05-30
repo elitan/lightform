@@ -485,22 +485,32 @@ Luma requires Docker to be installed on your target servers.
 sudo apt-get update
 
 # Install prerequisites
-sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+sudo apt-get install -y ca-certificates curl
+
+# Create keyrings directory
+sudo install -m 0755 -d /etc/apt/keyrings
 
 # Add Docker's official GPG key
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
 
 # Add Docker's stable repository
-sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 # Update package lists again
 sudo apt-get update
 
-# Install Docker CE
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+# Install Docker CE with all plugins
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Add the luma user to the docker group
 sudo usermod -aG docker luma
+
+# Verify installation
+sudo docker run hello-world
 ```
 
 _Note: You might need to log out and log back in as the `luma` user for the group changes to take effect, or use `newgrp docker` in the `luma` user's session._
@@ -544,7 +554,7 @@ UsePAM no # If you are sure you don't need PAM for SSH
 After saving the changes, restart the SSH service:
 
 ```bash
-sudo systemctl restart sshd
+sudo systemctl restart ssh
 ```
 
 **Important:** Ensure your SSH key authentication is working correctly before disabling password authentication, or you could lock yourself out of the server. Test by logging in from a new terminal window: `ssh luma@your-server.com`.
