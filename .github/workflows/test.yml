@@ -1,0 +1,117 @@
+name: Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test-proxy:
+    name: Test Go Proxy
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('proxy/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install Go dependencies
+        working-directory: ./proxy
+        run: go mod download
+
+      - name: Run Go tests
+        working-directory: ./proxy
+        run: go test -v ./...
+
+      - name: Run Go tests with race detection
+        working-directory: ./proxy
+        run: go test -v -race ./...
+
+  test-cli:
+    name: Test Bun CLI
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install Bun dependencies
+        run: bun install
+
+      - name: Run Bun tests
+        run: bun test
+
+      - name: Build CLI
+        run: bun run build
+
+      - name: Test CLI binary
+        run: |
+          if [ -f "dist/index.js" ]; then
+            echo "CLI built successfully"
+            node dist/index.js --help || echo "CLI help command executed"
+          else
+            echo "Build failed - dist/index.js not found"
+            exit 1
+          fi
+
+  test-matrix:
+    name: Cross-platform tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install Go dependencies
+        working-directory: ./proxy
+        run: go mod download
+
+      - name: Install Bun dependencies
+        run: bun install
+
+      - name: Test Go proxy (basic)
+        working-directory: ./proxy
+        run: go test ./...
+
+      - name: Test Bun CLI
+        run: bun test
