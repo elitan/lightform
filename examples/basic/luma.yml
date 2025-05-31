@@ -17,7 +17,7 @@ apps:
         - SECRET_VAR
     proxy:
       hosts:
-        - test.eliasson.me
+        - test2.eliasson.me
       app_port: 3000
     health_check:
       path: /api/health
