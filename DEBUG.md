@@ -2,6 +2,8 @@
 
 This guide helps you debug and verify that Luma works across different example applications and configurations.
 
+**⚠️ IMPORTANT: All debugging and testing should use Let's Encrypt staging mode to avoid rate limits. Production certificates are only needed for live deployments.**
+
 ## Example Applications
 
 Luma includes two example applications for testing:
@@ -37,10 +39,10 @@ Luma includes two example applications for testing:
 # From any example directory
 cd examples/basic  # or examples/nextjs
 
-# Deploy with force flag (skips git commit check)
+# Deploy with force flag (skips git commit check) - STAGING MODE
 bun ../../src/index.ts deploy --force
 
-# Deploy with verbose output
+# Deploy with verbose output - STAGING MODE
 bun ../../src/index.ts deploy --force --verbose
 
 # Deploy only services (e.g., database for basic example)
@@ -48,6 +50,12 @@ bun ../../src/index.ts deploy --services --force
 
 # Deploy only apps (skip services)
 bun ../../src/index.ts deploy --apps --force
+```
+
+**📝 Note**: After deployment, enable staging mode immediately:
+
+```bash
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
 ```
 
 ### Server Information
@@ -264,7 +272,20 @@ ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy deploy --host ex
 
 ## SSL Certificate Debugging
 
-The Luma proxy uses Let's Encrypt with a pure ACME client implementation for SSL certificate management. Here are essential debugging commands and workflows:
+The Luma proxy uses Let's Encrypt with a pure ACME client implementation for SSL certificate management. **For all debugging and testing, use staging mode to avoid rate limits.**
+
+### Enable Staging Mode (Essential for Testing)
+
+```bash
+# ALWAYS enable staging mode for debugging/testing
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
+
+# Verify staging mode is enabled
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list" | grep -i staging
+
+# Only disable staging mode for production deployments
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled false"
+```
 
 ### SSL Certificate Status
 
@@ -282,18 +303,20 @@ ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy status"
 ```
 
-### SSL Certificate Testing
+### SSL Certificate Testing (Staging Mode)
 
 ```bash
-# Test SSL certificate with verbose output
+# Test SSL certificate with verbose output (staging certs will show warnings)
 curl -v https://your-domain.com
 
-# Test SSL certificate validity and chain
-curl -I https://your-domain.com
+# Test SSL certificate validity (ignore staging warnings for testing)
+curl -k -I https://your-domain.com
 
-# Check certificate details without making HTTP request
-openssl s_client -connect your-domain.com:443 -servername your-domain.com </dev/null 2>/dev/null | openssl x509 -noout -dates -subject
+# Check certificate details (will show staging issuer)
+openssl s_client -connect your-domain.com:443 -servername your-domain.com </dev/null 2>/dev/null | openssl x509 -noout -dates -subject -issuer
 ```
+
+**🔍 Staging Mode Behavior**: Staging certificates will show browser warnings and have "Fake LE Intermediate X1" as the issuer. This is expected and normal for testing.
 
 ### Certificate Provisioning Issues
 
@@ -346,35 +369,38 @@ ssh luma@157.180.25.101 "docker exec luma-proxy ping <project-name>-web" # Shoul
 ssh luma@157.180.25.101 "docker network inspect <project-name>-network"
 ```
 
-### End-to-End SSL Deployment Testing
+### End-to-End SSL Deployment Testing (Staging Mode)
 
 ```bash
-# Complete deployment and SSL test workflow
+# Complete deployment and SSL test workflow with staging mode
 cd examples/basic  # or examples/nextjs
 bun ../../src/index.ts deploy --force --verbose
 
-# Wait for deployment to complete, then test SSL
+# IMMEDIATELY enable staging mode after deployment
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
+
+# Wait for deployment to complete, then test SSL (ignore browser warnings for staging)
 sleep 10
-curl -v https://test.eliasson.me  # Check for 200 response and valid SSL
+curl -k -v https://test.eliasson.me  # -k flag ignores staging cert warnings
 
 # If you get 503 errors, check health status
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list" | grep test.eliasson.me
 
 # If unhealthy, force update and test again
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy updatehealth --host test.eliasson.me --healthy true"
-curl https://test.eliasson.me  # Should now return "Hello World 2"
+curl -k https://test.eliasson.me  # Should now return "Hello World 2"
 ```
 
 ### Certificate Management Commands
 
 ```bash
-# Force certificate renewal for a specific host
+# Force certificate renewal for a specific host (in staging mode)
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy cert-renew --host your-domain.com"
 
-# Enable Let's Encrypt staging mode (for testing)
+# Enable Let's Encrypt staging mode (DEFAULT for testing)
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
 
-# Disable staging mode (back to production)
+# ⚠️ Only disable staging mode for production deployments
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled false"
 
 # Switch traffic for blue-green deployments
@@ -399,36 +425,122 @@ ssh luma@157.180.25.101 "docker cp luma-proxy:/var/lib/luma-proxy/state.json ./p
 
 ### Common SSL Issues & Solutions
 
-**1. Certificate Not Provisioning**
+**1. Certificate Not Provisioning (Staging Mode)**
 
 - Check DNS points to server IP: `dig your-domain.com`
 - Verify ports 80/443 are accessible from internet
-- Check Let's Encrypt rate limits in logs: `docker logs luma-proxy | grep -i "rate\|limit"`
+- **Ensure staging mode is enabled**: `docker exec luma-proxy /app/luma-proxy set-staging --enabled true`
 - Check certificate status: `docker exec luma-proxy /app/luma-proxy cert-status --host your-domain.com`
+- Staging mode has much higher rate limits, so provisioning should be faster
 
-**2. 503 Service Unavailable with Valid SSL**
+**2. 503 Service Unavailable with Valid SSL (Staging)**
 
 - Health check issue - manually update: `docker exec luma-proxy /app/luma-proxy updatehealth --host your-domain.com --healthy true`
 - Container networking issue - verify proxy can reach container: `docker exec luma-proxy ping <project-name>-web`
 - App not responding - check container logs: `docker logs <project-name>-web`
 
-**3. Certificate Acquisition Stuck in "acquiring" Status**
+**3. Certificate Acquisition Stuck in "acquiring" Status (Staging)**
 
 - Check certificate attempts: `docker exec luma-proxy /app/luma-proxy cert-status --host your-domain.com`
 - View acquisition logs: `docker logs luma-proxy | grep -i cert`
+- **Verify staging mode is enabled**: `docker exec luma-proxy /app/luma-proxy list | grep -i staging`
 - If max attempts reached, remove and re-deploy the route
 
-**4. Let's Encrypt Rate Limit Hit**
+**4. Testing with Production Rate Limits (NOT RECOMMENDED)**
 
-- Enable staging mode for testing: `docker exec luma-proxy /app/luma-proxy set-staging --enabled true`
-- Check rate limit errors in logs: `docker logs luma-proxy | grep -i "rate limit"`
+- **NEVER test with production mode** - always use staging: `docker exec luma-proxy /app/luma-proxy set-staging --enabled true`
+- If you accidentally hit production rate limits, check: `docker logs luma-proxy | grep -i "rate limit"`
 - Wait for rate limit to reset (typically 1 hour for failed validations)
 
-**5. Certificate Renewal Issues**
+**5. Certificate Renewal Issues (Staging)**
 
 - Force manual renewal: `docker exec luma-proxy /app/luma-proxy cert-renew --host your-domain.com`
 - Check renewal worker logs: `docker logs luma-proxy | grep -i "renewal\|worker"`
 - Verify certificate expiry: `docker exec luma-proxy /app/luma-proxy cert-status --host your-domain.com`
+- Staging certificates expire faster but renew more reliably due to higher rate limits
+
+## Proxy Log Analysis
+
+The new proxy implementation provides structured logging with specific prefixes for different components. Understanding these log patterns helps with debugging:
+
+### Log Format Examples
+
+**Certificate Acquisition Process:**
+
+```
+2024-01-15T10:30:00Z [CERT] [api.example.com] Starting certificate acquisition
+2024-01-15T10:30:01Z [CERT] [api.example.com] ACME challenge created: http-01
+2024-01-15T10:30:01Z [CERT] [api.example.com] Challenge URL: /.well-known/acme-challenge/abc123def456
+2024-01-15T10:30:02Z [ACME] [api.example.com] Let's Encrypt validation request: GET /.well-known/acme-challenge/abc123def456
+2024-01-15T10:30:02Z [ACME] [api.example.com] Challenge response served: 200 OK
+2024-01-15T10:30:03Z [CERT] [api.example.com] ACME challenge validation successful
+2024-01-15T10:30:04Z [CERT] [api.example.com] Certificate issued successfully
+```
+
+**Certificate Acquisition Failures:**
+
+```
+2024-01-15T10:30:00Z [CERT] [api.example.com] Starting certificate acquisition
+2024-01-15T10:30:01Z [CERT] [api.example.com] ACME challenge created: http-01
+2024-01-15T10:30:01Z [CERT] [api.example.com] Challenge URL: /.well-known/acme-challenge/xyz789abc123
+2024-01-15T10:30:05Z [CERT] [api.example.com] Challenge validation failed: context deadline exceeded
+2024-01-15T10:30:05Z [CERT] [api.example.com] DNS validation failed: NXDOMAIN
+2024-01-15T10:30:05Z [CERT] [api.example.com] Acquisition failed, scheduling retry in 10 minutes
+2024-01-15T10:30:05Z [CERT] [api.example.com] Attempt 1/144, next attempt: 2024-01-15T10:40:00Z
+```
+
+**Health Check Logs:**
+
+```
+2024-01-15T10:30:00Z [HEALTH] [api.example.com] Check passed: 200 OK (15ms)
+2024-01-15T10:30:30Z [HEALTH] [api.example.com] Check failed: connection refused
+2024-01-15T10:31:00Z [HEALTH] [api.example.com] Check passed: 200 OK (12ms)
+```
+
+**Request Proxying Logs:**
+
+```
+2024-01-15T10:30:00Z [PROXY] api.example.com GET /api/users -> my-project-web:3000 200 (45ms)
+2024-01-15T10:30:01Z [PROXY] api.example.com POST /api/auth -> my-project-web:3000 401 (12ms)
+2024-01-15T10:30:02Z [PROXY] api.example.com GET / -> 301 (HTTPS redirect)
+2024-01-15T10:30:03Z [PROXY] unknown.example.com GET / -> 404 (host not found)
+2024-01-15T10:30:04Z [PROXY] api.example.com GET /api/health -> 503 (unhealthy)
+```
+
+**CLI Command Logs:**
+
+```
+2024-01-15T10:30:00Z [CLI] Deployed host api.example.com -> my-project-web:3000
+2024-01-15T10:30:01Z [CLI] Updated health status for api.example.com to true
+2024-01-15T10:30:02Z [CLI] Certificate renewal initiated for api.example.com
+2024-01-15T10:30:03Z [CLI] Set Let's Encrypt mode to staging
+2024-01-15T10:30:04Z [CLI] Switched api.example.com to target my-project-web-green:3000
+```
+
+### Log Analysis Commands
+
+```bash
+# View recent certificate-related logs
+ssh luma@157.180.25.101 "docker logs --tail 100 luma-proxy | grep '\[CERT\]'"
+
+# View health check logs for specific host
+ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy | grep '\[HEALTH\].*api.example.com'"
+
+# View proxy request logs
+ssh luma@157.180.25.101 "docker logs --tail 100 luma-proxy | grep '\[PROXY\]'"
+
+# View ACME challenge handling
+ssh luma@157.180.25.101 "docker logs --tail 100 luma-proxy | grep '\[ACME\]'"
+
+# View CLI command history
+ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy | grep '\[CLI\]'"
+
+# Filter logs by specific hostname
+ssh luma@157.180.25.101 "docker logs --tail 100 luma-proxy | grep 'api.example.com'"
+
+# Real-time log monitoring during certificate acquisition
+ssh luma@157.180.25.101 "docker logs -f luma-proxy | grep -E '\[CERT\]|\[ACME\]'"
+```
 
 ## Cleanup Commands
 
@@ -463,28 +575,32 @@ ssh luma@157.180.25.101 "docker network ls --filter 'label=luma.project' --forma
 ### Testing Both Examples
 
 ```bash
-# Deploy basic example
+# Deploy basic example with staging mode
 cd examples/basic
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
 bun ../../src/index.ts deploy --force
 
-# Test basic example
-curl -I https://test.eliasson.me
+# Test basic example (ignore staging warnings)
+curl -k -I https://test.eliasson.me
 
-# Deploy nextjs example
+# Deploy nextjs example with staging mode
 cd ../nextjs
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
 bun ../../src/index.ts deploy --force
 
-# Test nextjs example
-curl -I https://nextjs.example.myluma.cloud
+# Test nextjs example (ignore staging warnings)
+curl -k -I https://nextjs.example.myluma.cloud
 ```
+
+**🎯 Production Deployment Note**: Only switch to production mode for final deployments where you need browser-trusted certificates. Always test thoroughly in staging mode first.
 
 ## Proxy Development & Testing Workflow
 
 When developing and testing changes to the Luma proxy, follow this complete workflow to ensure proper testing in a clean environment.
 
-### Complete Proxy Testing Cycle
+### Complete Proxy Testing Cycle (Staging Mode)
 
-This is the **rock-solid** testing workflow for proxy changes:
+This is the **rock-solid** testing workflow for proxy changes with staging mode:
 
 ```bash
 # 1. COMPLETE SERVER CLEANUP (start fresh every time)
@@ -501,149 +617,150 @@ cd ../examples/basic  # or whichever example you're testing
 # 4. SETUP INFRASTRUCTURE (pulls latest proxy)
 bun ../../src/index.ts setup --verbose
 
-# 5. DEPLOY AND TEST
+# 5. ENABLE STAGING MODE IMMEDIATELY (before any deployments)
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
+
+# 6. DEPLOY AND TEST
 bun ../../src/index.ts deploy --force --verbose
 
-# 6. VERIFY SSL WORKS IMMEDIATELY
-curl -I https://test.eliasson.me
+# 7. VERIFY SSL WORKS IMMEDIATELY (ignore staging warnings)
+curl -k -I https://test.eliasson.me  # -k ignores staging cert warnings
+
+# 8. VERIFY STAGING MODE IS ACTIVE
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list" | grep -i staging
 ```
 
-### Why Each Step is Critical
+### Why Each Step is Critical (Updated for Staging)
 
 1. **Complete Server Cleanup**: Ensures no leftover state from previous tests
 2. **Remove .luma Directory**: Clears certificate cache, config files, and proxy state
 3. **Publish Updated Proxy**: Makes your changes available for download
 4. **Setup Infrastructure**: Pulls the latest proxy image with your changes
-5. **Deploy and Test**: Tests the complete flow with your changes
-6. **Verify SSL**: Confirms SSL certificates work immediately (no race conditions)
+5. **Enable Staging Mode**: Critical step to avoid production rate limits
+6. **Deploy and Test**: Tests the complete flow with your changes in staging mode
+7. **Verify SSL**: Confirms SSL certificates work immediately (with staging certificates)
+8. **Verify Staging Mode**: Ensures you're actually using staging and not hitting production limits
 
-### Proxy Development Workflow
-
-When making changes to the proxy code:
-
-```bash
-# 1. Make your changes to proxy source code
-cd proxy
-# Edit files in internal/, cmd/, etc.
-
-# 2. Test locally (optional - if you have local setup)
-go build -o luma-proxy ./cmd/luma-proxy
-./luma-proxy run --cert-email test@example.com
-
-# 3. Publish to Docker Hub
-./publish.sh
-
-# 4. Test on server with complete cleanup
-cd ../examples/basic
-# Follow the "Complete Proxy Testing Cycle" above
-```
-
-### SSL Certificate Testing Specific
+### SSL Certificate Testing Specific (Staging Mode)
 
 For testing SSL certificate changes specifically:
 
 ```bash
 # Complete cleanup and setup (as above)
+# CRITICAL: Enable staging mode before any certificate operations
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
+
 # Then deploy and immediately test SSL multiple times
 
-# Test 1: Immediate SSL after deployment
+# Test 1: Immediate SSL after deployment (staging certificates)
 bun ../../src/index.ts deploy --force
-curl -I https://test.eliasson.me  # Should work immediately
+curl -k -I https://test.eliasson.me  # Should work immediately with staging cert
 
-# Test 2: Check certificate status
+# Test 2: Check certificate status (should show staging)
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy status"
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
 
-# Test 3: Verify certificate details
-openssl s_client -connect test.eliasson.me:443 -servername test.eliasson.me < /dev/null 2>/dev/null | openssl x509 -noout -dates -subject
+# Test 3: Verify certificate details (should show staging issuer)
+openssl s_client -connect test.eliasson.me:443 -servername test.eliasson.me < /dev/null 2>/dev/null | openssl x509 -noout -dates -subject -issuer | grep -i fake
 
 # Test 4: Check proxy logs for any issues
 ssh luma@157.180.25.101 "docker logs --tail 30 luma-proxy"
 ```
 
-### Testing Different Scenarios
+### Testing Different Scenarios (Staging Mode)
 
-#### Rate Limiting Scenario
+#### Rate Limiting Scenario (Safe with Staging)
 
 ```bash
-# Deploy multiple domains quickly to trigger rate limiting
+# Deploy multiple domains quickly - safe in staging mode
 # Modify luma.yml to include multiple hosts, then deploy
 bun ../../src/index.ts deploy --force
 
-# Check which succeeded and which are queued
+# Check which succeeded and which are queued (should all succeed quickly in staging)
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy status"
 ```
 
-#### Certificate Renewal Testing
+#### Certificate Renewal Testing (Staging)
 
 ```bash
 # Check certificate expiration monitoring
 ssh luma@157.180.25.101 "docker exec luma-proxy ls -la /var/lib/luma-proxy/certs/"
 
-# Force certificate renewal (when available)
-ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy renew --host test.eliasson.me"
+# Force certificate renewal (staging certs expire faster)
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy cert-renew --host test.eliasson.me"
 ```
 
-### Common Testing Pitfalls
+### Production vs Staging Mode Guide
 
-❌ **Don't do this:**
+#### When to Use Staging Mode (DEFAULT)
 
-- Skip the complete cleanup step
-- Test without republishing the proxy first
-- Assume SSL works without testing immediately after deployment
-- Mix testing between different examples without cleanup
+- ✅ All development and testing
+- ✅ Debugging proxy issues
+- ✅ Testing certificate acquisition logic
+- ✅ Learning and experimentation
+- ✅ CI/CD pipeline testing
 
-✅ **Always do this:**
+#### When to Use Production Mode (RARE)
 
-- Complete server cleanup before each test cycle
-- Publish proxy changes before testing
-- Test SSL immediately after deployment
-- Check proxy logs for any errors or warnings
+- ⚠️ Final production deployments only
+- ⚠️ When you need browser-trusted certificates
+- ⚠️ Never for testing or debugging
 
-### Quick Test Commands
+#### Switching Between Modes
+
+```bash
+# Enable staging mode (for testing)
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
+
+# Check current mode
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list" | grep -i staging
+
+# Enable production mode (only for final deployments)
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled false"
+```
+
+### Quick Test Commands (Staging Mode)
 
 After following the complete cycle above, use these for quick verification:
 
 ```bash
-# Quick SSL verification
-curl -s -o /dev/null -w "%{http_code}" https://test.eliasson.me  # Should return 200
+# Quick SSL verification (ignore staging warnings)
+curl -k -s -o /dev/null -w "%{http_code}" https://test.eliasson.me  # Should return 200
 
-# Quick proxy status
+# Quick proxy status (should show staging mode enabled)
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
 
 # Quick health check
-curl -s https://test.eliasson.me/api/health  # Should return "OK"
+curl -k -s https://test.eliasson.me/api/health  # Should return "OK"
 
 # Quick container check
 ssh luma@157.180.25.101 "docker ps --filter 'label=luma.project=gmail'"
+
+# Verify staging mode is active
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list" | grep -i staging
 ```
 
-### Debugging Proxy Issues
-
-If something goes wrong during testing:
+### Testing Both Examples (Staging Mode)
 
 ```bash
-# 1. Check proxy container status
-ssh luma@157.180.25.101 "docker ps --filter 'name=luma-proxy'"
+# Deploy basic example with staging mode
+cd examples/basic
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
+bun ../../src/index.ts deploy --force
 
-# 2. View recent proxy logs
-ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy"
+# Test basic example (ignore staging warnings)
+curl -k -I https://test.eliasson.me
 
-# 3. Check proxy configuration and routes
-ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
+# Deploy nextjs example with staging mode
+cd ../nextjs
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
+bun ../../src/index.ts deploy --force
 
-# 4. Check certificate status
-ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy cert-status"
-
-# 5. Verify network connectivity using project-specific aliases
-ssh luma@157.180.25.101 "docker exec luma-proxy ping <project-name>-web"
-
-# 6. Check state file for debugging
-ssh luma@157.180.25.101 "docker exec luma-proxy cat /var/lib/luma-proxy/state.json"
-
-# 7. Manual proxy restart (if needed)
-ssh luma@157.180.25.101 "docker restart luma-proxy"
+# Test nextjs example (ignore staging warnings)
+curl -k -I https://nextjs.example.myluma.cloud
 ```
+
+**🎯 Production Deployment Note**: Only switch to production mode for final deployments where you need browser-trusted certificates. Always test thoroughly in staging mode first.
 
 ## File Locations
 
@@ -651,21 +768,4 @@ ssh luma@157.180.25.101 "docker restart luma-proxy"
 
 - **Root Config**: `./luma.yml` (in each example directory)
 - **Local Secrets**: `./.luma/secrets` (in each example directory)
-- **Proxy Source**: `./proxy/` (in root)
-- **Proxy Publish Script**: `./proxy/publish.sh`
-
-### Server Structure
-
-- **Containers**: Prefixed with `<project-name>-`
-- **Networks**: Named `<project-name>-network`
-- **Proxy Container**: `luma-proxy`
-
-## Publishing and Distribution
-
-The `publish.sh` script in the proxy directory handles:
-
-- Multi-platform Docker builds (`linux/amd64`, `linux/arm64`)
-- Publishing to Docker Hub as `elitan/luma-proxy:latest`
-- Automatic buildx setup and configuration
-
-Always test proxy changes locally before running `./publish.sh` to avoid breaking production deployments.
+- **Proxy Source**: `./proxy/`

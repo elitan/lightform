@@ -7,12 +7,6 @@ echo "🚀 Publishing Luma Proxy to Docker Hub..."
 # Ensure we're in the proxy directory
 cd "$(dirname "$0")"
 
-# Check if we're logged into Docker Hub
-if ! docker info | grep -q "Username"; then
-    echo "⚠️  Please login to Docker Hub first: docker login"
-    exit 1
-fi
-
 # Build multi-platform image and push
 echo "📦 Building multi-platform image..."
 docker buildx build \

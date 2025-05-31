@@ -22,8 +22,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o luma-proxy ./cmd/
 # Runtime stage
 FROM alpine:3.18
 
-# Install ca-certificates for HTTPS
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates for HTTPS and curl for health checks
+RUN apk --no-cache add ca-certificates curl
 
 # Create directories
 RUN mkdir -p /var/lib/luma-proxy/certs

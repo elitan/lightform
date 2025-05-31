@@ -374,17 +374,17 @@ func (m *Manager) loadOrCreateAccountKey() (crypto.Signer, error) {
 
 // registerAccount registers the ACME account
 func (m *Manager) registerAccount() error {
-	// Skip registration if no email is provided (for local testing)
-	if m.state.LetsEncrypt.Email == "" {
-		log.Println("[CERT] No email configured, skipping ACME account registration")
-		return nil
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	acct := &acme.Account{
-		Contact: []string{"mailto:" + m.state.LetsEncrypt.Email},
+	acct := &acme.Account{}
+
+	// Add email to account if provided
+	if m.state.LetsEncrypt.Email != "" {
+		acct.Contact = []string{"mailto:" + m.state.LetsEncrypt.Email}
+		log.Printf("[CERT] Registering ACME account with email: %s", m.state.LetsEncrypt.Email)
+	} else {
+		log.Println("[CERT] Registering ACME account without email")
 	}
 
 	_, err := m.client.Register(ctx, acct, acme.AcceptTOS)
@@ -392,6 +392,7 @@ func (m *Manager) registerAccount() error {
 		return fmt.Errorf("failed to register account: %w", err)
 	}
 
+	log.Println("[CERT] ACME account registration completed successfully")
 	return nil
 }
 
