@@ -59,14 +59,18 @@ bun ../../src/index.ts deploy --apps --force
 
 Luma includes a proxy server located in the `proxy/` directory that handles routing and SSL certificates.
 
+**Note**: The proxy was completely rewritten from scratch based on the architecture specification in `pdrs/proxy.md`. It now uses a pure Go implementation with ACME client for Let's Encrypt integration, JSON state persistence, and background workers for certificate management.
+
 ### Proxy Overview
 
 - **Image**: `elitan/luma-proxy`
 - **Features**:
   - HTTP to HTTPS redirection
   - Host-based routing
-  - Automatic Let's Encrypt certificates
+  - Automatic Let's Encrypt certificates via ACME protocol
   - Multi-project isolation
+  - State persistence in JSON format
+  - Background certificate acquisition and renewal workers
 
 ### Updating the Proxy
 
@@ -96,11 +100,14 @@ ssh luma@157.180.25.101 "docker ps --filter 'name=luma-proxy'"
 # View proxy logs
 ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy"
 
-# Check proxy configuration
-ssh luma@157.180.25.101 "docker exec luma-proxy luma-proxy status"
+# Check proxy configuration and routes
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
 
-# Test proxy health
-curl -I https://test.eliasson.me/luma-proxy/health
+# Check proxy status (alias for list)
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy status"
+
+# Test proxy health (if you have a route configured)
+curl -I https://test.eliasson.me
 ```
 
 ## Configuration Patterns
@@ -252,24 +259,27 @@ ssh luma@157.180.25.101 "docker restart luma-proxy"
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
 
 # Manually configure proxy routing (if needed)
-ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy deploy --host example.com --target localhost:3000 --project myapp"
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy deploy --host example.com --target <project-name>-web:3000 --project myapp --health-path /up"
 ```
 
 ## SSL Certificate Debugging
 
-The Luma proxy uses a hybrid SSL certificate approach with Let's Encrypt and `autocert`. Here are essential debugging commands and workflows:
+The Luma proxy uses Let's Encrypt with a pure ACME client implementation for SSL certificate management. Here are essential debugging commands and workflows:
 
 ### SSL Certificate Status
 
 ```bash
-# Check certificate retry queue status
-ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy status"
+# Check certificate status for all hosts
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy cert-status"
+
+# Check certificate status for specific host
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy cert-status --host your-domain.com"
 
 # List all proxy routes and their health status
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
 
-# Check specific domain health and SSL status
-ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list" | grep -A5 your-domain.com
+# Check overall proxy status
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy status"
 ```
 
 ### SSL Certificate Testing
@@ -294,6 +304,9 @@ ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy | grep -i cert"
 # Check for Let's Encrypt rate limiting or ACME errors
 ssh luma@157.180.25.101 "docker logs --tail 100 luma-proxy | grep -i 'acme\|rate\|limit'"
 
+# Check for certificate acquisition worker logs
+ssh luma@157.180.25.101 "docker logs --tail 100 luma-proxy | grep -i 'worker'"
+
 # View real-time logs during certificate requests
 ssh luma@157.180.25.101 "docker logs -f luma-proxy" &
 curl https://your-new-domain.com  # In another terminal
@@ -308,10 +321,10 @@ curl https://your-new-domain.com  # In another terminal
 ssh luma@157.180.25.101 "docker ps --filter 'label=luma.project=<project-name>'"
 
 # Test internal connectivity from proxy to app
-ssh luma@157.180.25.101 "docker exec luma-proxy curl -s -w 'HTTP Status: %{http_code}\n' http://web:3000/"
+ssh luma@157.180.25.101 "docker exec luma-proxy curl -s -w 'HTTP Status: %{http_code}\n' http://<project-name>-web:3000/"
 
-# Test health endpoint specifically
-ssh luma@157.180.25.101 "docker exec luma-proxy curl -s http://web:3000/api/health"
+# Test health endpoint specifically (replace with actual health path)
+ssh luma@157.180.25.101 "docker exec luma-proxy curl -s http://<project-name>-web:3000/up"
 
 # Manually update health status if needed
 ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy updatehealth --host your-domain.com --healthy true"
@@ -326,8 +339,8 @@ ssh luma@157.180.25.101 "docker restart luma-proxy"
 # Check proxy network connections
 ssh luma@157.180.25.101 "docker inspect luma-proxy --format '{{json .NetworkSettings.Networks}}'"
 
-# Verify proxy can reach project network
-ssh luma@157.180.25.101 "docker exec luma-proxy ping web" # Should resolve via network alias
+# Verify proxy can reach project network (using project-specific aliases)
+ssh luma@157.180.25.101 "docker exec luma-proxy ping <project-name>-web" # Should resolve via network alias
 
 # Check project network exists and contains containers
 ssh luma@157.180.25.101 "docker network inspect <project-name>-network"
@@ -352,28 +365,36 @@ ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy updatehealth --h
 curl https://test.eliasson.me  # Should now return "Hello World 2"
 ```
 
-### Certificate Retry Queue Management
+### Certificate Management Commands
 
 ```bash
-# View pending certificate requests
-ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy status"
+# Force certificate renewal for a specific host
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy cert-renew --host your-domain.com"
 
-# Certificate retry queue file location (for manual inspection)
-ssh luma@157.180.25.101 "docker exec luma-proxy cat /tmp/luma-proxy-cert-queue.json"
+# Enable Let's Encrypt staging mode (for testing)
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled true"
 
-# Clear certificate retry queue (if needed)
-ssh luma@157.180.25.101 "docker exec luma-proxy rm -f /tmp/luma-proxy-cert-queue.json"
-ssh luma@157.180.25.101 "docker restart luma-proxy"
+# Disable staging mode (back to production)
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy set-staging --enabled false"
+
+# Switch traffic for blue-green deployments
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy switch --host your-domain.com --target <project-name>-web-green:3000"
 ```
 
-### SSL Certificate Files
+### Certificate State Management
 
 ```bash
-# Check stored certificates (autocert cache)
+# View the proxy state file (contains all certificate status)
+ssh luma@157.180.25.101 "docker exec luma-proxy cat /var/lib/luma-proxy/state.json"
+
+# Check stored certificates on disk
 ssh luma@157.180.25.101 "docker exec luma-proxy ls -la /var/lib/luma-proxy/certs/"
 
-# View certificate details from cache
-ssh luma@157.180.25.101 "docker exec luma-proxy openssl x509 -in /var/lib/luma-proxy/certs/your-domain.com -noout -dates -subject"
+# View certificate details from storage
+ssh luma@157.180.25.101 "docker exec luma-proxy openssl x509 -in /var/lib/luma-proxy/certs/your-domain.com/cert.pem -noout -dates -subject"
+
+# Backup proxy state (recommended before major changes)
+ssh luma@157.180.25.101 "docker cp luma-proxy:/var/lib/luma-proxy/state.json ./proxy-state-backup.json"
 ```
 
 ### Common SSL Issues & Solutions
@@ -382,25 +403,32 @@ ssh luma@157.180.25.101 "docker exec luma-proxy openssl x509 -in /var/lib/luma-p
 
 - Check DNS points to server IP: `dig your-domain.com`
 - Verify ports 80/443 are accessible from internet
-- Check Let's Encrypt rate limits in logs
+- Check Let's Encrypt rate limits in logs: `docker logs luma-proxy | grep -i "rate\|limit"`
+- Check certificate status: `docker exec luma-proxy /app/luma-proxy cert-status --host your-domain.com`
 
 **2. 503 Service Unavailable with Valid SSL**
 
-- Health check issue - manually update health status
-- Container networking issue - verify proxy networks
-- App not responding - check container logs
+- Health check issue - manually update: `docker exec luma-proxy /app/luma-proxy updatehealth --host your-domain.com --healthy true`
+- Container networking issue - verify proxy can reach container: `docker exec luma-proxy ping <project-name>-web`
+- App not responding - check container logs: `docker logs <project-name>-web`
 
-**3. Certificate Expired/Invalid**
+**3. Certificate Acquisition Stuck in "acquiring" Status**
 
-- Check autocert renewal logs: `docker logs luma-proxy | grep renewal`
-- Manual renewal trigger: `curl https://your-domain.com` (forces autocert check)
-- Clear certificate cache if corrupted: `rm /var/lib/luma-proxy/certs/your-domain.com*`
+- Check certificate attempts: `docker exec luma-proxy /app/luma-proxy cert-status --host your-domain.com`
+- View acquisition logs: `docker logs luma-proxy | grep -i cert`
+- If max attempts reached, remove and re-deploy the route
 
-**4. First Request SSL Errors**
+**4. Let's Encrypt Rate Limit Hit**
 
-- Expected behavior - certificates provision on-demand
-- Wait 30-60 seconds for Let's Encrypt challenge completion
-- Use retry queue system to pre-provision certificates
+- Enable staging mode for testing: `docker exec luma-proxy /app/luma-proxy set-staging --enabled true`
+- Check rate limit errors in logs: `docker logs luma-proxy | grep -i "rate limit"`
+- Wait for rate limit to reset (typically 1 hour for failed validations)
+
+**5. Certificate Renewal Issues**
+
+- Force manual renewal: `docker exec luma-proxy /app/luma-proxy cert-renew --host your-domain.com`
+- Check renewal worker logs: `docker logs luma-proxy | grep -i "renewal\|worker"`
+- Verify certificate expiry: `docker exec luma-proxy /app/luma-proxy cert-status --host your-domain.com`
 
 ## Cleanup Commands
 
@@ -448,6 +476,173 @@ bun ../../src/index.ts deploy --force
 
 # Test nextjs example
 curl -I https://nextjs.example.myluma.cloud
+```
+
+## Proxy Development & Testing Workflow
+
+When developing and testing changes to the Luma proxy, follow this complete workflow to ensure proper testing in a clean environment.
+
+### Complete Proxy Testing Cycle
+
+This is the **rock-solid** testing workflow for proxy changes:
+
+```bash
+# 1. COMPLETE SERVER CLEANUP (start fresh every time)
+ssh luma@157.180.25.101 "docker stop \$(docker ps -aq) 2>/dev/null || true && docker rm \$(docker ps -aq) 2>/dev/null || true && docker rmi \$(docker images -aq) 2>/dev/null || true && docker network prune -f && docker system prune -af --volumes"
+
+# 2. REMOVE .LUMA DIRECTORY (clear all proxy state)
+ssh luma@157.180.25.101 "rm -rf ./.luma"
+
+# 3. PUBLISH UPDATED PROXY (after making changes)
+cd proxy
+./publish.sh
+cd ../examples/basic  # or whichever example you're testing
+
+# 4. SETUP INFRASTRUCTURE (pulls latest proxy)
+bun ../../src/index.ts setup --verbose
+
+# 5. DEPLOY AND TEST
+bun ../../src/index.ts deploy --force --verbose
+
+# 6. VERIFY SSL WORKS IMMEDIATELY
+curl -I https://test.eliasson.me
+```
+
+### Why Each Step is Critical
+
+1. **Complete Server Cleanup**: Ensures no leftover state from previous tests
+2. **Remove .luma Directory**: Clears certificate cache, config files, and proxy state
+3. **Publish Updated Proxy**: Makes your changes available for download
+4. **Setup Infrastructure**: Pulls the latest proxy image with your changes
+5. **Deploy and Test**: Tests the complete flow with your changes
+6. **Verify SSL**: Confirms SSL certificates work immediately (no race conditions)
+
+### Proxy Development Workflow
+
+When making changes to the proxy code:
+
+```bash
+# 1. Make your changes to proxy source code
+cd proxy
+# Edit files in internal/, cmd/, etc.
+
+# 2. Test locally (optional - if you have local setup)
+go build -o luma-proxy ./cmd/luma-proxy
+./luma-proxy run --cert-email test@example.com
+
+# 3. Publish to Docker Hub
+./publish.sh
+
+# 4. Test on server with complete cleanup
+cd ../examples/basic
+# Follow the "Complete Proxy Testing Cycle" above
+```
+
+### SSL Certificate Testing Specific
+
+For testing SSL certificate changes specifically:
+
+```bash
+# Complete cleanup and setup (as above)
+# Then deploy and immediately test SSL multiple times
+
+# Test 1: Immediate SSL after deployment
+bun ../../src/index.ts deploy --force
+curl -I https://test.eliasson.me  # Should work immediately
+
+# Test 2: Check certificate status
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy status"
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
+
+# Test 3: Verify certificate details
+openssl s_client -connect test.eliasson.me:443 -servername test.eliasson.me < /dev/null 2>/dev/null | openssl x509 -noout -dates -subject
+
+# Test 4: Check proxy logs for any issues
+ssh luma@157.180.25.101 "docker logs --tail 30 luma-proxy"
+```
+
+### Testing Different Scenarios
+
+#### Rate Limiting Scenario
+
+```bash
+# Deploy multiple domains quickly to trigger rate limiting
+# Modify luma.yml to include multiple hosts, then deploy
+bun ../../src/index.ts deploy --force
+
+# Check which succeeded and which are queued
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy status"
+```
+
+#### Certificate Renewal Testing
+
+```bash
+# Check certificate expiration monitoring
+ssh luma@157.180.25.101 "docker exec luma-proxy ls -la /var/lib/luma-proxy/certs/"
+
+# Force certificate renewal (when available)
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy renew --host test.eliasson.me"
+```
+
+### Common Testing Pitfalls
+
+❌ **Don't do this:**
+
+- Skip the complete cleanup step
+- Test without republishing the proxy first
+- Assume SSL works without testing immediately after deployment
+- Mix testing between different examples without cleanup
+
+✅ **Always do this:**
+
+- Complete server cleanup before each test cycle
+- Publish proxy changes before testing
+- Test SSL immediately after deployment
+- Check proxy logs for any errors or warnings
+
+### Quick Test Commands
+
+After following the complete cycle above, use these for quick verification:
+
+```bash
+# Quick SSL verification
+curl -s -o /dev/null -w "%{http_code}" https://test.eliasson.me  # Should return 200
+
+# Quick proxy status
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
+
+# Quick health check
+curl -s https://test.eliasson.me/api/health  # Should return "OK"
+
+# Quick container check
+ssh luma@157.180.25.101 "docker ps --filter 'label=luma.project=gmail'"
+```
+
+### Debugging Proxy Issues
+
+If something goes wrong during testing:
+
+```bash
+# 1. Check proxy container status
+ssh luma@157.180.25.101 "docker ps --filter 'name=luma-proxy'"
+
+# 2. View recent proxy logs
+ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy"
+
+# 3. Check proxy configuration and routes
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"
+
+# 4. Check certificate status
+ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy cert-status"
+
+# 5. Verify network connectivity using project-specific aliases
+ssh luma@157.180.25.101 "docker exec luma-proxy ping <project-name>-web"
+
+# 6. Check state file for debugging
+ssh luma@157.180.25.101 "docker exec luma-proxy cat /var/lib/luma-proxy/state.json"
+
+# 7. Manual proxy restart (if needed)
+ssh luma@157.180.25.101 "docker restart luma-proxy"
 ```
 
 ## File Locations

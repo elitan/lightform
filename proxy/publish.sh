@@ -1,29 +1,25 @@
 #!/bin/bash
+
 set -e
 
-# Configuration
-IMAGE_NAME="elitan/luma-proxy"
-VERSION="latest"
-PLATFORMS="linux/amd64,linux/arm64"
+echo "🚀 Publishing Luma Proxy to Docker Hub..."
 
-# Display what we're doing
-echo "Building and publishing multi-platform image $IMAGE_NAME:$VERSION for platforms: $PLATFORMS..."
+# Ensure we're in the proxy directory
+cd "$(dirname "$0")"
 
-# Create a new builder instance if it doesn't exist
-BUILDER_NAME="luma-multiplatform-builder"
-if ! docker buildx inspect $BUILDER_NAME > /dev/null 2>&1; then
-  echo "Creating new buildx builder instance..."
-  docker buildx create --name $BUILDER_NAME --driver docker-container --use
-else
-  echo "Using existing buildx builder instance..."
-  docker buildx use $BUILDER_NAME
+# Check if we're logged into Docker Hub
+if ! docker info | grep -q "Username"; then
+    echo "⚠️  Please login to Docker Hub first: docker login"
+    exit 1
 fi
 
-# Ensure the builder is running
-docker buildx inspect --bootstrap
+# Build multi-platform image and push
+echo "📦 Building multi-platform image..."
+docker buildx build \
+    --platform linux/amd64,linux/arm64 \
+    --tag elitan/luma-proxy:latest \
+    --push \
+    .
 
-# Build the Docker image for multiple platforms using buildx
-echo "Building image with buildx..."
-docker buildx build --platform $PLATFORMS -t $IMAGE_NAME:$VERSION --push .
-
-echo "Done! Multi-platform image $IMAGE_NAME:$VERSION has been published."
+echo "✅ Successfully published elitan/luma-proxy:latest"
+echo "📖 Image is available at: https://hub.docker.com/r/elitan/luma-proxy" 

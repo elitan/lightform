@@ -8,6 +8,51 @@ export const LUMA_PROXY_NAME = "luma-proxy";
 const DEFAULT_LUMA_PROXY_IMAGE = "elitan/luma-proxy:latest";
 
 /**
+ * Ensure the .luma directory and subdirectories are owned by the SSH user
+ */
+async function ensureLumaDirectoryOwnership(
+  sshClient: SSHClient,
+  serverHostname: string,
+  verbose: boolean = false
+): Promise<void> {
+  try {
+    // Get the current SSH username
+    const currentUser = await sshClient.exec("whoami");
+    const username = currentUser.trim();
+
+    if (verbose) {
+      console.log(
+        `[${serverHostname}] Ensuring .luma directory is owned by user: ${username}`
+      );
+    }
+
+    // Create .luma directory and subdirectories if they don't exist
+    await sshClient.exec(
+      "mkdir -p ./.luma/luma-proxy-certs ./.luma/luma-proxy-config"
+    );
+
+    // Change ownership of .luma directory and all subdirectories to the SSH user
+    await sshClient.exec(`sudo chown -R ${username}:${username} ./.luma`);
+
+    if (verbose) {
+      console.log(
+        `[${serverHostname}] Successfully set ownership of .luma directory to ${username}`
+      );
+    }
+  } catch (error) {
+    if (verbose) {
+      console.log(
+        `[${serverHostname}] Warning: Could not change ownership of .luma directory: ${error}`
+      );
+      console.log(
+        `[${serverHostname}] This may cause permission issues. Consider running 'sudo chown -R $(whoami):$(whoami) ./.luma' on the server.`
+      );
+    }
+    // Don't throw - this is not critical enough to stop the setup process
+  }
+}
+
+/**
  * Check if the Luma proxy is running and set it up if not
  */
 export async function setupLumaProxy(
@@ -84,14 +129,17 @@ export async function setupLumaProxy(
       return false;
     }
 
+    // Ensure .luma directory is owned by the SSH user before creating container
+    await ensureLumaDirectoryOwnership(sshClient, serverHostname, verbose);
+
     // Create container options
     const containerOptions = {
       name: LUMA_PROXY_NAME,
       image: proxyImage,
       ports: ["80:80", "443:443"],
       volumes: [
-        "./luma/luma-proxy-certs:/var/lib/luma-proxy/certs",
-        "./luma/luma-proxy-config:/tmp",
+        "./.luma/luma-proxy-certs:/var/lib/luma-proxy/certs",
+        "./.luma/luma-proxy-config:/tmp",
         "/var/run/docker.sock:/var/run/docker.sock",
       ],
       restart: "always",

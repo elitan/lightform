@@ -1,41 +1,44 @@
-# Stage 1: Build the Go application
-FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+# Build stage
+FROM golang:1.21-alpine AS builder
 
-WORKDIR /app
+# Install build dependencies
+RUN apk add --no-cache git
 
-# Copy go.mod and go.sum files to download dependencies
-COPY go.mod ./
-# It's good practice to also copy go.sum if it exists and you run `go mod download` or `go mod tidy`
-# RUN go mod download 
+# Set working directory
+WORKDIR /build
 
-# Copy the source code
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
 COPY . .
 
-# Build the application
-# -ldflags "-w -s" reduces the size of the binary by removing debug information.
-ARG TARGETOS TARGETARCH
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-w -s" -o /luma-proxy cmd/luma-proxy/main.go
+# Build the binary
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o luma-proxy ./cmd/luma-proxy
 
-# Stage 2: Create the final lightweight image
-FROM alpine:latest
+# Runtime stage
+FROM alpine:3.18
 
-# Add ca-certificates, curl for health checks, and docker CLI for backend resolution
-RUN apk --no-cache add ca-certificates curl docker
+# Install ca-certificates for HTTPS
+RUN apk --no-cache add ca-certificates
 
-WORKDIR /app
+# Create directories
+RUN mkdir -p /var/lib/luma-proxy/certs
 
-# Copy the built binary from the builder stage
-COPY --from=builder /luma-proxy .
+# Copy binary from builder
+COPY --from=builder /build/luma-proxy /usr/local/bin/luma-proxy
 
-# Create directories for certificates and configuration
-RUN mkdir -p /var/lib/luma-proxy/certs && \
-    chmod 700 /var/lib/luma-proxy/certs
+# Make binary executable
+RUN chmod +x /usr/local/bin/luma-proxy
 
-# Expose ports 80 and 443
+# Expose ports
 EXPOSE 80 443
 
-# Set the entrypoint for the container
-ENTRYPOINT ["/app/luma-proxy"]
+# Volume for persistent data
+VOLUME ["/var/lib/luma-proxy"]
 
-# Default command is to run the proxy
-CMD ["run"] 
+# Run the proxy
+ENTRYPOINT ["/usr/local/bin/luma-proxy"] 

@@ -1,82 +1,333 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"os/user"
+	"path/filepath"
+	"sync"
+	"syscall"
+	"time"
 
-	"github.com/elitan/luma-proxy/internal/cmd"
+	"github.com/elitan/luma/proxy/internal/cert"
+	"github.com/elitan/luma/proxy/internal/cli"
+	"github.com/elitan/luma/proxy/internal/health"
+	"github.com/elitan/luma/proxy/internal/router"
+	"github.com/elitan/luma/proxy/internal/state"
 )
 
-func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(1)
+const (
+	defaultStateFile = "/var/lib/luma-proxy/state.json"
+)
+
+func getStateFile() string {
+	// Check if we can write to the default location
+	if err := os.MkdirAll(filepath.Dir(defaultStateFile), 0755); err == nil {
+		// We can create the directory, use the default
+		return defaultStateFile
 	}
 
-	var err error
-
-	switch os.Args[1] {
-	case "run":
-		runCmd := cmd.NewRunCmd()
-		if err = runCmd.Parse(os.Args[2:]); err != nil {
-			log.Fatalf("Failed to parse run command arguments: %v", err)
-		}
-		err = runCmd.Execute()
-	case "deploy":
-		deployCmd := cmd.NewDeployCmd()
-		if err = deployCmd.Parse(os.Args[2:]); err != nil {
-			log.Fatalf("Failed to parse deploy command arguments: %v", err)
-		}
-		err = deployCmd.Execute()
-	case "status":
-		statusCmd := cmd.NewStatusCmd()
-		if err = statusCmd.Parse(os.Args[2:]); err != nil {
-			log.Fatalf("Failed to parse status command arguments: %v", err)
-		}
-		err = statusCmd.Execute()
-	case "list":
-		listCmd := cmd.NewListCmd()
-		if err = listCmd.Parse(os.Args[2:]); err != nil {
-			log.Fatalf("Failed to parse list command arguments: %v", err)
-		}
-		err = listCmd.Execute()
-	case "updatehealth":
-		updateHealthCmd := cmd.NewUpdateHealthCmd()
-		if err = updateHealthCmd.Parse(os.Args[2:]); err != nil {
-			log.Fatalf("Failed to parse updatehealth command arguments: %v", err)
-		}
-		err = updateHealthCmd.Execute()
-	default:
-		fmt.Printf("Unknown command: %s\n", os.Args[1])
-		printUsage()
-		os.Exit(1)
-	}
-
+	// Fallback to user's home directory for local testing
+	currentUser, err := user.Current()
 	if err != nil {
-		log.Fatalf("Error: %v", err)
+		// Final fallback to current directory
+		return "./state.json"
+	}
+
+	localStateDir := filepath.Join(currentUser.HomeDir, ".luma-proxy")
+	os.MkdirAll(localStateDir, 0755)
+	return filepath.Join(localStateDir, "state.json")
+}
+
+func main() {
+	// Check if this is a CLI command
+	if len(os.Args) > 1 {
+		if err := handleCLI(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	// Run as proxy server
+	if err := runProxy(); err != nil {
+		log.Fatal(err)
 	}
 }
 
-func printUsage() {
-	fmt.Println("Luma Proxy")
-	fmt.Println("Usage: luma-proxy <command> [arguments]")
-	fmt.Println("\nCommands:")
-	fmt.Println("  run [--port <https_port>] [--socket-path <path>] [--cert-email <email>]")
-	fmt.Println("      Run the proxy daemon (HTTP on 80 redirects to HTTPS, automatic Let's Encrypt)")
-	fmt.Println("  deploy --host <hostname> --target <ip:port> [--project <project-name>] [--health-path <path>]")
-	fmt.Println("      Configure routing for a hostname")
-	fmt.Println("  status")
-	fmt.Println("      Check the certificate retry queue status")
-	fmt.Println("  list")
-	fmt.Println("      List the current routes configured in the proxy")
-	fmt.Println("  updatehealth")
-	fmt.Println("      Update the health status of a service")
-	fmt.Println("        --host <hostname>       Hostname to update")
-	fmt.Println("        --healthy <true/false>  Health status")
-	fmt.Println("\nLet's Encrypt certificate options for 'run' command:")
-	fmt.Println("  --cert-email <email>   Email address for Let's Encrypt registration (recommended)")
-	fmt.Println("\nDeploy command options:")
-	fmt.Println("  --health-path <path>   Health check endpoint path (default: /up)")
-	fmt.Println("\nUse 'luma-proxy <command> --help' for more information on a specific command.")
+func handleCLI() error {
+	// Load state
+	st := state.NewState(getStateFile())
+	if err := st.Load(); err != nil {
+		return fmt.Errorf("failed to load state: %w", err)
+	}
+
+	// Create certificate manager
+	certManager, err := cert.NewManager(st)
+	if err != nil {
+		return fmt.Errorf("failed to create certificate manager: %w", err)
+	}
+
+	// Create health checker
+	healthChecker := health.NewChecker(st)
+
+	// Create CLI handler
+	cliHandler := cli.NewCLI(st, certManager, healthChecker)
+
+	// Execute command
+	return cliHandler.Execute(os.Args[1:])
+}
+
+func runProxy() error {
+	log.Println("[PROXY] Starting Luma proxy...")
+
+	// Load state
+	st := state.NewState(getStateFile())
+	if err := st.Load(); err != nil {
+		return fmt.Errorf("failed to load state: %w", err)
+	}
+
+	// Create certificate manager
+	certManager, err := cert.NewManager(st)
+	if err != nil {
+		return fmt.Errorf("failed to create certificate manager: %w", err)
+	}
+
+	// Create health checker
+	healthChecker := health.NewChecker(st)
+
+	// Create router
+	rt := router.NewRouter(st, certManager)
+
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Wait group for background workers
+	var wg sync.WaitGroup
+
+	// Start health checker
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		healthChecker.Start(ctx)
+	}()
+
+	// Start state persistence worker
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		statePersistenceWorker(ctx, st)
+	}()
+
+	// Start certificate acquisition worker
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		certificateAcquisitionWorker(ctx, st, certManager)
+	}()
+
+	// Start certificate renewal worker
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		certificateRenewalWorker(ctx, st, certManager)
+	}()
+
+	// Start HTTP server
+	httpServer := &http.Server{
+		Addr:         ":80",
+		Handler:      rt,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Println("[PROXY] Starting HTTP server on :80")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("[PROXY] HTTP server error: %v", err)
+		}
+	}()
+
+	// Start HTTPS server
+	httpsServer := &http.Server{
+		Addr:         ":443",
+		Handler:      rt,
+		TLSConfig:    rt.GetTLSConfig(),
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Println("[PROXY] Starting HTTPS server on :443")
+		if err := httpsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+			log.Printf("[PROXY] HTTPS server error: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	<-sigChan
+
+	log.Println("[PROXY] Shutting down...")
+
+	// Cancel context to stop background workers
+	cancel()
+
+	// Shutdown servers
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("[PROXY] HTTP server shutdown error: %v", err)
+	}
+
+	if err := httpsServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("[PROXY] HTTPS server shutdown error: %v", err)
+	}
+
+	// Wait for background workers
+	wg.Wait()
+
+	// Save state one last time
+	if err := st.Save(); err != nil {
+		log.Printf("[PROXY] Failed to save state on shutdown: %v", err)
+	}
+
+	log.Println("[PROXY] Shutdown complete")
+	return nil
+}
+
+// statePersistenceWorker periodically saves state to disk
+func statePersistenceWorker(ctx context.Context, st *state.State) {
+	log.Println("[WORKER] Starting state persistence worker")
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := st.Save(); err != nil {
+				log.Printf("[WORKER] Failed to save state: %v", err)
+			}
+		case <-ctx.Done():
+			log.Println("[WORKER] Stopping state persistence worker")
+			return
+		}
+	}
+}
+
+// certificateAcquisitionWorker processes pending certificate acquisitions
+func certificateAcquisitionWorker(ctx context.Context, st *state.State, cm *cert.Manager) {
+	log.Println("[WORKER] Starting certificate acquisition worker")
+
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			processPendingCertificates(st, cm)
+		case <-ctx.Done():
+			log.Println("[WORKER] Stopping certificate acquisition worker")
+			return
+		}
+	}
+}
+
+// processPendingCertificates checks for certificates that need acquisition
+func processPendingCertificates(st *state.State, cm *cert.Manager) {
+	hosts := st.GetAllHosts()
+
+	for hostname, host := range hosts {
+		if host.Certificate == nil || !host.SSLEnabled {
+			continue
+		}
+
+		cert := host.Certificate
+
+		// Check if we should attempt acquisition
+		shouldAttempt := false
+
+		switch cert.Status {
+		case "pending":
+			shouldAttempt = true
+		case "acquiring":
+			// Check if it's time for next attempt
+			if time.Now().After(cert.NextAttempt) {
+				shouldAttempt = true
+			}
+		case "failed":
+			// Don't retry failed certificates
+			continue
+		}
+
+		if shouldAttempt {
+			log.Printf("[WORKER] Attempting certificate acquisition for %s", hostname)
+			go func(h string) {
+				if err := cm.AcquireCertificate(h); err != nil {
+					log.Printf("[WORKER] Certificate acquisition failed for %s: %v", h, err)
+				}
+			}(hostname)
+		}
+	}
+}
+
+// certificateRenewalWorker checks for certificates that need renewal
+func certificateRenewalWorker(ctx context.Context, st *state.State, cm *cert.Manager) {
+	log.Println("[WORKER] Starting certificate renewal worker")
+
+	// Check every 12 hours
+	ticker := time.NewTicker(12 * time.Hour)
+	defer ticker.Stop()
+
+	// Initial check
+	checkCertificateRenewals(st, cm)
+
+	for {
+		select {
+		case <-ticker.C:
+			checkCertificateRenewals(st, cm)
+		case <-ctx.Done():
+			log.Println("[WORKER] Stopping certificate renewal worker")
+			return
+		}
+	}
+}
+
+// checkCertificateRenewals checks for certificates expiring within 30 days
+func checkCertificateRenewals(st *state.State, cm *cert.Manager) {
+	hosts := st.GetAllHosts()
+	renewalThreshold := 30 * 24 * time.Hour // 30 days
+
+	for hostname, host := range hosts {
+		if host.Certificate == nil || host.Certificate.Status != "active" {
+			continue
+		}
+
+		cert := host.Certificate
+		timeUntilExpiry := time.Until(cert.ExpiresAt)
+
+		if timeUntilExpiry < renewalThreshold {
+			log.Printf("[WORKER] Certificate for %s expires in %d days, attempting renewal",
+				hostname, int(timeUntilExpiry.Hours()/24))
+
+			go func(h string) {
+				if err := cm.RenewCertificate(h); err != nil {
+					log.Printf("[WORKER] Certificate renewal failed for %s: %v", h, err)
+				}
+			}(hostname)
+		}
+	}
 }

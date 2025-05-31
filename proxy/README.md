@@ -1,91 +1,290 @@
 # Luma Proxy
 
-A lightweight HTTP/HTTPS reverse proxy with host-based routing.
+A high-performance reverse proxy with automatic HTTPS certificate management, designed for the Luma deployment system.
 
 ## Features
 
-- HTTP to HTTPS redirection
-- Host-based routing
-- Dynamic service configuration
-- Project-based isolation for multi-project deployments
-- Automatic Let's Encrypt certificate management
+- **Automatic HTTPS**: Automatic certificate acquisition and renewal via Let's Encrypt
+- **Health Checking**: Built-in health checks for backend services
+- **Blue-Green Deployments**: Seamless traffic switching between application versions
+- **Multi-Project Support**: Handle multiple projects on the same host
+- **State Persistence**: JSON-based state management that survives restarts
+- **Docker Integration**: Seamless integration with Docker networks
 
-### Reserved Paths
+## Architecture
 
-Paths starting with `/luma-proxy/` are reserved for the proxy's internal functionality (e.g., `/luma-proxy/health`, `/luma-proxy/check-target`). Please ensure your backend applications do not use routes that begin with this prefix to avoid conflicts.
+The proxy consists of several components:
 
-## Usage
+- **State Manager**: Manages persistent configuration in JSON
+- **Certificate Manager**: Handles Let's Encrypt certificate lifecycle
+- **Router**: Routes HTTP/HTTPS traffic to backend containers
+- **Health Checker**: Monitors backend service health
+- **CLI Interface**: Accepts commands from the Luma CLI
 
-### Running the proxy
+## Building
 
-```
-luma-proxy run [--port <https_port>] [--socket-path <path>] [--cert-email <email>]
-```
+### Local Development
 
-Options:
+```bash
+# Install dependencies
+go mod download
 
-- `--port`: HTTPS port to listen on (default: 443)
-- `--socket-path`: Path to the Unix domain socket for management
-- `--cert-email`: Email address for Let's Encrypt registration (recommended)
-
-### Configuring routing
-
-```
-luma-proxy deploy --host <hostname> --target <ip:port> [--project <project-name>]
-```
-
-Options:
-
-- `--host`: Hostname that this service will serve traffic for
-- `--target`: Target service address in the format ip:port
-- `--project`: Project identifier, useful for distinguishing services in different Docker networks (default: "default")
-
-## Examples
-
-### Start the proxy
-
-```
-luma-proxy run --cert-email admin@example.com
-```
-
-### Configure routing for an application
-
-```
-luma-proxy deploy --host api.example.com --target localhost:3000 --project my-webapp
-```
-
-### Configure routing for another application in a different project
-
-```
-luma-proxy deploy --host api2.example.com --target localhost:3000 --project my-other-app
-```
-
-## SSL Certificates
-
-Luma Proxy automatically obtains and manages SSL certificates using Let's Encrypt. The proxy will:
-
-1. Obtain certificates for all configured hostnames.
-2. Automatically renew certificates before they expire (typically 30 days before expiry).
-3. Handle Let's Encrypt ACME challenges (HTTP-01).
-
-Certificates are stored by default in `/var/lib/luma-proxy/certs` inside the container.
-
-**Important notes:**
-
-- Your server must be accessible from the internet on ports 80 and 443.
-- DNS records for your domains must point to your server.
-- Providing an email address via `--cert-email` is highly recommended for certificate expiry notifications from Let's Encrypt.
-
-## Integration with Luma CLI
-
-When deploying applications with Luma CLI, it automatically configures the Luma Proxy to route traffic to your containers. The proxy handles:
-
-- Routing requests based on hostname to the appropriate container
-- HTTP to HTTPS redirection
-- TLS termination (with automatic Let's Encrypt certificates)
-
-## Building from source
-
-```
+# Build the binary
 go build -o luma-proxy ./cmd/luma-proxy
+
+# Run tests
+go test ./...
 ```
+
+### Docker Build
+
+```bash
+docker build -t luma-proxy .
+```
+
+## Running
+
+### As a Container (Production)
+
+```bash
+docker run -d \
+  --name luma-proxy \
+  --network luma-global \
+  -p 80:80 \
+  -p 443:443 \
+  -v luma-proxy-data:/var/lib/luma-proxy \
+  luma-proxy
+```
+
+### Local Development
+
+```bash
+# Run the proxy server
+./luma-proxy
+
+# Or use go run
+go run ./cmd/luma-proxy
+```
+
+## CLI Commands
+
+The proxy accepts commands via `docker exec`:
+
+```bash
+# Deploy a route
+docker exec luma-proxy luma-proxy deploy \
+  --host api.example.com \
+  --target my-project-web:3000 \
+  --project my-project \
+  --health-path /up
+
+# Remove a route
+docker exec luma-proxy luma-proxy remove --host api.example.com
+
+# List all routes
+docker exec luma-proxy luma-proxy list
+
+# Check certificate status
+docker exec luma-proxy luma-proxy cert-status --host api.example.com
+
+# Force certificate renewal
+docker exec luma-proxy luma-proxy cert-renew --host api.example.com
+
+# Enable Let's Encrypt staging mode (for testing)
+docker exec luma-proxy luma-proxy set-staging --enabled true
+
+# Switch traffic for blue-green deployment
+docker exec luma-proxy luma-proxy switch \
+  --host api.example.com \
+  --target my-project-web-green:3000
+```
+
+## Configuration
+
+### State File
+
+The proxy maintains its state in `/var/lib/luma-proxy/state.json`:
+
+```json
+{
+  "projects": {
+    "my-project": {
+      "hosts": {
+        "api.example.com": {
+          "target": "my-project-web:3000",
+          "app": "web",
+          "health_path": "/up",
+          "ssl_enabled": true,
+          "certificate": {
+            "status": "active",
+            "expires_at": "2024-04-15T10:35:00Z"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### Let's Encrypt Staging
+
+For development and testing, enable Let's Encrypt staging mode:
+
+```bash
+docker exec luma-proxy luma-proxy set-staging --enabled true
+```
+
+This uses Let's Encrypt's staging environment which has much higher rate limits but issues untrusted certificates.
+
+## Health Checks
+
+The proxy performs health checks every 30 seconds on all configured backends. A backend is considered healthy if:
+
+- The health check endpoint returns a 2xx status code
+- The request completes within 5 seconds
+
+Unhealthy backends are automatically removed from the routing pool.
+
+## Certificate Management
+
+### Acquisition
+
+- Certificates are automatically acquired when a route is deployed with SSL enabled
+- Uses HTTP-01 challenge validation
+- Retries every 10 minutes for up to 24 hours on failure
+- Respects Let's Encrypt rate limits
+
+### Renewal
+
+- Certificates are checked for renewal every 12 hours
+- Renewal is attempted 30 days before expiry
+- Failed renewals are retried with the same logic as acquisition
+
+### Rate Limits
+
+Let's Encrypt has strict rate limits:
+
+- 50 certificates per registered domain per week
+- 5 failed validations per account per hostname per hour
+
+The proxy tracks and respects these limits automatically.
+
+## Logging
+
+All logs are written to stdout with structured prefixes:
+
+- `[PROXY]`: General proxy operations
+- `[CERT]`: Certificate management
+- `[ACME]`: ACME challenge handling
+- `[HEALTH]`: Health check results
+- `[WORKER]`: Background worker status
+- `[CLI]`: CLI command handling
+
+View logs:
+
+```bash
+docker logs -f luma-proxy
+```
+
+## Troubleshooting
+
+### Certificate Acquisition Failures
+
+1. Check DNS is properly configured:
+
+   ```bash
+   dig +short api.example.com
+   ```
+
+2. Verify the proxy is accessible on port 80:
+
+   ```bash
+   curl -I http://api.example.com/.well-known/acme-challenge/test
+   ```
+
+3. Check proxy logs for ACME validation attempts:
+   ```bash
+   docker logs luma-proxy | grep ACME
+   ```
+
+### Health Check Failures
+
+1. Test the health endpoint directly:
+
+   ```bash
+   docker exec luma-proxy curl http://my-project-web:3000/up
+   ```
+
+2. Verify the container is on the correct network:
+   ```bash
+   docker network inspect my-project-network
+   ```
+
+### Blue-Green Deployment Issues
+
+1. Verify both versions are running:
+
+   ```bash
+   docker ps | grep my-project-web
+   ```
+
+2. Check health status of both versions:
+   ```bash
+   docker exec luma-proxy luma-proxy list
+   ```
+
+## Development
+
+### Running Tests
+
+```bash
+# Unit tests
+go test ./internal/...
+
+# Integration tests
+go test -tags=integration ./test/...
+
+# With coverage
+go test -cover ./...
+```
+
+### Local Testing with Staging Certificates
+
+1. Build and run locally:
+
+   ```bash
+   go build -o luma-proxy ./cmd/luma-proxy
+   sudo ./luma-proxy  # Needs root for ports 80/443
+   ```
+
+2. Enable staging mode:
+
+   ```bash
+   ./luma-proxy set-staging --enabled true
+   ```
+
+3. Deploy a test route:
+   ```bash
+   ./luma-proxy deploy \
+     --host test.example.com \
+     --target localhost:8080 \
+     --project test
+   ```
+
+## Security
+
+- Certificates and keys are stored with restricted permissions (0600)
+- TLS configuration uses modern cipher suites and TLS 1.2+
+- Health check endpoints should not expose sensitive information
+- The proxy does not log request bodies or sensitive headers
+
+## Performance
+
+- Connection pooling for backend requests
+- Efficient in-memory routing table
+- Concurrent health checks
+- Minimal overhead on request routing
+
+## License
+
+Part of the Luma deployment system.
