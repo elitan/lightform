@@ -9,6 +9,7 @@ const DEFAULT_LUMA_PROXY_IMAGE = "elitan/luma-proxy:latest";
 
 /**
  * Check if the Luma proxy is running and set it up if not
+ * During setup, always force pull the latest version to ensure updates are deployed
  */
 export async function setupLumaProxy(
   serverHostname: string,
@@ -31,28 +32,38 @@ export async function setupLumaProxy(
     const proxyExists = await dockerClient.containerExists(LUMA_PROXY_NAME);
 
     if (proxyExists) {
-      // Check if it's running
-      const proxyRunning = await dockerClient.containerIsRunning(
-        LUMA_PROXY_NAME
-      );
+      if (verbose) {
+        console.log(
+          `[${serverHostname}] Luma proxy already exists. Force updating to latest version...`
+        );
+        console.log(
+          `[${serverHostname}] Stopping and removing existing proxy container...`
+        );
+      }
 
-      if (proxyRunning) {
-        if (verbose) {
-          console.log(`[${serverHostname}] Luma proxy is already running.`);
+      // Stop and remove existing container to force update
+      try {
+        const proxyRunning = await dockerClient.containerIsRunning(
+          LUMA_PROXY_NAME
+        );
+        if (proxyRunning) {
+          await dockerClient.stopContainer(LUMA_PROXY_NAME);
         }
-        return true;
-      } else {
+        await dockerClient.removeContainer(LUMA_PROXY_NAME);
         if (verbose) {
           console.log(
-            `[${serverHostname}] Luma proxy exists but is not running. Starting it...`
+            `[${serverHostname}] Existing proxy container removed successfully.`
           );
         }
-        await dockerClient.startContainer(LUMA_PROXY_NAME);
-        return true;
+      } catch (error) {
+        console.error(
+          `[${serverHostname}] Warning: Failed to remove existing proxy container: ${error}`
+        );
+        // Continue anyway - the force pull and create might still work
       }
     }
 
-    // If we get here, the proxy doesn't exist and needs to be created
+    // Force pull the latest image (whether container existed or not)
     if (verbose) {
       console.log(`[${serverHostname}] Setting up Luma proxy...`);
       console.log(

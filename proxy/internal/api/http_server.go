@@ -294,6 +294,13 @@ func (s *HTTPServer) handleStaging(w http.ResponseWriter, r *http.Request) {
 	// Update the state with new staging mode
 	s.state.SetLetsEncryptStaging(req.Enabled)
 
+	// Update the ACME client to use the new directory URL
+	if err := s.certManager.UpdateACMEClient(); err != nil {
+		log.Printf("[HTTP-API] Failed to update ACME client: %v", err)
+		s.writeErrorResponse(w, fmt.Sprintf("Failed to update ACME client: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	mode := "production"
 	if req.Enabled {
 		mode = "staging"

@@ -44,6 +44,26 @@ func NewManager(st *state.State) (*Manager, error) {
 	}
 	m.accountKey = accountKey
 
+	// Initialize ACME client
+	if err := m.initACMEClient(); err != nil {
+		return nil, fmt.Errorf("failed to initialize ACME client: %w", err)
+	}
+
+	// Register account if needed
+	if err := m.registerAccount(); err != nil {
+		return nil, fmt.Errorf("failed to register account: %w", err)
+	}
+
+	// Load existing certificates
+	if err := m.loadCertificates(); err != nil {
+		return nil, fmt.Errorf("failed to load certificates: %w", err)
+	}
+
+	return m, nil
+}
+
+// initACMEClient initializes or reinitializes the ACME client with current configuration
+func (m *Manager) initACMEClient() error {
 	// Create ACME client with proper HTTP transport configuration
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
@@ -57,24 +77,33 @@ func NewManager(st *state.State) (*Manager, error) {
 	}
 
 	m.client = &acme.Client{
-		Key:          accountKey,
-		DirectoryURL: st.LetsEncrypt.DirectoryURL,
+		Key:          m.accountKey,
+		DirectoryURL: m.state.LetsEncrypt.DirectoryURL,
 		HTTPClient:   httpClient,
 	}
 
-	log.Printf("[CERT] ACME client configured with directory URL: %s", st.LetsEncrypt.DirectoryURL)
+	log.Printf("[CERT] ACME client configured with directory URL: %s", m.state.LetsEncrypt.DirectoryURL)
+	return nil
+}
 
-	// Register account if needed
+// UpdateACMEClient updates the ACME client when configuration changes (e.g., staging mode)
+func (m *Manager) UpdateACMEClient() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	log.Printf("[CERT] Updating ACME client configuration...")
+
+	if err := m.initACMEClient(); err != nil {
+		return fmt.Errorf("failed to update ACME client: %w", err)
+	}
+
+	// Re-register account with new directory if needed
 	if err := m.registerAccount(); err != nil {
-		return nil, fmt.Errorf("failed to register account: %w", err)
+		return fmt.Errorf("failed to re-register account: %w", err)
 	}
 
-	// Load existing certificates
-	if err := m.loadCertificates(); err != nil {
-		return nil, fmt.Errorf("failed to load certificates: %w", err)
-	}
-
-	return m, nil
+	log.Printf("[CERT] ACME client updated successfully with directory URL: %s", m.state.LetsEncrypt.DirectoryURL)
+	return nil
 }
 
 // GetCertificate returns a certificate for the given hostname
