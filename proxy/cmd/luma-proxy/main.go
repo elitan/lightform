@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/elitan/luma/proxy/internal/api"
 	"github.com/elitan/luma/proxy/internal/cert"
 	"github.com/elitan/luma/proxy/internal/cli"
 	"github.com/elitan/luma/proxy/internal/health"
@@ -58,27 +60,11 @@ func main() {
 	}
 }
 
+// handleCLI handles CLI commands via HTTP API only
 func handleCLI() error {
-	// Load state
-	st := state.NewState(getStateFile())
-	if err := st.Load(); err != nil {
-		return fmt.Errorf("failed to load state: %w", err)
-	}
-
-	// Create certificate manager
-	certManager, err := cert.NewManager(st)
-	if err != nil {
-		return fmt.Errorf("failed to create certificate manager: %w", err)
-	}
-
-	// Create health checker
-	healthChecker := health.NewChecker(st)
-
-	// Create CLI handler
-	cliHandler := cli.NewCLI(st, certManager, healthChecker)
-
-	// Execute command
-	return cliHandler.Execute(os.Args[1:])
+	httpClient := api.NewHTTPClient("http://localhost:8080")
+	httpCli := cli.NewHTTPBasedCLI(httpClient)
+	return httpCli.Execute(os.Args[1:])
 }
 
 func runProxy() error {
@@ -101,6 +87,15 @@ func runProxy() error {
 
 	// Create router
 	rt := router.NewRouter(st, certManager)
+
+	// Create channel to signal when HTTP server is ready
+	httpServerReady := make(chan struct{})
+
+	// Create and start HTTP API server with readiness signal
+	httpAPIServer := api.NewHTTPServerWithReadiness(st, certManager, healthChecker, httpServerReady)
+	if err := httpAPIServer.Start(); err != nil {
+		return fmt.Errorf("failed to start HTTP API server: %w", err)
+	}
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -150,7 +145,19 @@ func runProxy() error {
 	go func() {
 		defer wg.Done()
 		log.Println("[PROXY] Starting HTTP server on :80")
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+
+		// Start listening in a separate goroutine and signal readiness
+		ln, err := net.Listen("tcp", ":80")
+		if err != nil {
+			log.Printf("[PROXY] HTTP server listen error: %v", err)
+			return
+		}
+
+		// Signal that HTTP server is ready to accept connections
+		log.Println("[PROXY] HTTP server ready to accept connections on :80")
+		close(httpServerReady)
+
+		if err := httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Printf("[PROXY] HTTP server error: %v", err)
 		}
 	}()
@@ -174,18 +181,18 @@ func runProxy() error {
 		}
 	}()
 
-	// Wait for interrupt signal
+	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("[PROXY] Shutting down...")
+	log.Println("[PROXY] Shutdown signal received, shutting down gracefully...")
 
 	// Cancel context to stop background workers
 	cancel()
 
-	// Shutdown servers
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Shutdown HTTP servers with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
@@ -196,13 +203,13 @@ func runProxy() error {
 		log.Printf("[PROXY] HTTPS server shutdown error: %v", err)
 	}
 
-	// Wait for background workers
-	wg.Wait()
-
-	// Save state one last time
-	if err := st.Save(); err != nil {
-		log.Printf("[PROXY] Failed to save state on shutdown: %v", err)
+	// Shutdown HTTP API server
+	if err := httpAPIServer.Stop(); err != nil {
+		log.Printf("[PROXY] HTTP API server shutdown error: %v", err)
 	}
+
+	// Wait for background workers to finish
+	wg.Wait()
 
 	log.Println("[PROXY] Shutdown complete")
 	return nil

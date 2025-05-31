@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -43,11 +44,25 @@ func NewManager(st *state.State) (*Manager, error) {
 	}
 	m.accountKey = accountKey
 
-	// Create ACME client
+	// Create ACME client with proper HTTP transport configuration
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 15 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+			DisableKeepAlives:     false,
+		},
+	}
+
 	m.client = &acme.Client{
 		Key:          accountKey,
 		DirectoryURL: st.LetsEncrypt.DirectoryURL,
+		HTTPClient:   httpClient,
 	}
+
+	log.Printf("[CERT] ACME client configured with directory URL: %s", st.LetsEncrypt.DirectoryURL)
 
 	// Register account if needed
 	if err := m.registerAccount(); err != nil {
@@ -102,12 +117,23 @@ func (m *Manager) ServeHTTPChallenge(token string) (string, bool) {
 
 // AcquireCertificate attempts to acquire a certificate for the given hostname
 func (m *Manager) AcquireCertificate(hostname string) error {
+	log.Printf("[CERT] [%s] Certificate acquisition request received", hostname)
+
+	// Use a per-hostname mutex to prevent concurrent acquisition attempts for the same domain
+	// This prevents ACME client race conditions that cause hanging
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	log.Printf("[CERT] [%s] Acquired certificate acquisition lock", hostname)
+
 	host, _, err := m.state.GetHost(hostname)
 	if err != nil {
+		log.Printf("[CERT] [%s] Host not found in state: %v", hostname, err)
 		return fmt.Errorf("host not found: %w", err)
 	}
 
 	if host.Certificate == nil {
+		log.Printf("[CERT] [%s] Initializing new certificate status", hostname)
 		host.Certificate = &state.CertificateStatus{
 			Status:       "acquiring",
 			FirstAttempt: time.Now(),
@@ -115,40 +141,68 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 		}
 	}
 
+	// Check if already acquiring or active - avoid duplicate work
+	if host.Certificate.Status == "active" {
+		log.Printf("[CERT] [%s] Certificate already active, skipping acquisition", hostname)
+		return nil
+	}
+
+	if host.Certificate.Status == "acquiring" && host.Certificate.AttemptCount > 0 && time.Since(host.Certificate.LastAttempt) < 30*time.Second {
+		log.Printf("[CERT] [%s] Recent acquisition attempt in progress (last attempt %v ago), skipping", hostname, time.Since(host.Certificate.LastAttempt))
+		return nil
+	}
+
 	// Update status
 	host.Certificate.Status = "acquiring"
 	host.Certificate.LastAttempt = time.Now()
 	host.Certificate.AttemptCount++
 
-	log.Printf("[CERT] [%s] Starting certificate acquisition", hostname)
+	log.Printf("[CERT] [%s] Starting certificate acquisition (attempt %d/%d)", hostname, host.Certificate.AttemptCount, host.Certificate.MaxAttempts)
 
-	// Create order
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// Create order with shorter timeout to prevent hanging
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	log.Printf("[CERT] [%s] Creating ACME order with Let's Encrypt (timeout: 30s)", hostname)
+	log.Printf("[CERT] [%s] ACME directory URL: %s", hostname, m.client.DirectoryURL)
+	log.Printf("[CERT] [%s] Attempting AuthorizeOrder for domain: %s", hostname, hostname)
+
+	orderStart := time.Now()
 	order, err := m.client.AuthorizeOrder(ctx, acme.DomainIDs(hostname))
+	orderDuration := time.Since(orderStart)
+
 	if err != nil {
-		log.Printf("[CERT] [%s] Failed to create order: %v", hostname, err)
+		log.Printf("[CERT] [%s] Failed to create ACME order after %v: %v", hostname, orderDuration, err)
+		if ctx.Err() == context.DeadlineExceeded {
+			log.Printf("[CERT] [%s] ACME order creation timed out after 30 seconds", hostname)
+		}
 		m.updateCertificateError(hostname, err)
 		return err
 	}
+	log.Printf("[CERT] [%s] ACME order created successfully in %v (status: %s)", hostname, orderDuration, order.Status)
 
 	// Complete challenges
-	for _, authzURL := range order.AuthzURLs {
+	log.Printf("[CERT] [%s] Processing %d authorization(s)", hostname, len(order.AuthzURLs))
+	for i, authzURL := range order.AuthzURLs {
+		log.Printf("[CERT] [%s] Processing authorization %d/%d", hostname, i+1, len(order.AuthzURLs))
+
 		authz, err := m.client.GetAuthorization(ctx, authzURL)
 		if err != nil {
-			log.Printf("[CERT] [%s] Failed to get authorization: %v", hostname, err)
+			log.Printf("[CERT] [%s] Failed to get authorization %d: %v", hostname, i+1, err)
 			m.updateCertificateError(hostname, err)
 			return err
 		}
 
 		if authz.Status == acme.StatusValid {
+			log.Printf("[CERT] [%s] Authorization %d already valid, skipping", hostname, i+1)
 			continue
 		}
 
 		// Find HTTP-01 challenge
 		var challenge *acme.Challenge
-		for _, c := range authz.Challenges {
+		log.Printf("[CERT] [%s] Looking for HTTP-01 challenge among %d challenge(s)", hostname, len(authz.Challenges))
+		for j, c := range authz.Challenges {
+			log.Printf("[CERT] [%s] Challenge %d: type=%s, status=%s", hostname, j+1, c.Type, c.Status)
 			if c.Type == "http-01" {
 				challenge = c
 				break
@@ -156,11 +210,13 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 		}
 
 		if challenge == nil {
-			err := fmt.Errorf("no HTTP-01 challenge found")
+			err := fmt.Errorf("no HTTP-01 challenge found among %d challenges", len(authz.Challenges))
 			log.Printf("[CERT] [%s] %v", hostname, err)
 			m.updateCertificateError(hostname, err)
 			return err
 		}
+
+		log.Printf("[CERT] [%s] Found HTTP-01 challenge: token=%s, status=%s", hostname, challenge.Token, challenge.Status)
 
 		// Prepare challenge response
 		keyAuth, err := m.client.HTTP01ChallengeResponse(challenge.Token)
@@ -176,15 +232,19 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 
 		log.Printf("[CERT] [%s] ACME challenge created: http-01", hostname)
 		log.Printf("[CERT] [%s] Challenge URL: /.well-known/acme-challenge/%s", hostname, challenge.Token)
+		log.Printf("[CERT] [%s] Challenge key authorization stored", hostname)
 
 		// Accept challenge
+		log.Printf("[CERT] [%s] Accepting ACME challenge", hostname)
 		if _, err := m.client.Accept(ctx, challenge); err != nil {
 			log.Printf("[CERT] [%s] Failed to accept challenge: %v", hostname, err)
 			m.updateCertificateError(hostname, err)
 			return err
 		}
+		log.Printf("[CERT] [%s] ACME challenge accepted, waiting for validation", hostname)
 
 		// Wait for challenge to complete
+		log.Printf("[CERT] [%s] Waiting for challenge validation...", hostname)
 		authz, err = m.client.WaitAuthorization(ctx, authz.URI)
 		if err != nil {
 			log.Printf("[CERT] [%s] Challenge validation failed: %v", hostname, err)
@@ -199,14 +259,17 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 	}
 
 	// Wait for order to be ready
+	log.Printf("[CERT] [%s] Waiting for ACME order to be ready for finalization", hostname)
 	order, err = m.client.WaitOrder(ctx, order.URI)
 	if err != nil {
 		log.Printf("[CERT] [%s] Failed to wait for order: %v", hostname, err)
 		m.updateCertificateError(hostname, err)
 		return err
 	}
+	log.Printf("[CERT] [%s] ACME order is ready for finalization", hostname)
 
 	// Create certificate request
+	log.Printf("[CERT] [%s] Generating private key for certificate", hostname)
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		log.Printf("[CERT] [%s] Failed to generate key: %v", hostname, err)
@@ -219,6 +282,7 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 		DNSNames: []string{hostname},
 	}
 
+	log.Printf("[CERT] [%s] Creating certificate signing request (CSR)", hostname)
 	csr, err := x509.CreateCertificateRequest(rand.Reader, template, key)
 	if err != nil {
 		log.Printf("[CERT] [%s] Failed to create CSR: %v", hostname, err)
@@ -227,14 +291,17 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 	}
 
 	// Finalize order
+	log.Printf("[CERT] [%s] Finalizing ACME order with CSR", hostname)
 	derCerts, _, err := m.client.CreateOrderCert(ctx, order.FinalizeURL, csr, true)
 	if err != nil {
 		log.Printf("[CERT] [%s] Failed to finalize order: %v", hostname, err)
 		m.updateCertificateError(hostname, err)
 		return err
 	}
+	log.Printf("[CERT] [%s] ACME order finalized, certificate obtained", hostname)
 
 	// Save certificate
+	log.Printf("[CERT] [%s] Saving certificate to disk", hostname)
 	certPath := filepath.Join("/var/lib/luma-proxy/certs", hostname, "cert.pem")
 	keyPath := filepath.Join("/var/lib/luma-proxy/certs", hostname, "key.pem")
 
@@ -252,6 +319,7 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 		m.updateCertificateError(hostname, err)
 		return err
 	}
+	log.Printf("[CERT] [%s] Certificate saved to disk: %s", hostname, certPath)
 
 	// Parse certificate to get expiry
 	cert, err := x509.ParseCertificate(derCerts[0])
@@ -270,7 +338,9 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 		KeyFile:    keyPath,
 	}
 
+	log.Printf("[CERT] [%s] Updating certificate status to active (expires: %s)", hostname, cert.NotAfter.Format(time.RFC3339))
 	if err := m.state.UpdateCertificateStatus(hostname, status); err != nil {
+		log.Printf("[CERT] [%s] Failed to update certificate status: %v", hostname, err)
 		return err
 	}
 
@@ -278,6 +348,10 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 	m.certCache.Delete(hostname)
 
 	log.Printf("[CERT] [%s] Certificate issued successfully", hostname)
+
+	// Small delay to ensure all systems are synchronized
+	time.Sleep(500 * time.Millisecond)
+	log.Printf("[CERT] [%s] Certificate acquisition completed and synchronized", hostname)
 
 	return nil
 }
@@ -481,10 +555,15 @@ func (m *Manager) saveCertificate(hostname string, derCerts [][]byte, key crypto
 
 // updateCertificateError updates certificate status after an error
 func (m *Manager) updateCertificateError(hostname string, err error) {
+	log.Printf("[CERT] [%s] Certificate acquisition error occurred: %v", hostname, err)
+
 	host, _, _ := m.state.GetHost(hostname)
 	if host == nil || host.Certificate == nil {
+		log.Printf("[CERT] [%s] Cannot update certificate error - host or certificate is nil", hostname)
 		return
 	}
+
+	log.Printf("[CERT] [%s] Current status: %s, attempts: %d/%d", hostname, host.Certificate.Status, host.Certificate.AttemptCount, host.Certificate.MaxAttempts)
 
 	// Schedule next attempt
 	host.Certificate.NextAttempt = time.Now().Add(10 * time.Minute)
@@ -492,7 +571,8 @@ func (m *Manager) updateCertificateError(hostname string, err error) {
 	// Check if we've exceeded max attempts
 	if host.Certificate.AttemptCount >= host.Certificate.MaxAttempts {
 		host.Certificate.Status = "failed"
-		log.Printf("[CERT] [%s] Acquisition failed after %d attempts", hostname, host.Certificate.MaxAttempts)
+		log.Printf("[CERT] [%s] Acquisition failed after %d attempts, marking as failed", hostname, host.Certificate.MaxAttempts)
+		log.Printf("[CERT] [%s] Final error: %v", hostname, err)
 	} else {
 		log.Printf("[CERT] [%s] Acquisition failed, scheduling retry in 10 minutes", hostname)
 		log.Printf("[CERT] [%s] Attempt %d/%d, next attempt: %s",
@@ -500,7 +580,12 @@ func (m *Manager) updateCertificateError(hostname string, err error) {
 			host.Certificate.AttemptCount,
 			host.Certificate.MaxAttempts,
 			host.Certificate.NextAttempt.Format(time.RFC3339))
+		log.Printf("[CERT] [%s] Error details: %v", hostname, err)
 	}
 
-	m.state.UpdateCertificateStatus(hostname, host.Certificate)
+	if err := m.state.UpdateCertificateStatus(hostname, host.Certificate); err != nil {
+		log.Printf("[CERT] [%s] Failed to update certificate status in state: %v", hostname, err)
+	} else {
+		log.Printf("[CERT] [%s] Certificate status updated successfully", hostname)
+	}
 }

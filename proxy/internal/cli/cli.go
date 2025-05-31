@@ -82,6 +82,7 @@ func (c *CLI) deploy(args []string) error {
 	}
 
 	log.Printf("[CLI] Deploying host %s with SSL=%v", *host, *ssl)
+	log.Printf("[CLI] DEBUG: SSL flag value is %t", *ssl)
 
 	// Deploy the host
 	if err := c.state.DeployHost(*host, *target, *project, *app, *healthPath, *ssl); err != nil {
@@ -99,6 +100,7 @@ func (c *CLI) deploy(args []string) error {
 	go c.healthChecker.CheckHost(*host)
 
 	// If SSL is enabled, trigger certificate acquisition IMMEDIATELY
+	log.Printf("[CLI] DEBUG: About to check SSL flag, value is %t", *ssl)
 	if *ssl {
 		log.Printf("[CLI] SSL enabled - starting immediate certificate acquisition for %s", *host)
 
@@ -107,7 +109,7 @@ func (c *CLI) deploy(args []string) error {
 			return fmt.Errorf("certificate manager not initialized")
 		}
 
-		log.Printf("[CLI] Starting certificate acquisition for %s", *host)
+		log.Printf("[CLI] Certificate manager is available, starting acquisition for %s", *host)
 		if err := c.certManager.AcquireCertificate(*host); err != nil {
 			log.Printf("[CLI] Certificate acquisition failed for %s: %v", *host, err)
 			// Don't return error - certificate can be acquired later by background worker
@@ -119,6 +121,7 @@ func (c *CLI) deploy(args []string) error {
 		log.Printf("[CLI] SSL disabled for %s - skipping certificate acquisition", *host)
 	}
 
+	log.Printf("[CLI] Deploy function completed for %s", *host)
 	return nil
 }
 
