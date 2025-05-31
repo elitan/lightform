@@ -34,15 +34,14 @@ ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy set-st
 cd proxy
 ./publish.sh
 
-# Stop and remove proxy container
-ssh luma@157.180.25.101 "docker stop luma-proxy && docker rm luma-proxy"
-
-# Force pull latest image
-ssh luma@157.180.25.101 "docker pull elitan/luma-proxy:latest"
-
-# Either run setup to recreate proxy, or start manually
+# Setup will automatically pull latest proxy if available and start it
 bun ../../src/index.ts setup --verbose
-# OR start manually if needed
+
+# Manual approach if needed (usually not required):
+# Stop and remove proxy container
+# ssh luma@157.180.25.101 "docker stop luma-proxy && docker rm luma-proxy"
+# Force pull latest image
+# ssh luma@157.180.25.101 "docker pull elitan/luma-proxy:latest"
 ```
 
 ### Clear Proxy State (.luma directory)
@@ -184,7 +183,7 @@ ssh luma@157.180.25.101 "docker logs --tail 30 gmail-web"
 
 # 5. Redeploy
 cd proxy && ./publish.sh && cd ../examples/basic  # If proxy changes
-bun ../../src/index.ts setup --verbose            # Pull updated proxy
+bun ../../src/index.ts setup --verbose            # Automatically pulls updated proxy and starts it
 bun ../../src/index.ts deploy --force --verbose   # Deploy again
 
 # 6. Start over
