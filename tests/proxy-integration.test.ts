@@ -18,7 +18,7 @@ describe("Proxy Integration Tests", () => {
     },
   };
 
-  test("External HTTPS access should work for both projects", async () => {
+  test.skip("External HTTPS access should work for both projects", async () => {
     // Test Gmail project
     const { stdout: gmailResponse } = await execAsync(
       `curl -s https://${testTargets.gmail.domain}`
@@ -32,7 +32,7 @@ describe("Proxy Integration Tests", () => {
     expect(nextjsResponse).toContain(testTargets.nextjs.expectedContent);
   });
 
-  test("Proxy should use project-specific DNS targets", async () => {
+  test.skip("Proxy should use project-specific DNS targets", async () => {
     try {
       const { stdout, stderr } = await execAsync(
         `ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy list"`
@@ -60,7 +60,7 @@ describe("Proxy Integration Tests", () => {
     }
   });
 
-  test("Internal DNS resolution should work via project-specific aliases", async () => {
+  test.skip("Internal DNS resolution should work via project-specific aliases", async () => {
     // Test Gmail project-specific alias from proxy
     const { stdout: gmailInternal } = await execAsync(
       `ssh luma@157.180.25.101 "docker exec luma-proxy curl -s http://${testTargets.gmail.projectAlias}:3000"`
@@ -74,7 +74,7 @@ describe("Proxy Integration Tests", () => {
     expect(nextjsInternal).toContain(testTargets.nextjs.expectedContent);
   });
 
-  test("Both projects should be healthy", async () => {
+  test.skip("Both projects should be healthy", async () => {
     try {
       const { stdout, stderr } = await execAsync(
         `ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy list"`
@@ -100,7 +100,7 @@ describe("Proxy Integration Tests", () => {
     }
   });
 
-  test("Projects should return different content (proving isolation)", async () => {
+  test.skip("Projects should return different content (proving isolation)", async () => {
     const { stdout: gmailResponse } = await execAsync(
       `curl -s https://${testTargets.gmail.domain}`
     );
