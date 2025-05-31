@@ -105,9 +105,10 @@ export class LumaProxyClient {
         projectName,
         "--health-path",
         healthPath,
+        "--ssl",
       ];
 
-      const command = `/app/luma-proxy ${args.join(" ")}`;
+      const command = `/usr/local/bin/luma-proxy ${args.join(" ")}`;
       const execResult = await this.dockerClient.execInContainer(
         "luma-proxy",
         command
@@ -233,7 +234,7 @@ export class LumaProxyClient {
 
       // Build the proxy update health command
       const healthStatus = healthy ? "true" : "false";
-      const proxyCmd = `/app/luma-proxy updatehealth --host ${host} --healthy ${healthStatus}`;
+      const proxyCmd = `/usr/local/bin/luma-proxy updatehealth --host ${host} --healthy ${healthStatus}`;
 
       // Execute the command in the luma-proxy container
       const execResult = await this.dockerClient.execInContainer(

@@ -35,7 +35,7 @@ describe("Proxy Integration Tests", () => {
   test("Proxy should use project-specific DNS targets", async () => {
     try {
       const { stdout, stderr } = await execAsync(
-        `ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"`
+        `ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy list"`
       );
       // Combine stdout and stderr since proxy output might go to stderr
       const proxyConfig = stdout + stderr;
@@ -77,7 +77,7 @@ describe("Proxy Integration Tests", () => {
   test("Both projects should be healthy", async () => {
     try {
       const { stdout, stderr } = await execAsync(
-        `ssh luma@157.180.25.101 "docker exec luma-proxy /app/luma-proxy list"`
+        `ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy list"`
       );
       const proxyConfig = stdout + stderr;
 

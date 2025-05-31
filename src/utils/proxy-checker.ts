@@ -56,7 +56,7 @@ async function getCertificateQueueStatus(
 ): Promise<CertificateQueueEntry[]> {
   try {
     const statusOutput = await sshClient.exec(
-      `docker exec luma-proxy /app/luma-proxy status 2>/dev/null || echo "PROXY_NOT_AVAILABLE"`
+      `docker exec luma-proxy /usr/local/bin/luma-proxy status 2>/dev/null || echo "PROXY_NOT_AVAILABLE"`
     );
 
     if (statusOutput.includes("PROXY_NOT_AVAILABLE") || !statusOutput.trim()) {
