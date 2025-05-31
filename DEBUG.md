@@ -980,3 +980,83 @@ If you're updating from a previous version:
 4. **Improved reliability** - Fewer failure modes and race conditions
 
 **The HTTP-only architecture is production-ready and actively deployed.**
+
+## 🔄 **ITERATIVE DEBUGGING METHODOLOGY**
+
+When troubleshooting issues with Luma (especially SSL certificates, proxy behavior, or deployment problems), follow this systematic debugging approach:
+
+### Debugging Feedback Loop
+
+Fix issues by following this iterative feedback loop:
+
+1. **Test deploy** the basic example project
+2. **Check the logs** on the server to see what's happening
+3. **Understand the problem** from the log output
+4. **Update the code** (proxy or CLI) based on findings
+5. **Redeploy** the updated code
+6. **Start over again** - repeat this feedback loop until working
+
+### Example Debugging Workflow
+
+```bash
+# 1. Test deploy - Start with a deployment
+cd examples/basic
+bun ../../src/index.ts deploy --force --verbose
+
+# 2. Check the logs - Look for errors or unexpected behavior
+ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy"
+ssh luma@157.180.25.101 "docker logs --tail 30 gmail-web"
+
+# 3. Understand the problem - Analyze what you see
+# - Are there error messages?
+# - Is staging mode enabled?
+# - Are certificates being acquired?
+# - Are containers running?
+
+# 4. Update the code - Make targeted fixes based on findings
+# - Edit proxy source code if needed
+# - Update CLI logic if needed
+# - Modify configuration if needed
+
+# 5. Redeploy - Push your changes
+cd proxy && ./publish.sh && cd ../examples/basic  # If proxy changes
+bun ../../src/index.ts setup --verbose            # Pull updated proxy
+bun ../../src/index.ts deploy --force --verbose   # Deploy again
+
+# 6. Start over - Repeat until working
+# Go back to step 2 and check logs again
+```
+
+### Debugging Best Practices
+
+- **Always use staging mode** for SSL testing to avoid rate limits
+- **Check logs immediately** after each test
+- **Make incremental changes** - fix one issue at a time
+- **Document what you tried** - helps avoid repeating failed approaches
+- **Test end-to-end** after each fix to ensure no regressions
+
+### Common Debugging Patterns
+
+#### SSL Certificate Issues
+
+```bash
+# Deploy → Check SSL logs → Fix ACME client → Redeploy → Test SSL
+ssh luma@157.180.25.101 "docker logs --tail 100 luma-proxy | grep -E 'CERT|ACME|SSL'"
+```
+
+#### Proxy Routing Issues
+
+```bash
+# Deploy → Check proxy logs → Fix routing logic → Redeploy → Test endpoints
+ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy | grep -E 'PROXY|API'"
+```
+
+#### Container Health Issues
+
+```bash
+# Deploy → Check container status → Fix health checks → Redeploy → Test health
+ssh luma@157.180.25.101 "docker ps --filter 'label=luma.project=gmail'"
+ssh luma@157.180.25.101 "docker logs --tail 30 gmail-web"
+```
+
+This iterative approach helps systematically identify and fix issues without getting stuck on assumptions or trying random solutions.
