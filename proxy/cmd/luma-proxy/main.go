@@ -249,28 +249,44 @@ func certificateAcquisitionWorker(ctx context.Context, st *state.State, cm *cert
 // processPendingCertificates checks for certificates that need acquisition
 func processPendingCertificates(st *state.State, cm *cert.Manager) {
 	hosts := st.GetAllHosts()
+	log.Printf("[WORKER] Processing %d hosts for certificate acquisition", len(hosts))
 
 	for hostname, host := range hosts {
+		log.Printf("[WORKER] Checking host %s: SSL=%v, Cert=%v", hostname, host.SSLEnabled, host.Certificate != nil)
+
 		if host.Certificate == nil || !host.SSLEnabled {
+			if host.Certificate == nil {
+				log.Printf("[WORKER] Host %s skipped: no certificate config", hostname)
+			}
+			if !host.SSLEnabled {
+				log.Printf("[WORKER] Host %s skipped: SSL not enabled", hostname)
+			}
 			continue
 		}
 
 		cert := host.Certificate
+		log.Printf("[WORKER] Host %s certificate status: %s, attempts: %d/%d", hostname, cert.Status, cert.AttemptCount, cert.MaxAttempts)
 
 		// Check if we should attempt acquisition
 		shouldAttempt := false
 
 		switch cert.Status {
 		case "pending":
+			log.Printf("[WORKER] Host %s has pending certificate - will attempt acquisition", hostname)
 			shouldAttempt = true
 		case "acquiring":
-			// Check if it's time for next attempt
+			log.Printf("[WORKER] Host %s is acquiring, checking next attempt time", hostname)
 			if time.Now().After(cert.NextAttempt) {
+				log.Printf("[WORKER] Host %s next attempt time has passed - will attempt acquisition", hostname)
 				shouldAttempt = true
+			} else {
+				log.Printf("[WORKER] Host %s next attempt scheduled for %v", hostname, cert.NextAttempt)
 			}
 		case "failed":
-			// Don't retry failed certificates
+			log.Printf("[WORKER] Host %s certificate acquisition failed - not retrying", hostname)
 			continue
+		default:
+			log.Printf("[WORKER] Host %s certificate status: %s - no action needed", hostname, cert.Status)
 		}
 
 		if shouldAttempt {
