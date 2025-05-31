@@ -1,3 +1,5 @@
+// CLI provides command-line interface for the proxy
+// Build: 2025-05-31-11:12 - Adding immediate certificate acquisition
 package cli
 
 import (
@@ -79,6 +81,8 @@ func (c *CLI) deploy(args []string) error {
 		return fmt.Errorf("missing required flags: --host, --target, --project")
 	}
 
+	log.Printf("[CLI] Deploying host %s with SSL=%v", *host, *ssl)
+
 	// Deploy the host
 	if err := c.state.DeployHost(*host, *target, *project, *app, *healthPath, *ssl); err != nil {
 		return err
@@ -94,13 +98,25 @@ func (c *CLI) deploy(args []string) error {
 	// Trigger immediate health check
 	go c.healthChecker.CheckHost(*host)
 
-	// If SSL is enabled, trigger certificate acquisition
+	// If SSL is enabled, trigger certificate acquisition IMMEDIATELY
 	if *ssl {
-		go func() {
-			if err := c.certManager.AcquireCertificate(*host); err != nil {
-				log.Printf("[CLI] Certificate acquisition failed: %v", err)
-			}
-		}()
+		log.Printf("[CLI] SSL enabled - starting immediate certificate acquisition for %s", *host)
+
+		if c.certManager == nil {
+			log.Printf("[CLI] ERROR: Certificate manager is nil!")
+			return fmt.Errorf("certificate manager not initialized")
+		}
+
+		log.Printf("[CLI] Starting certificate acquisition for %s", *host)
+		if err := c.certManager.AcquireCertificate(*host); err != nil {
+			log.Printf("[CLI] Certificate acquisition failed for %s: %v", *host, err)
+			// Don't return error - certificate can be acquired later by background worker
+			log.Printf("[CLI] Certificate will be retried by background worker")
+		} else {
+			log.Printf("[CLI] Certificate acquisition completed successfully for %s", *host)
+		}
+	} else {
+		log.Printf("[CLI] SSL disabled for %s - skipping certificate acquisition", *host)
 	}
 
 	return nil
