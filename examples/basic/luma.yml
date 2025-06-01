@@ -15,6 +15,7 @@ apps:
         - EXAMPLE_VAR=test
       secret:
         - SECRET_VAR
+        - POSTGRES_PASSWORD
     proxy:
       hosts:
         - test2.eliasson.me
@@ -31,8 +32,9 @@ services:
       - "5433:5432"
     environment:
       plain:
-        - POSTGRES_PASSWORD=postgres
         - POSTGRES_USER=postgres
         - POSTGRES_DB=postgres
+      secret:
+        - POSTGRES_PASSWORD
     volumes:
       - ./pgdata:/var/lib/postgresql/data

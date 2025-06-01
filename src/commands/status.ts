@@ -44,6 +44,24 @@ interface EntryStatus {
   };
   lastDeployed?: string;
   servers: string[];
+  // Basic info (always included)
+  uptime?: string;
+  resourceUsage?: {
+    cpu: string;
+    memory: string;
+  };
+  // Additional info (always included)
+  additionalInfo?: {
+    exactImage: string;
+    restartCount: number;
+    exitCode?: number;
+    ports: string[];
+    volumes: Array<{
+      source: string;
+      destination: string;
+      mode?: string;
+    }>;
+  };
 }
 
 interface ServerEntryStatus {
@@ -52,6 +70,28 @@ interface ServerEntryStatus {
   greenContainers?: string[];
   runningContainers: string[];
   totalContainers: string[];
+  // Container details for running containers
+  containerDetails?: Record<
+    string,
+    {
+      uptime: string | null;
+      stats: {
+        cpuPercent: string;
+        memoryUsage: string;
+        memoryPercent: string;
+      } | null;
+      image: string | null;
+      createdAt: string | null;
+      restartCount: number;
+      exitCode: number | null;
+      ports: string[];
+      volumes: Array<{
+        source: string;
+        destination: string;
+        mode?: string;
+      }>;
+    }
+  >;
 }
 
 interface AppStatus {
@@ -102,8 +142,17 @@ function parseStatusArgs(
   args: string[],
   verbose: boolean = false
 ): ParsedStatusArgs {
+  const entryNames: string[] = [];
+
+  // Parse arguments, filtering out flags
+  for (const arg of args || []) {
+    if (!arg.startsWith("-")) {
+      entryNames.push(arg);
+    }
+  }
+
   return {
-    entryNames: args || [],
+    entryNames,
     verboseFlag: verbose,
   };
 }
@@ -187,11 +236,18 @@ async function getEntryContainersOnServer(
   const blueContainers: string[] = [];
   const greenContainers: string[] = [];
   const runningContainers: string[] = [];
+  const containerDetails: Record<string, any> = {};
 
   for (const containerName of allContainers) {
     const isRunning = await dockerClient.containerIsRunning(containerName);
     if (isRunning) {
       runningContainers.push(containerName);
+
+      // Always get full container details
+      const details = await dockerClient.getContainerDetails(containerName);
+      if (details) {
+        containerDetails[containerName] = details;
+      }
     }
 
     // Only check for color labels for apps (services don't use blue/green deployment)
@@ -213,6 +269,7 @@ async function getEntryContainersOnServer(
     greenContainers: entryType === "app" ? greenContainers : undefined,
     runningContainers,
     totalContainers: allContainers,
+    containerDetails: containerDetails, // Always include container details
   };
 }
 
@@ -337,6 +394,7 @@ async function getEntryStatusOnServer(
       greenContainers: entryType === "app" ? [] : undefined,
       runningContainers: [],
       totalContainers: [],
+      containerDetails: {},
     };
   } finally {
     if (sshClient) {
@@ -359,12 +417,28 @@ function aggregateEntryStatus(
   totalGreen: number;
   activeColor: "blue" | "green" | null;
   status: "running" | "stopped" | "mixed" | "unknown";
+  uptime: string | null;
+  resourceUsage: { cpu: string; memory: string } | null;
+  additionalInfo: {
+    exactImage: string;
+    restartCount: number;
+    exitCode?: number;
+    ports: string[];
+    volumes: Array<{
+      source: string;
+      destination: string;
+      mode?: string;
+    }>;
+  } | null;
 } {
   let totalRunning = 0;
   let totalContainers = 0;
   let totalBlue = 0;
   let totalGreen = 0;
   let activeColors: ("blue" | "green" | null)[] = [];
+  let uptime: string | null = null;
+  let resourceUsage: { cpu: string; memory: string } | null = null;
+  let additionalInfo: any = null;
 
   for (const serverStatus of serverStatuses) {
     totalRunning += serverStatus.runningContainers.length;
@@ -379,6 +453,36 @@ function aggregateEntryStatus(
       totalGreen += serverStatus.greenContainers.length;
       if (serverStatus.activeColor !== undefined) {
         activeColors.push(serverStatus.activeColor);
+      }
+    }
+
+    // Extract uptime and resource usage from first running container
+    if (
+      !uptime &&
+      serverStatus.containerDetails &&
+      serverStatus.runningContainers.length > 0
+    ) {
+      const firstRunningContainer = serverStatus.runningContainers[0];
+      const containerDetail =
+        serverStatus.containerDetails[firstRunningContainer];
+
+      if (containerDetail) {
+        uptime = containerDetail.uptime;
+        if (containerDetail.stats) {
+          resourceUsage = {
+            cpu: containerDetail.stats.cpuPercent,
+            memory: containerDetail.stats.memoryUsage,
+          };
+        }
+
+        // Extract additional info
+        additionalInfo = {
+          exactImage: containerDetail.image || "",
+          restartCount: containerDetail.restartCount,
+          exitCode: containerDetail.exitCode,
+          ports: containerDetail.ports,
+          volumes: containerDetail.volumes,
+        };
       }
     }
   }
@@ -413,6 +517,9 @@ function aggregateEntryStatus(
     totalGreen,
     activeColor,
     status,
+    uptime,
+    resourceUsage,
+    additionalInfo,
   };
 }
 
@@ -444,6 +551,8 @@ async function getEntryStatus(
       running: aggregated.totalRunning,
     },
     servers: entry.servers,
+    uptime: aggregated.uptime || undefined,
+    resourceUsage: aggregated.resourceUsage || undefined,
   };
 
   if (entryType === "app") {
@@ -452,6 +561,11 @@ async function getEntryStatus(
     baseStatus.replicas.green = aggregated.totalGreen;
   } else {
     baseStatus.image = (entry as ServiceEntry).image;
+  }
+
+  // Add additional info
+  if (aggregated.additionalInfo) {
+    baseStatus.additionalInfo = aggregated.additionalInfo;
   }
 
   return baseStatus;
@@ -484,25 +598,75 @@ function displayEntryStatus(entryStatus: EntryStatus): void {
     console.log(
       `     ├─ Status: ${statusIcon} ${entryStatus.status.toUpperCase()}`
     );
-    if (entryStatus.image) {
-      console.log(`     ├─ Image: ${entryStatus.image}`);
-    }
   }
 
   if (entryStatus.replicas.total > 0) {
     console.log(
       `     ├─ Replicas: ${entryStatus.replicas.running}/${entryStatus.replicas.total} running`
     );
+  }
+
+  // Show uptime and resource usage (always included)
+  if (entryStatus.uptime) {
+    console.log(`     ├─ Uptime: ${entryStatus.uptime}`);
+  }
+
+  if (entryStatus.resourceUsage) {
+    console.log(`     ├─ Resources:`);
+    console.log(`     │  ├─ CPU: ${entryStatus.resourceUsage.cpu}`);
+    console.log(`     │  └─ Memory: ${entryStatus.resourceUsage.memory}`);
+  }
+
+  // Show additional info (always included)
+  if (entryStatus.additionalInfo) {
+    const info = entryStatus.additionalInfo;
+    console.log(`     ├─ Image: ${info.exactImage}`);
+
+    if (info.restartCount > 0) {
+      console.log(`     ├─ Restarts: ${info.restartCount}`);
+    }
 
     if (
-      entryStatus.type === "app" &&
-      (entryStatus.replicas.blue || entryStatus.replicas.green)
+      info.exitCode !== null &&
+      info.exitCode !== undefined &&
+      info.exitCode !== 0
     ) {
-      console.log(
-        `     ├─ Versions: ${entryStatus.replicas.blue || 0} blue, ${
-          entryStatus.replicas.green || 0
-        } green`
-      );
+      console.log(`     ├─ Exit Code: ${info.exitCode}`);
+    }
+
+    if (info.ports.length > 0) {
+      // Remove duplicates and format ports for better readability
+      const uniquePorts = [...new Set(info.ports)];
+      const formattedPorts = uniquePorts.map((port) => {
+        // Handle format like "5433:5432/tcp"
+        if (port.includes(":")) {
+          const [hostPort, containerPortWithProtocol] = port.split(":");
+          const [containerPort, protocol] =
+            containerPortWithProtocol.split("/");
+          const protocolDisplay = protocol ? `/${protocol}` : "";
+          return `${hostPort} → ${containerPort}${protocolDisplay}`;
+        }
+        return port;
+      });
+
+      if (formattedPorts.length === 1) {
+        console.log(`     ├─ Port: ${formattedPorts[0]} (host → container)`);
+      } else {
+        console.log(`     ├─ Ports (${formattedPorts.length}):`);
+        for (const port of formattedPorts) {
+          console.log(`     │  ├─ ${port} (host → container)`);
+        }
+      }
+    }
+
+    if (info.volumes.length > 0) {
+      console.log(`     ├─ Volumes (${info.volumes.length}):`);
+      for (const volume of info.volumes) {
+        const modeDisplay = volume.mode ? ` (${volume.mode})` : "";
+        console.log(
+          `     │  ├─ ${volume.source} → ${volume.destination}${modeDisplay}`
+        );
+      }
     }
   }
 

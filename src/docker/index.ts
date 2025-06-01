@@ -1598,4 +1598,177 @@ EOF`);
       return state;
     }
   }
+
+  /**
+   * Get container uptime in a human-readable format
+   * @param containerName Name of the container
+   * @returns Human-readable uptime string (e.g., "2h 15m", "3 days") or null if error
+   */
+  async getContainerUptime(containerName: string): Promise<string | null> {
+    try {
+      const inspectOutput = await this.execRemote(
+        `inspect ${containerName} --format '{{.State.StartedAt}}'`
+      );
+
+      if (!inspectOutput.trim()) {
+        return null;
+      }
+
+      const startedAt = new Date(inspectOutput.trim());
+      const now = new Date();
+      const uptimeMs = now.getTime() - startedAt.getTime();
+
+      // Convert to human-readable format
+      const seconds = Math.floor(uptimeMs / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+
+      if (days > 0) {
+        return `${days}d ${hours % 24}h`;
+      } else if (hours > 0) {
+        return `${hours}h ${minutes % 60}m`;
+      } else if (minutes > 0) {
+        return `${minutes}m`;
+      } else {
+        return `${seconds}s`;
+      }
+    } catch (error) {
+      this.logError(
+        `Failed to get uptime for container ${containerName}: ${error}`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Get container resource usage (CPU and memory)
+   * @param containerName Name of the container
+   * @returns Object with CPU and memory usage or null if error
+   */
+  async getContainerStats(containerName: string): Promise<{
+    cpuPercent: string;
+    memoryUsage: string;
+    memoryPercent: string;
+  } | null> {
+    try {
+      // Use docker stats with --no-stream to get current stats
+      const statsOutput = await this.execRemote(
+        `stats ${containerName} --no-stream --format "{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"`
+      );
+
+      const lines = statsOutput.trim().split("\n");
+      if (lines.length < 1) {
+        return null;
+      }
+
+      // Get data from first line (no header when using custom format)
+      const dataLine = lines[0];
+      const [cpuPercent, memoryUsage, memoryPercent] = dataLine.split("\t");
+
+      return {
+        cpuPercent: cpuPercent?.trim() || "0%",
+        memoryUsage: memoryUsage?.trim() || "0B / 0B",
+        memoryPercent: memoryPercent?.trim() || "0%",
+      };
+    } catch (error) {
+      this.logError(
+        `Failed to get stats for container ${containerName}: ${error}`
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Get detailed container information for status display
+   * @param containerName Name of the container
+   * @returns Detailed container info or null if error
+   */
+  async getContainerDetails(containerName: string): Promise<{
+    uptime: string | null;
+    stats: {
+      cpuPercent: string;
+      memoryUsage: string;
+      memoryPercent: string;
+    } | null;
+    image: string | null;
+    createdAt: string | null;
+    restartCount: number;
+    exitCode: number | null;
+    ports: string[];
+    volumes: Array<{
+      source: string;
+      destination: string;
+      mode?: string;
+    }>;
+  } | null> {
+    try {
+      const inspectOutput = await this.execRemote(`inspect ${containerName}`);
+      const inspectData = JSON.parse(inspectOutput);
+
+      if (!inspectData || inspectData.length === 0) {
+        return null;
+      }
+
+      const container = inspectData[0];
+
+      // Get uptime and stats in parallel
+      const [uptime, stats] = await Promise.all([
+        this.getContainerUptime(containerName),
+        this.getContainerStats(containerName),
+      ]);
+
+      // Extract detailed info
+      const image = container.Config?.Image || null;
+      const createdAt = container.Created || null;
+      const restartCount = container.RestartCount || 0;
+      const exitCode = container.State?.ExitCode || null;
+
+      // Extract port mappings
+      const ports: string[] = [];
+      if (container.NetworkSettings?.Ports) {
+        for (const [containerPort, hostBindings] of Object.entries(
+          container.NetworkSettings.Ports
+        )) {
+          if (hostBindings && Array.isArray(hostBindings)) {
+            for (const binding of hostBindings) {
+              ports.push(`${binding.HostPort}:${containerPort}`);
+            }
+          }
+        }
+      }
+
+      // Extract volume mounts with detailed information
+      const volumes: Array<{
+        source: string;
+        destination: string;
+        mode?: string;
+      }> = [];
+      if (container.Mounts && Array.isArray(container.Mounts)) {
+        for (const mount of container.Mounts) {
+          volumes.push({
+            source: mount.Name || mount.Source || "unknown",
+            destination: mount.Destination || "unknown",
+            mode: mount.Mode,
+          });
+        }
+      }
+
+      return {
+        uptime,
+        stats,
+        image,
+        createdAt,
+        restartCount,
+        exitCode,
+        ports,
+        volumes,
+      };
+    } catch (error) {
+      this.logError(
+        `Failed to get details for container ${containerName}: ${error}`
+      );
+      return null;
+    }
+  }
 }
