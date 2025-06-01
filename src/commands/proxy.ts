@@ -311,7 +311,7 @@ async function proxyStatusSubcommand(context: ProxyContext): Promise<void> {
         );
 
         if (updateCheck.needsUpdate) {
-          logger.info(`📦 Proxy on ${serverHostname} can be updated`);
+          logger.info(`Proxy on ${serverHostname} can be updated`);
         } else {
           logger.verboseLog(`Proxy on ${serverHostname} is up to date`);
         }
@@ -335,11 +335,14 @@ async function proxyStatusSubcommand(context: ProxyContext): Promise<void> {
   // Display status for all servers
   logger.phaseComplete("Proxy status check complete");
 
-  console.log("\n📊 Proxy Status Summary:");
-  console.log("========================");
+  console.log(`\nProxy Statuses (${proxyStatuses.length}):`);
 
   for (const status of proxyStatuses) {
-    console.log(formatProxyStatus(status));
+    const formattedLines = formatProxyStatus(status);
+    for (const line of formattedLines) {
+      console.log(line);
+    }
+    console.log(); // Add spacing between proxy statuses
   }
 }
 
@@ -412,14 +415,12 @@ async function proxyUpdateSubcommand(
   }
 
   logger.phaseComplete("Proxy update complete");
-  console.log(`\n📊 Update Summary:`);
-  console.log(`   ✅ Updated: ${updatedCount} server(s)`);
-  console.log(`   ⏭️  Skipped: ${skippedCount} server(s) (already up to date)`);
+  console.log(`\nUpdate Summary:`);
+  console.log(`   Updated: ${updatedCount} server(s)`);
+  console.log(`   Skipped: ${skippedCount} server(s) (already up to date)`);
 
   if (updatedCount > 0) {
-    console.log(
-      `\n🎉 Proxy successfully updated on ${updatedCount} server(s)!`
-    );
+    console.log(`\nProxy successfully updated on ${updatedCount} server(s)!`);
   }
 }
 
