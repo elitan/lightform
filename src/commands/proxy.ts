@@ -498,6 +498,8 @@ export async function proxyCommand(args: string[]): Promise<void> {
     logger.error("Proxy command failed", error);
     process.exit(1);
   } finally {
-    logger.cleanup();
+    if (logger) {
+      logger.cleanup();
+    }
   }
 }
