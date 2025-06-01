@@ -9,12 +9,16 @@ const DEFAULT_LUMA_PROXY_IMAGE = "elitan/luma-proxy:latest";
 
 /**
  * Check if the Luma proxy is running and set it up if not
- * During setup, always force pull the latest version to ensure updates are deployed
+ * @param serverHostname The hostname of the server
+ * @param sshClient SSH client connection
+ * @param verbose Whether to show verbose output
+ * @param forceUpdate Whether to force update the proxy even if it exists (default: false - only install if not present)
  */
 export async function setupLumaProxy(
   serverHostname: string,
   sshClient: SSHClient,
-  verbose: boolean = false
+  verbose: boolean = false,
+  forceUpdate: boolean = false
 ): Promise<boolean> {
   try {
     if (verbose) {
@@ -32,34 +36,70 @@ export async function setupLumaProxy(
     const proxyExists = await dockerClient.containerExists(LUMA_PROXY_NAME);
 
     if (proxyExists) {
-      if (verbose) {
-        console.log(
-          `[${serverHostname}] Luma proxy already exists. Force updating to latest version...`
-        );
-        console.log(
-          `[${serverHostname}] Stopping and removing existing proxy container...`
-        );
-      }
+      if (forceUpdate) {
+        if (verbose) {
+          console.log(
+            `[${serverHostname}] Luma proxy already exists. Force updating to latest version...`
+          );
+          console.log(
+            `[${serverHostname}] Stopping and removing existing proxy container...`
+          );
+        }
 
-      // Stop and remove existing container to force update
-      try {
+        // Stop and remove existing container to force update
+        try {
+          const proxyRunning = await dockerClient.containerIsRunning(
+            LUMA_PROXY_NAME
+          );
+          if (proxyRunning) {
+            await dockerClient.stopContainer(LUMA_PROXY_NAME);
+          }
+          await dockerClient.removeContainer(LUMA_PROXY_NAME);
+          if (verbose) {
+            console.log(
+              `[${serverHostname}] Existing proxy container removed successfully.`
+            );
+          }
+        } catch (error) {
+          console.error(
+            `[${serverHostname}] Warning: Failed to remove existing proxy container: ${error}`
+          );
+          // Continue anyway - the force pull and create might still work
+        }
+      } else {
+        // Check if proxy is running, if not start it
         const proxyRunning = await dockerClient.containerIsRunning(
           LUMA_PROXY_NAME
         );
+
         if (proxyRunning) {
-          await dockerClient.stopContainer(LUMA_PROXY_NAME);
+          if (verbose) {
+            console.log(
+              `[${serverHostname}] Luma proxy already exists and is running. Skipping setup.`
+            );
+          }
+          return true;
+        } else {
+          if (verbose) {
+            console.log(
+              `[${serverHostname}] Luma proxy exists but is not running. Starting it...`
+            );
+          }
+          try {
+            await dockerClient.startContainer(LUMA_PROXY_NAME);
+            if (verbose) {
+              console.log(
+                `[${serverHostname}] Luma proxy started successfully.`
+              );
+            }
+            return true;
+          } catch (error) {
+            console.error(
+              `[${serverHostname}] Failed to start existing proxy container: ${error}`
+            );
+            // Continue to recreate the container
+          }
         }
-        await dockerClient.removeContainer(LUMA_PROXY_NAME);
-        if (verbose) {
-          console.log(
-            `[${serverHostname}] Existing proxy container removed successfully.`
-          );
-        }
-      } catch (error) {
-        console.error(
-          `[${serverHostname}] Warning: Failed to remove existing proxy container: ${error}`
-        );
-        // Continue anyway - the force pull and create might still work
       }
     }
 

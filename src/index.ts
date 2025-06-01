@@ -4,6 +4,7 @@ import { initCommand } from "./commands/init";
 import { setupCommand } from "./commands/setup";
 import { deployCommand } from "./commands/deploy";
 import { statusCommand } from "./commands/status";
+import { proxyCommand } from "./commands/proxy";
 
 /**
  * Parses command line arguments to extract flags and non-flag arguments
@@ -28,13 +29,9 @@ async function main() {
 
   if (args.length === 0) {
     console.log("Luma CLI - Please provide a command.");
-    console.log(
-      "Available commands: init, setup, deploy, status, redeploy, rollback"
-    );
-    console.log("\nFlags:");
-    console.log("  --verbose    Show detailed output");
-    console.log("  --force      Force operation (deploy only)");
-    console.log("  --services   Deploy services instead of apps (deploy only)");
+    console.log("Available commands: init, setup, deploy, status, proxy");
+    console.log("\nProxy Management:");
+    console.log("  luma proxy help  Show proxy command help");
     return;
   }
 
@@ -56,11 +53,13 @@ async function main() {
     case "status":
       await statusCommand(nonFlagArgs, verboseFlag);
       break;
-    // TODO: Add cases for other commands (redeploy, rollback, etc.)
+    case "proxy":
+      await proxyCommand(commandArgs);
+      break;
     default:
       console.log(`Unknown command: ${command}`);
       console.log(
-        "Available commands: init, setup, deploy, status, redeploy, rollback"
+        "Available commands: init, setup, deploy, status, proxy, redeploy, rollback"
       );
       break;
   }
