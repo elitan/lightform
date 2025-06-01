@@ -30,6 +30,30 @@ interface ParsedStatusArgs {
   verboseFlag: boolean;
 }
 
+interface EntryStatus {
+  name: string;
+  type: "app" | "service";
+  status: "running" | "stopped" | "mixed" | "unknown";
+  activeColor?: "blue" | "green" | null;
+  image?: string;
+  replicas: {
+    total: number;
+    running: number;
+    blue?: number;
+    green?: number;
+  };
+  lastDeployed?: string;
+  servers: string[];
+}
+
+interface ServerEntryStatus {
+  activeColor?: "blue" | "green" | null;
+  blueContainers?: string[];
+  greenContainers?: string[];
+  runningContainers: string[];
+  totalContainers: string[];
+}
+
 interface AppStatus {
   name: string;
   status: "running" | "stopped" | "mixed" | "unknown";
@@ -44,11 +68,27 @@ interface AppStatus {
   servers: string[];
 }
 
+interface ServiceStatus {
+  name: string;
+  status: "running" | "stopped" | "mixed" | "unknown";
+  image: string;
+  replicas: {
+    total: number;
+    running: number;
+  };
+  servers: string[];
+}
+
 interface ServerAppStatus {
   activeColor: "blue" | "green" | null;
   blueContainers: string[];
   greenContainers: string[];
   runningContainers: string[];
+}
+
+interface ServerServiceStatus {
+  runningContainers: string[];
+  totalContainers: string[];
 }
 
 interface ProxyStatusSummary {
@@ -130,20 +170,17 @@ async function establishSSHConnection(
 }
 
 /**
- * Gets container information for an app on a specific server
+ * Gets container information for any entry (app or service) on a specific server
  */
-async function getAppContainersOnServer(
-  appEntry: AppEntry,
+async function getEntryContainersOnServer(
+  entry: AppEntry | ServiceEntry,
+  entryType: "app" | "service",
   dockerClient: DockerClient,
   projectName: string
-): Promise<{
-  allContainers: string[];
-  blueContainers: string[];
-  greenContainers: string[];
-  runningContainers: string[];
-}> {
+): Promise<ServerEntryStatus> {
+  const labelKey = entryType === "app" ? "luma.app" : "luma.service";
   const allContainers = await dockerClient.findContainersByLabelAndProject(
-    `luma.app=${appEntry.name}`,
+    `${labelKey}=${entry.name}`,
     projectName
   );
 
@@ -157,21 +194,25 @@ async function getAppContainersOnServer(
       runningContainers.push(containerName);
     }
 
-    const labels = await dockerClient.getContainerLabels(containerName);
-    const color = labels["luma.color"];
+    // Only check for color labels for apps (services don't use blue/green deployment)
+    if (entryType === "app") {
+      const labels = await dockerClient.getContainerLabels(containerName);
+      const color = labels["luma.color"];
 
-    if (color === "blue") {
-      blueContainers.push(containerName);
-    } else if (color === "green") {
-      greenContainers.push(containerName);
+      if (color === "blue") {
+        blueContainers.push(containerName);
+      } else if (color === "green") {
+        greenContainers.push(containerName);
+      }
     }
   }
 
   return {
-    allContainers,
-    blueContainers,
-    greenContainers,
+    activeColor: entryType === "app" ? undefined : undefined, // Will be set later for apps
+    blueContainers: entryType === "app" ? blueContainers : undefined,
+    greenContainers: entryType === "app" ? greenContainers : undefined,
     runningContainers,
+    totalContainers: allContainers,
   };
 }
 
@@ -247,13 +288,14 @@ async function getProxyStatusSummary(
 }
 
 /**
- * Gets status information for a single app on a specific server
+ * Gets status information for any entry (app or service) on a specific server
  */
-async function getAppStatusOnServer(
-  appEntry: AppEntry,
+async function getEntryStatusOnServer(
+  entry: AppEntry | ServiceEntry,
+  entryType: "app" | "service",
   serverHostname: string,
   context: StatusContext
-): Promise<ServerAppStatus> {
+): Promise<ServerEntryStatus> {
   let sshClient: SSHClient | undefined;
 
   try {
@@ -264,37 +306,37 @@ async function getAppStatusOnServer(
       context.verboseFlag
     );
 
-    // Get active color
-    const activeColor = await dockerClient.getCurrentActiveColorForProject(
-      appEntry.name,
-      context.projectName
-    );
-
     // Get container information
-    const containerInfo = await getAppContainersOnServer(
-      appEntry,
+    const containerInfo = await getEntryContainersOnServer(
+      entry,
+      entryType,
       dockerClient,
       context.projectName
     );
 
-    return {
-      activeColor,
-      blueContainers: containerInfo.blueContainers,
-      greenContainers: containerInfo.greenContainers,
-      runningContainers: containerInfo.runningContainers,
-    };
+    // Get active color for apps only
+    if (entryType === "app") {
+      const activeColor = await dockerClient.getCurrentActiveColorForProject(
+        entry.name,
+        context.projectName
+      );
+      containerInfo.activeColor = activeColor;
+    }
+
+    return containerInfo;
   } catch (error) {
     // Store verbose message instead of logging immediately
     if (context.verboseFlag) {
       context.verboseMessages.push(
-        `Failed to get status for ${appEntry.name} on ${serverHostname}: ${error}`
+        `Failed to get status for ${entryType} ${entry.name} on ${serverHostname}: ${error}`
       );
     }
     return {
-      activeColor: null,
-      blueContainers: [],
-      greenContainers: [],
+      activeColor: entryType === "app" ? null : undefined,
+      blueContainers: entryType === "app" ? [] : undefined,
+      greenContainers: entryType === "app" ? [] : undefined,
       runningContainers: [],
+      totalContainers: [],
     };
   } finally {
     if (sshClient) {
@@ -304,28 +346,41 @@ async function getAppStatusOnServer(
 }
 
 /**
- * Aggregates server statuses to determine overall app status
+ * Aggregates server statuses to determine overall entry status
  */
-function aggregateAppStatus(
-  appEntry: AppEntry,
-  serverStatuses: ServerAppStatus[]
+function aggregateEntryStatus(
+  entry: AppEntry | ServiceEntry,
+  entryType: "app" | "service",
+  serverStatuses: ServerEntryStatus[]
 ): {
   totalRunning: number;
+  totalContainers: number;
   totalBlue: number;
   totalGreen: number;
   activeColor: "blue" | "green" | null;
   status: "running" | "stopped" | "mixed" | "unknown";
 } {
   let totalRunning = 0;
+  let totalContainers = 0;
   let totalBlue = 0;
   let totalGreen = 0;
   let activeColors: ("blue" | "green" | null)[] = [];
 
   for (const serverStatus of serverStatuses) {
     totalRunning += serverStatus.runningContainers.length;
-    totalBlue += serverStatus.blueContainers.length;
-    totalGreen += serverStatus.greenContainers.length;
-    activeColors.push(serverStatus.activeColor);
+    totalContainers += serverStatus.totalContainers.length;
+
+    if (
+      entryType === "app" &&
+      serverStatus.blueContainers &&
+      serverStatus.greenContainers
+    ) {
+      totalBlue += serverStatus.blueContainers.length;
+      totalGreen += serverStatus.greenContainers.length;
+      if (serverStatus.activeColor !== undefined) {
+        activeColors.push(serverStatus.activeColor);
+      }
+    }
   }
 
   // Determine overall active color (should be consistent across servers)
@@ -333,10 +388,14 @@ function aggregateAppStatus(
     ...new Set(activeColors.filter((c) => c !== null)),
   ];
   const activeColor =
-    uniqueActiveColors.length === 1 ? uniqueActiveColors[0] : null;
+    entryType === "app" && uniqueActiveColors.length === 1
+      ? uniqueActiveColors[0]
+      : null;
 
   // Determine overall status
-  const expectedReplicas = (appEntry.replicas || 1) * appEntry.servers.length;
+  // Services don't have replicas property, so default to 1
+  const expectedReplicas =
+    ((entry as any).replicas || 1) * entry.servers.length;
   let status: "running" | "stopped" | "mixed" | "unknown";
 
   if (totalRunning === 0) {
@@ -349,6 +408,7 @@ function aggregateAppStatus(
 
   return {
     totalRunning,
+    totalContainers,
     totalBlue,
     totalGreen,
     activeColor,
@@ -357,79 +417,97 @@ function aggregateAppStatus(
 }
 
 /**
- * Gets comprehensive status for an app across all its servers
+ * Gets comprehensive status for any entry (app or service) across all its servers
  */
-async function getAppStatus(
-  appEntry: AppEntry,
+async function getEntryStatus(
+  entry: AppEntry | ServiceEntry,
+  entryType: "app" | "service",
   context: StatusContext
-): Promise<AppStatus> {
+): Promise<EntryStatus> {
   const serverStatuses = await Promise.all(
-    appEntry.servers.map((server) =>
-      getAppStatusOnServer(appEntry, server, context)
+    entry.servers.map((server) =>
+      getEntryStatusOnServer(entry, entryType, server, context)
     )
   );
 
-  const aggregated = aggregateAppStatus(appEntry, serverStatuses);
+  const aggregated = aggregateEntryStatus(entry, entryType, serverStatuses);
 
-  return {
-    name: appEntry.name,
+  const baseStatus: EntryStatus = {
+    name: entry.name,
+    type: entryType,
     status: aggregated.status,
-    activeColor: aggregated.activeColor,
     replicas: {
-      total: aggregated.totalBlue + aggregated.totalGreen,
+      total:
+        entryType === "app"
+          ? aggregated.totalBlue + aggregated.totalGreen
+          : aggregated.totalContainers,
       running: aggregated.totalRunning,
-      blue: aggregated.totalBlue,
-      green: aggregated.totalGreen,
     },
-    servers: appEntry.servers,
+    servers: entry.servers,
   };
+
+  if (entryType === "app") {
+    baseStatus.activeColor = aggregated.activeColor;
+    baseStatus.replicas.blue = aggregated.totalBlue;
+    baseStatus.replicas.green = aggregated.totalGreen;
+  } else {
+    baseStatus.image = (entry as ServiceEntry).image;
+  }
+
+  return baseStatus;
 }
 
 /**
- * Displays status information for an app in a formatted way
+ * Displays status information for any entry (app or service) in a formatted way
  */
-function displayAppStatus(appStatus: AppStatus): void {
+function displayEntryStatus(entryStatus: EntryStatus): void {
   const statusIcon = {
     running: "[✓]",
     stopped: "[✗]",
     mixed: "[!]",
     unknown: "[?]",
-  }[appStatus.status];
+  }[entryStatus.status];
 
-  const versionDisplay = appStatus.activeColor
-    ? `(${appStatus.activeColor} active)`
-    : "(no active version)";
+  const entryTypeCapitalized =
+    entryStatus.type.charAt(0).toUpperCase() + entryStatus.type.slice(1);
 
-  console.log(`  └─ App: ${appStatus.name}`);
-  console.log(
-    `     ├─ Status: ${statusIcon} ${appStatus.status.toUpperCase()} ${versionDisplay}`
-  );
+  console.log(`  └─ ${entryTypeCapitalized}: ${entryStatus.name}`);
 
-  if (appStatus.replicas.total > 0) {
+  if (entryStatus.type === "app") {
+    const versionDisplay = entryStatus.activeColor
+      ? `(${entryStatus.activeColor} active)`
+      : "(no active version)";
     console.log(
-      `     ├─ Replicas: ${appStatus.replicas.running}/${appStatus.replicas.total} running`
+      `     ├─ Status: ${statusIcon} ${entryStatus.status.toUpperCase()} ${versionDisplay}`
+    );
+  } else {
+    console.log(
+      `     ├─ Status: ${statusIcon} ${entryStatus.status.toUpperCase()}`
+    );
+    if (entryStatus.image) {
+      console.log(`     ├─ Image: ${entryStatus.image}`);
+    }
+  }
+
+  if (entryStatus.replicas.total > 0) {
+    console.log(
+      `     ├─ Replicas: ${entryStatus.replicas.running}/${entryStatus.replicas.total} running`
     );
 
-    if (appStatus.replicas.blue > 0 || appStatus.replicas.green > 0) {
+    if (
+      entryStatus.type === "app" &&
+      (entryStatus.replicas.blue || entryStatus.replicas.green)
+    ) {
       console.log(
-        `     ├─ Versions: ${appStatus.replicas.blue} blue, ${appStatus.replicas.green} green`
+        `     ├─ Versions: ${entryStatus.replicas.blue || 0} blue, ${
+          entryStatus.replicas.green || 0
+        } green`
       );
     }
   }
 
-  console.log(`     └─ Servers: ${appStatus.servers.join(", ")}`);
-
-  console.log(); // Add spacing between apps
-}
-
-/**
- * Displays service information in a formatted way
- */
-function displayServiceStatus(service: ServiceEntry): void {
-  console.log(`  └─ Service: ${service.name}`);
-  console.log(`     ├─ Image: ${service.image}`);
-  console.log(`     └─ Servers: ${service.servers.join(", ")}`);
-  console.log(); // Add spacing between services
+  console.log(`     └─ Servers: ${entryStatus.servers.join(", ")}`);
+  console.log(); // Add spacing between entries
 }
 
 /**
@@ -510,9 +588,14 @@ async function checkAndDisplayStatus(
     return;
   }
 
-  // Collect app statuses and proxy status in parallel
-  const [appStatuses, proxyStatusSummary] = await Promise.all([
-    Promise.all(filteredApps.map((app) => getAppStatus(app, context))),
+  // Collect app statuses, service statuses, and proxy status in parallel
+  const [appStatuses, serviceStatuses, proxyStatusSummary] = await Promise.all([
+    Promise.all(filteredApps.map((app) => getEntryStatus(app, "app", context))),
+    Promise.all(
+      filteredServices.map((service) =>
+        getEntryStatus(service, "service", context)
+      )
+    ),
     getProxyStatusSummary(context),
   ]);
 
@@ -527,40 +610,26 @@ async function checkAndDisplayStatus(
   }
 
   // Now display the collected results
-  displayCollectedAppsStatus(filteredApps, appStatuses);
-  displayServicesStatus(filteredServices);
+  displayCollectedEntryStatuses(filteredApps, appStatuses, "Apps");
+  displayCollectedEntryStatuses(filteredServices, serviceStatuses, "Services");
   displayProxyStatus(proxyStatusSummary);
 }
 
 /**
- * Displays status for apps using pre-collected status data
+ * Displays status for entries using pre-collected status data
  */
-function displayCollectedAppsStatus(
-  apps: AppEntry[],
-  appStatuses: AppStatus[]
+function displayCollectedEntryStatuses(
+  entries: (AppEntry | ServiceEntry)[],
+  entryStatuses: EntryStatus[],
+  sectionTitle: string
 ): void {
-  if (apps.length === 0) {
-    logger.info("No apps configured.");
+  if (entries.length === 0) {
     return;
   }
 
-  console.log(`Apps (${apps.length}):`);
-  for (const appStatus of appStatuses) {
-    displayAppStatus(appStatus);
-  }
-}
-
-/**
- * Displays status for services
- */
-function displayServicesStatus(services: ServiceEntry[]): void {
-  if (services.length === 0) {
-    return;
-  }
-
-  console.log(`Services (${services.length}):`);
-  for (const service of services) {
-    displayServiceStatus(service);
+  console.log(`${sectionTitle} (${entries.length}):`);
+  for (const entryStatus of entryStatuses) {
+    displayEntryStatus(entryStatus);
   }
 }
 
