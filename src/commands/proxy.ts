@@ -93,15 +93,15 @@ function collectAllServers(config: LumaConfig): Set<string> {
 
   // Add servers from apps
   configuredApps.forEach((app) => {
-    if (app.servers && app.servers.length > 0) {
-      app.servers.forEach((server: string) => allServers.add(server));
+    if (app.server) {
+      allServers.add(app.server);
     }
   });
 
   // Add servers from services
   configuredServices.forEach((service) => {
-    if (service.servers && service.servers.length > 0) {
-      service.servers.forEach((server: string) => allServers.add(server));
+    if (service.server) {
+      allServers.add(service.server);
     }
   });
 
@@ -127,13 +127,13 @@ function filterServersByEntries(
 
   entryNames.forEach((name) => {
     const app = configuredApps.find((a) => a.name === name);
-    if (app && app.servers) {
-      app.servers.forEach((server: string) => targetServers.add(server));
+    if (app && app.server) {
+      targetServers.add(app.server);
     }
 
     const service = configuredServices.find((s) => s.name === name);
-    if (service && service.servers) {
-      service.servers.forEach((server: string) => targetServers.add(server));
+    if (service && service.server) {
+      targetServers.add(service.server);
     }
 
     if (!app && !service) {

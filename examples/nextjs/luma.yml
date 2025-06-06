@@ -8,8 +8,7 @@ apps:
     build:
       context: .
       dockerfile: Dockerfile
-    servers:
-      - 157.180.25.101
+    server: 157.180.25.101
     environment:
       plain:
         - NODE_ENV=production
