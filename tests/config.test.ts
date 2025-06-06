@@ -48,8 +48,7 @@ name: test-project
 services:
   web-app:
     image: test/webapp:latest
-    servers:
-      - server1.example.com
+    server: server1.example.com
     ports:
       - "80:8080"
     volumes:
@@ -70,9 +69,7 @@ services:
       expect(config.services).toBeDefined();
       expect(config.services!["web-app"]).not.toBeUndefined();
       expect(config.services!["web-app"].image).toBe("test/webapp:latest");
-      expect(config.services!["web-app"].servers).toContain(
-        "server1.example.com"
-      );
+      expect(config.services!["web-app"].server).toBe("server1.example.com");
       expect(config.services!["web-app"].ports).toContain("80:8080");
       expect(config.services!["web-app"].volumes).toContain("data:/app/data");
       expect(config.services!["web-app"].environment?.plain).toContain(
@@ -90,8 +87,7 @@ name: test-project
 services:
   web-app:
     # Missing required 'image' field
-    servers:
-      - server1.example.com
+    server: server1.example.com
 `;
       await Bun.write("luma.yml", invalidConfig);
 
