@@ -50,8 +50,7 @@ ssh:
 
 apps:
   web:
-    servers:
-      - your-server-ip
+    server: your-server-ip
     proxy:
       hosts:
         - your-domain.com
