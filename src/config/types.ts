@@ -49,7 +49,7 @@ export type AppProxyConfig = z.infer<typeof AppProxyConfigSchema>;
 // Zod schema for AppEntry without name (used in record format)
 export const AppEntryWithoutNameSchema = z.object({
   image: z.string().optional(),
-  servers: z.array(z.string()), // For now, simple array of hostnames/IPs
+  server: z.string().describe("Hostname or IP address of the target server"),
   replicas: z
     .number()
     .min(1)
@@ -100,7 +100,7 @@ export type AppEntry = z.infer<typeof AppEntrySchema>;
 // Zod schema for ServiceEntry without name (used in record format)
 export const ServiceEntryWithoutNameSchema = z.object({
   image: z.string(), // Includes tag, e.g., "postgres:15"
-  servers: z.array(z.string()),
+  server: z.string().describe("Hostname or IP address of the target server"),
   ports: z.array(z.string()).optional(),
   volumes: z.array(z.string()).optional(),
   environment: z

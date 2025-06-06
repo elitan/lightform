@@ -289,12 +289,8 @@ async function getProxyStatusSummary(
     context.config.services
   ) as ServiceEntry[];
 
-  apps.forEach((app) =>
-    app.servers.forEach((server) => allServers.add(server))
-  );
-  services.forEach((service) =>
-    service.servers.forEach((server) => allServers.add(server))
-  );
+  apps.forEach((app) => allServers.add(app.server));
+  services.forEach((service) => allServers.add(service.server));
 
   if (allServers.size === 0) {
     return { proxyStatuses: [] };
@@ -498,8 +494,7 @@ function aggregateEntryStatus(
 
   // Determine overall status
   // Services don't have replicas property, so default to 1
-  const expectedReplicas =
-    ((entry as any).replicas || 1) * entry.servers.length;
+  const expectedReplicas = (entry as any).replicas || 1;
   let status: "running" | "stopped" | "mixed" | "unknown";
 
   if (totalRunning === 0) {
@@ -532,7 +527,7 @@ async function getEntryStatus(
   context: StatusContext
 ): Promise<EntryStatus> {
   const serverStatuses = await Promise.all(
-    entry.servers.map((server) =>
+    [entry.server].map((server) =>
       getEntryStatusOnServer(entry, entryType, server, context)
     )
   );
@@ -550,7 +545,7 @@ async function getEntryStatus(
           : aggregated.totalContainers,
       running: aggregated.totalRunning,
     },
-    servers: entry.servers,
+    servers: [entry.server],
     uptime: aggregated.uptime || undefined,
     resourceUsage: aggregated.resourceUsage || undefined,
   };

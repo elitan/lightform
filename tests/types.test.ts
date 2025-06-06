@@ -10,7 +10,7 @@ describe("type schemas", () => {
     test("should validate a minimal valid service", () => {
       const validService = {
         image: "nginx:latest",
-        servers: ["server1.example.com"],
+        server: "server1.example.com",
       };
 
       const result = ServiceEntryWithoutNameSchema.safeParse(validService);
@@ -20,7 +20,7 @@ describe("type schemas", () => {
     test("should validate a complete service", () => {
       const validService = {
         image: "nginx:latest",
-        servers: ["server1.example.com", "server2.example.com"],
+        server: "server1.example.com",
         ports: ["80:80", "443:443"],
         volumes: ["/data:/usr/share/nginx/html"],
         environment: {
@@ -40,7 +40,7 @@ describe("type schemas", () => {
 
     test("should reject a service missing required fields", () => {
       const invalidService = {
-        servers: ["server1.example.com"], // missing 'image'
+        server: "server1.example.com", // missing 'image'
       };
 
       const result = ServiceEntryWithoutNameSchema.safeParse(invalidService);
@@ -55,7 +55,7 @@ describe("type schemas", () => {
     test("should reject a service with invalid field types", () => {
       const invalidService = {
         image: "nginx:latest",
-        servers: "server1.example.com", // should be an array
+        server: ["server1.example.com"], // should be a string, not array
       };
 
       const result = ServiceEntryWithoutNameSchema.safeParse(invalidService);
@@ -63,7 +63,7 @@ describe("type schemas", () => {
 
       if (!result.success) {
         const errorPaths = result.error.errors.map((e) => e.path.join("."));
-        expect(errorPaths).toContain("servers");
+        expect(errorPaths).toContain("server");
       }
     });
   });
@@ -75,7 +75,7 @@ describe("type schemas", () => {
         services: {
           web: {
             image: "nginx:latest",
-            servers: ["server1.example.com"],
+            server: "server1.example.com",
           },
         },
       };
@@ -90,11 +90,11 @@ describe("type schemas", () => {
         services: {
           web: {
             image: "nginx:latest",
-            servers: ["server1.example.com"],
+            server: "server1.example.com",
           },
           db: {
             image: "postgres:14",
-            servers: ["db.example.com"],
+            server: "db.example.com",
           },
         },
         docker: {
@@ -117,7 +117,7 @@ describe("type schemas", () => {
         services: {
           web: {
             image: "nginx:latest",
-            servers: ["server1.example.com"],
+            server: "server1.example.com",
           },
         },
       };

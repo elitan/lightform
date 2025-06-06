@@ -291,7 +291,7 @@ async function verifyInfrastructure(
 ): Promise<void> {
   const allTargetServers = new Set<string>();
   targetEntries.forEach((entry) => {
-    entry.servers.forEach((server) => allTargetServers.add(server));
+    allTargetServers.add(entry.server);
   });
 
   logger.verboseLog(
@@ -514,14 +514,14 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   const allAppServers = new Set<string>();
   context.targetEntries.forEach((entry) => {
     const appEntry = entry as AppEntry;
-    appEntry.servers.forEach((server) => allAppServers.add(server));
+    allAppServers.add(appEntry.server);
   });
 
   // Also check servers that might have orphaned apps
   const configuredApps = normalizeConfigEntries(context.config.apps);
   const allConfiguredServers = new Set<string>();
   configuredApps.forEach((app) => {
-    app.servers.forEach((server: string) => allConfiguredServers.add(server));
+    allConfiguredServers.add(app.server);
   });
   allConfiguredServers.forEach((server) => allAppServers.add(server));
 
@@ -552,7 +552,7 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
     const allServiceServers = new Set<string>();
     services.forEach((entry) => {
       const serviceEntry = entry as ServiceEntry;
-      serviceEntry.servers.forEach((server) => allServiceServers.add(server));
+      allServiceServers.add(serviceEntry.server);
     });
 
     // Deploy to each server with reconciliation
@@ -598,20 +598,15 @@ async function buildAndSaveApp(
 }
 
 /**
- * Deploys an app to all its servers (deployment phase)
+ * Deploys an app to its server (deployment phase)
  */
 async function deployAppToServers(
   appEntry: AppEntry,
   context: DeploymentContext
 ): Promise<void> {
-  logger.appDeployment(appEntry.name, appEntry.servers);
+  logger.appDeployment(appEntry.name, [appEntry.server]);
 
-  for (let i = 0; i < appEntry.servers.length; i++) {
-    const serverHostname = appEntry.servers[i];
-    const isLastServer = i === appEntry.servers.length - 1;
-
-    await deployAppToServer(appEntry, serverHostname, context, isLastServer);
-  }
+  await deployAppToServer(appEntry, appEntry.server, context, true);
 }
 
 /**
@@ -834,44 +829,41 @@ async function deployAppToServer(
 }
 
 /**
- * Deploys a single service to all its target servers
+ * Deploys a single service to its target server
  */
 async function deployService(
   serviceEntry: ServiceEntry,
   context: DeploymentContext
 ): Promise<void> {
   logger.verboseLog(
-    `Deploying service: ${
-      serviceEntry.name
-    } to servers: ${serviceEntry.servers.join(", ")}`
+    `Deploying service: ${serviceEntry.name} to server: ${serviceEntry.server}`
   );
 
-  for (const serverHostname of serviceEntry.servers) {
-    let sshClient: SSHClient | undefined;
+  const serverHostname = serviceEntry.server;
+  let sshClient: SSHClient | undefined;
 
-    try {
-      sshClient = await establishSSHConnection(
-        serverHostname,
-        context.config,
-        context.secrets,
-        context.verboseFlag
-      );
-      const dockerClient = new DockerClient(
-        sshClient,
-        serverHostname,
-        context.verboseFlag
-      );
+  try {
+    sshClient = await establishSSHConnection(
+      serverHostname,
+      context.config,
+      context.secrets,
+      context.verboseFlag
+    );
+    const dockerClient = new DockerClient(
+      sshClient,
+      serverHostname,
+      context.verboseFlag
+    );
 
-      await deployServiceDirectly(
-        serviceEntry,
-        dockerClient,
-        serverHostname,
-        context
-      );
-    } finally {
-      if (sshClient) {
-        await sshClient.close();
-      }
+    await deployServiceDirectly(
+      serviceEntry,
+      dockerClient,
+      serverHostname,
+      context
+    );
+  } finally {
+    if (sshClient) {
+      await sshClient.close();
     }
   }
 }
@@ -916,7 +908,7 @@ async function deployServicesWithReconciliation(
     // Step 3: Deploy/update desired services
     const servicesToDeploy = context.targetEntries.filter((entry) => {
       const serviceEntry = entry as ServiceEntry;
-      return serviceEntry.servers.includes(serverHostname);
+      return serviceEntry.server === serverHostname;
     });
 
     for (const entry of servicesToDeploy) {
@@ -1217,7 +1209,7 @@ async function planStateReconciliation(
   const desiredServices = new Set<string>();
 
   configuredServices.forEach((service) => {
-    if (service.servers && service.servers.includes(serverHostname)) {
+    if (service.server === serverHostname) {
       desiredServices.add(service.name);
     }
   });
@@ -1323,7 +1315,7 @@ async function reconcileAppsOnServer(
     const desiredApps = new Set<string>();
 
     configuredApps.forEach((app) => {
-      if (app.servers && app.servers.includes(serverHostname)) {
+      if (app.server === serverHostname) {
         desiredApps.add(app.name);
       }
     });

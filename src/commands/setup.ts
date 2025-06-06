@@ -79,15 +79,15 @@ function collectAllServers(config: LumaConfig): Set<string> {
 
   // Add servers from apps
   configuredApps.forEach((app) => {
-    if (app.servers && app.servers.length > 0) {
-      app.servers.forEach((server: string) => allServers.add(server));
+    if (app.server) {
+      allServers.add(app.server);
     }
   });
 
   // Add servers from services
   configuredServices.forEach((service) => {
-    if (service.servers && service.servers.length > 0) {
-      service.servers.forEach((server: string) => allServers.add(server));
+    if (service.server) {
+      allServers.add(service.server);
     }
   });
 
@@ -113,13 +113,13 @@ function filterServersByEntries(
 
   entryNames.forEach((name) => {
     const app = configuredApps.find((a) => a.name === name);
-    if (app && app.servers) {
-      app.servers.forEach((server: string) => targetServers.add(server));
+    if (app && app.server) {
+      targetServers.add(app.server);
     }
 
     const service = configuredServices.find((s) => s.name === name);
-    if (service && service.servers) {
-      service.servers.forEach((server: string) => targetServers.add(server));
+    if (service && service.server) {
+      targetServers.add(service.server);
     }
 
     if (!app && !service) {
@@ -382,10 +382,7 @@ function getServicesForServer(
   context: SetupContext
 ): ServiceEntry[] {
   return Object.entries(context.config.services || {})
-    .filter(
-      ([_, service]) =>
-        service.servers && service.servers.includes(serverHostname)
-    )
+    .filter(([_, service]) => service.server === serverHostname)
     .map(([name, service]) => ({ name, ...service }));
 }
 
@@ -532,7 +529,7 @@ async function setupServicesOnServer(
   // Check if there are apps on this server to provide better messaging
   const configuredApps = normalizeConfigEntries(context.config.apps);
   const appsOnThisServer = configuredApps.filter(
-    (app) => app.servers && app.servers.includes(serverHostname)
+    (app) => app.server === serverHostname
   );
 
   if (servicesOnThisServer.length === 0) {
@@ -673,16 +670,12 @@ function logSetupSummary(
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
 
-  const appsCount = configuredApps.filter(
-    (app) =>
-      app.servers &&
-      app.servers.some((server: string) => targetServers.has(server))
+  const appsCount = configuredApps.filter((app) =>
+    targetServers.has(app.server)
   ).length;
 
-  const servicesCount = configuredServices.filter(
-    (service) =>
-      service.servers &&
-      service.servers.some((server: string) => targetServers.has(server))
+  const servicesCount = configuredServices.filter((service) =>
+    targetServers.has(service.server)
   ).length;
 
   if (verboseFlag) {
@@ -742,15 +735,9 @@ export async function setupCommand(
     const configuredApps = normalizeConfigEntries(config.apps);
     const configuredServices = normalizeConfigEntries(config.services);
 
-    const hasApps = configuredApps.some(
-      (app) =>
-        app.servers &&
-        app.servers.some((server: string) => targetServers.has(server))
-    );
-    const hasServices = configuredServices.some(
-      (service) =>
-        service.servers &&
-        service.servers.some((server: string) => targetServers.has(server))
+    const hasApps = configuredApps.some((app) => targetServers.has(app.server));
+    const hasServices = configuredServices.some((service) =>
+      targetServers.has(service.server)
     );
 
     let phaseMessage = `Setting up ${targetServers.size} server(s)`;
