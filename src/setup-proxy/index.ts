@@ -135,6 +135,20 @@ export async function setupLumaProxy(
       return false;
     }
 
+    // Ensure .luma directories exist on the server before mounting
+    if (verbose) {
+      console.log(`[${serverHostname}] Creating .luma directory structure...`);
+    }
+    try {
+      await sshClient.exec("mkdir -p ~/.luma/luma-proxy-certs ~/.luma/luma-proxy-config");
+      if (verbose) {
+        console.log(`[${serverHostname}] .luma directories created successfully.`);
+      }
+    } catch (error) {
+      console.error(`[${serverHostname}] Failed to create .luma directories: ${error}`);
+      return false;
+    }
+
     // Create container options
     const containerOptions = {
       name: LUMA_PROXY_NAME,

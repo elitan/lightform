@@ -8,7 +8,7 @@ apps:
     build:
       context: .
       dockerfile: Dockerfile
-    server: 157.180.25.101
+    server: 157.180.47.213
     environment:
       plain:
         - EXAMPLE_VAR=test
@@ -16,8 +16,6 @@ apps:
         - SECRET_VAR
         - POSTGRES_PASSWORD
     proxy:
-      hosts:
-        - test2.eliasson.me
       app_port: 3000
     health_check:
       path: /api/health
@@ -25,7 +23,7 @@ apps:
 services:
   db:
     image: postgres:17
-    server: 157.180.25.101
+    server: 157.180.47.213
     ports:
       - "5433:5432"
     environment:
