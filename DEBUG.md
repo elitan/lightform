@@ -23,7 +23,7 @@ ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy set-st
 
 ### Server Info
 
-- **Server IP**: `157.180.25.101`
+- **Server IP**: `157.180.47.213`
 - **SSH Username**: `luma`
 
 ## Proxy Management

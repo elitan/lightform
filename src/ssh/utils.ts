@@ -37,17 +37,26 @@ export async function getSSHCredentials(
     return sshOptions;
   }
 
-  // Check for default key path in secrets
-  const defaultKeyPath = secrets.DEFAULT_SSH_KEY_PATH;
-  if (defaultKeyPath) {
-    if (verbose) {
+  // Check for key_file in config
+  const configKeyFile = config.ssh?.key_file;
+  if (configKeyFile) {
+    // Expand ~ to home directory
+    const expandedPath = configKeyFile.replace(/^~/, os.homedir());
+    if (fs.existsSync(expandedPath)) {
+      if (verbose) {
+        console.log(
+          `[${serverHostname}] Attempting SSH with key file from config: ${expandedPath}`
+        );
+      }
+      sshOptions.identity = expandedPath;
+      return sshOptions;
+    } else if (verbose) {
       console.log(
-        `[${serverHostname}] Attempting SSH with default key path from secrets (DEFAULT_SSH_KEY_PATH): ${defaultKeyPath}`
+        `[${serverHostname}] Config key_file ${expandedPath} does not exist, skipping...`
       );
     }
-    sshOptions.identity = defaultKeyPath;
-    return sshOptions;
   }
+
 
   // Check for server-specific password in secrets
   const serverSpecificPasswordEnvVar = `SSH_PASSWORD_${serverHostname
