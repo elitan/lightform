@@ -660,25 +660,6 @@ async function buildOrTagAppImage(
   }
 }
 
-/**
- * Pushes an app image to the configured registry
- */
-async function pushAppImage(
-  appEntry: AppEntry,
-  imageNameWithRelease: string,
-  config: LumaConfig,
-  verbose: boolean = false
-): Promise<void> {
-  logger.verboseLog(`Pushing image ${imageNameWithRelease}...`);
-  try {
-    const registryToPush = appEntry.registry?.url || config.docker?.registry;
-    await DockerClient.push(imageNameWithRelease, registryToPush, verbose);
-    logger.verboseLog(`Successfully pushed ${imageNameWithRelease}`);
-  } catch (error) {
-    logger.error(`Failed to push image ${imageNameWithRelease}`, error);
-    throw error;
-  }
-}
 
 /**
  * Saves an app image to a tar archive for transfer

@@ -171,19 +171,13 @@ ssh:
 
 ### Docker Registry
 
-```yaml
-docker:
-  registry: ghcr.io # Default registry
-  username: myuser # Registry username
+Registry configuration is only needed for services using private registries. Apps are always transferred directly via SSH and don't require registry configuration.
 
-  # Alternative registries
-  registries:
-    ghcr.io:
-      username: github-user
-      password_secret: GITHUB_TOKEN
-    docker.io:
-      username: docker-user
-      password_secret: DOCKER_PASSWORD
+```yaml
+# Only needed for services with private images
+docker:
+  registry: ghcr.io # Default registry for services
+  username: myuser # Registry username
 ```
 
 ## Environment Variables

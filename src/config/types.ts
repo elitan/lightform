@@ -75,7 +75,7 @@ export const AppEntryWithoutNameSchema = z.object({
       secret: z.array(z.string()).optional(),
     })
     .optional(),
-  registry: z // Optional per-app registry override (only used for pre-built images)
+  registry: z // Optional registry for pre-built images
     .object({
       url: z.string().optional(),
       username: z.string(),
@@ -83,7 +83,7 @@ export const AppEntryWithoutNameSchema = z.object({
     })
     .optional()
     .describe(
-      "Registry configuration for pre-built images. Apps with 'build' configuration use docker save/load transfer and don't require registries."
+      "Registry configuration for pre-built images. Not used for apps with 'build' configuration."
     ),
   health_check: HealthCheckSchema.optional(),
   proxy: AppProxyConfigSchema.optional(),
@@ -165,7 +165,7 @@ export const LumaConfigSchema = z.object({
     .object({
       username: z.string().optional(), // Default SSH username
       port: z.number().optional(), // Default SSH port
-      // Default key path can be a LumaSecret reference, e.g. default_ssh_key_secret: "DEFAULT_SSH_KEY_PATH"
+      key_file: z.string().optional(), // Path to SSH private key file
     })
     .optional(),
   proxy: z
