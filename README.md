@@ -82,11 +82,18 @@ apps:
 luma setup
 ```
 
-Luma will:
+Luma will automatically:
 
-- Install Docker if needed
-- Set up the reverse proxy
-- Start services
+- **Detect fresh servers** and bootstrap them with security best practices
+- **Create a dedicated user** with sudo privileges
+- **Install Docker Engine** with all required components
+- **Secure SSH configuration** (disable root login, setup keys)
+- **Install Fail2Ban** for intrusion prevention
+- **Enable automatic security updates** for ongoing protection
+- **Set up the reverse proxy** for automatic SSL
+- **Start configured services**
+
+**Zero Manual Setup**: Just run `luma setup` with a fresh server - Luma automatically detects and bootstraps it with enterprise-grade security practices. No manual server preparation needed!
 
 ### 5. Deploy!
 
@@ -103,8 +110,10 @@ Watch as Luma builds, deploys, and switches traffic with zero downtime.
 - **Local machine**: Bun or Node.js 18+
 - **Target servers**:
   - Ubuntu/Debian Linux
-  - SSH access with sudo privileges
+  - SSH access as root (for fresh servers) or configured user
   - Ports 80 and 443 open
+  
+**Fresh Server Setup**: For new servers, you only need root SSH access. Luma will automatically bootstrap the server with a dedicated user and all security best practices.
 
 ---
 
@@ -114,6 +123,7 @@ Watch as Luma builds, deploys, and switches traffic with zero downtime.
 
 - **TypeScript/Bun** instead of Ruby
 - **Registry-less deployments** - no need for external Docker registries
+- **Automatic server bootstrap** - no manual server setup required
 
 ### vs Vercel/Netlify
 
@@ -346,12 +356,20 @@ Initialize a new project with configuration files.
 
 ### `luma setup [service...]`
 
-Prepare servers for deployment. Installs Docker, creates networks, sets up the proxy.
+Prepare servers for deployment with automatic fresh server detection and bootstrap.
 
 ```bash
 luma setup              # Set up all servers
 luma setup web api      # Set up only servers for web and api
 ```
+
+**Smart Bootstrap**: Automatically detects fresh servers and bootstraps them with:
+- Dedicated user creation with sudo privileges
+- Docker Engine installation
+- SSH security hardening (disable root login, setup keys)
+- Fail2Ban intrusion prevention
+- Automatic security updates
+- Basic system hardening
 
 ### `luma deploy [app...]`
 
@@ -488,125 +506,23 @@ apps:
 
 ## 🔒 Security Best Practices
 
-### Server Preparation Guide (from root)
+### Server Setup
 
-Follow these steps to securely prepare your server for Luma deployments. All commands should be run as the `root` user (or with `sudo`).
+Luma automatically prepares and secures your servers - no manual setup required!
 
-1. **Create a dedicated user for Luma:**
+1. **Fresh Server**: Start with a fresh Ubuntu/Debian server
+2. **Root SSH Access**: Ensure you can SSH as root (password or key-based)
+3. **Run Setup**: Execute `luma setup` - Luma will detect the fresh server and automatically bootstrap it with comprehensive security practices
 
-```bash
-sudo adduser luma
-# Follow the prompts to set a password (it will be disabled later) and user details.
-sudo usermod -aG sudo luma # Add luma to the sudo group
-```
+**What Luma does automatically:**
+- Creates a dedicated `luma` user with sudo privileges
+- Installs Docker Engine with all required components
+- Hardens SSH configuration (disables root login, sets up keys)
+- Installs Fail2Ban for intrusion prevention
+- Enables automatic security updates
+- Applies basic system hardening
 
-2. **Install Docker Engine:**
-
-Luma requires Docker to be installed on your target servers.
-
-```bash
-# Update package lists
-sudo apt-get update
-
-# Install prerequisites
-sudo apt-get install -y ca-certificates curl
-
-# Create keyrings directory
-sudo install -m 0755 -d /etc/apt/keyrings
-
-# Add Docker's official GPG key
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-# Add Docker's stable repository
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-# Update package lists again
-sudo apt-get update
-
-# Install Docker CE with all plugins
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-# Add the luma user to the docker group
-sudo usermod -aG docker luma
-
-# Verify installation
-sudo docker run hello-world
-```
-
-_Note: You might need to log out and log back in as the `luma` user for the group changes to take effect, or use `newgrp docker` in the `luma` user's session._
-
-3. **Set up SSH Key-Based Authentication for `luma`:**
-
-   **Prerequisites:** This step assumes you already have SSH keys generated on your local machine. If you don't have SSH keys yet, generate them first:
-
-```bash
-ssh-keygen -t rsa -b 4096 -C "your_email@example.com"
-# Follow the prompts. It's recommended to use a passphrase for your key.
-```
-
-**Copy your public key to the server:**
-Replace `your-server.com` with your server's IP address or hostname.
-
-```bash
-ssh-copy-id luma@your-server.com
-```
-
-This command will copy your local machine's public SSH key to the `luma` user's `~/.ssh/authorized_keys` file on the server.
-
-4. **Secure SSH Configuration:**
-
-Disable password authentication and make other security improvements to your SSH server. Edit the SSH daemon configuration file (`/etc/ssh/sshd_config`) on the server:
-
-```bash
-sudo nano /etc/ssh/sshd_config
-```
-
-Make the following changes:
-
-```
-PermitRootLogin no
-PasswordAuthentication no
-PubkeyAuthentication yes
-ChallengeResponseAuthentication no
-UsePAM no # If you are sure you don't need PAM for SSH
-```
-
-After saving the changes, restart the SSH service:
-
-```bash
-sudo systemctl restart ssh
-```
-
-**Important:** Ensure your SSH key authentication is working correctly before disabling password authentication, or you could lock yourself out of the server. Test by logging in from a new terminal window: `ssh luma@your-server.com`.
-
-5. **Install Fail2Ban:**
-
-Fail2Ban helps protect your server from brute-force attacks.
-
-```bash
-sudo apt-get update
-sudo apt-get install -y fail2ban
-sudo systemctl enable fail2ban
-sudo systemctl start fail2ban
-```
-
-Fail2Ban works out-of-the-box with default settings for SSH. You can customize its configuration in `/etc/fail2ban/jail.local`.
-
-6. **Configure Luma:**
-
-In your `luma.yml` file, ensure you specify the `luma` user for SSH connections:
-
-```yaml
-ssh:
-  username: luma
-  # port: 22 # If you changed the SSH port
-```
-
-After completing these steps, your server will be more secure and ready for Luma deployments.
+This automated approach ensures consistent, secure server configuration every time.
 
 ### Secrets Management
 

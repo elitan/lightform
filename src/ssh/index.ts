@@ -18,6 +18,8 @@ export interface SSHClientOptions {
   passphrase?: string;
   agent?: string;
   verbose?: boolean;
+  skipHostKeyVerification?: boolean;
+  suppressConnectionErrors?: boolean;
 }
 
 export class SSHClient {
@@ -25,6 +27,7 @@ export class SSHClient {
   private connectOptions: ConnectConfig;
   public readonly host: string;
   private verbose: boolean = false;
+  private suppressConnectionErrors: boolean = false;
 
   private constructor(connectOptions: ConnectConfig) {
     this.connectOptions = connectOptions;
@@ -41,6 +44,12 @@ export class SSHClient {
       passphrase: options.passphrase,
       agent: options.agent,
     };
+    
+    // Skip host key verification for fresh servers
+    if (options.skipHostKeyVerification) {
+      connectOpts.hostHash = 'sha256';
+      connectOpts.hostVerifier = () => true;
+    }
 
     // ssh2-promise allows 'identity' for path, ssh2 'privateKey' for content
     const ssh2PromiseConfig: any = { ...connectOpts };
@@ -58,11 +67,16 @@ export class SSHClient {
 
     const client = new SSHClient(ssh2PromiseConfig as ConnectConfig);
     client.setVerbose(options.verbose || false);
+    client.setSuppressConnectionErrors(options.suppressConnectionErrors || false);
     return client;
   }
 
   private setVerbose(verbose: boolean): void {
     this.verbose = verbose;
+  }
+
+  private setSuppressConnectionErrors(suppress: boolean): void {
+    this.suppressConnectionErrors = suppress;
   }
 
   async connect(): Promise<void> {
@@ -72,7 +86,9 @@ export class SSHClient {
         console.log(`SSH connection established to ${this.host}`);
       }
     } catch (err) {
-      console.error(`SSH connection failed to ${this.host}:`, err);
+      if (!this.suppressConnectionErrors) {
+        console.error(`SSH connection failed to ${this.host}:`, err);
+      }
       throw err;
     }
   }
