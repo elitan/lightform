@@ -21,13 +21,14 @@ Starting deployment with release 80d0f8c
 [✓] Deployment completed successfully in 9.8s
 
 Your app is live at:
-  └─ https://test.eliasson.me
+  └─ https://a1b2c3d4-web-luma-192-168-1-100.sslip.io
 ```
 
 Luma automatically handles:
 
 - ✅ Zero-downtime blue-green deployments
 - ✅ Automatic SSL certificates via Let's Encrypt
+- ✅ Instant domains with sslip.io (no DNS setup required)
 - ✅ Health checks and automatic rollbacks
 - ✅ Docker image building and secure transfer
 - ✅ Multi-server deployments
@@ -204,6 +205,29 @@ Luma includes a smart reverse proxy that automatically:
 - Routes traffic to your apps
 - Handles health checks
 - Manages zero-downtime deployments with blue-green switching
+
+### Instant Domains with sslip.io
+
+When you don't specify custom domains in your `proxy.hosts` configuration, Luma automatically generates working domains using [sslip.io](https://sslip.io):
+
+```yaml
+apps:
+  web:
+    # No hosts specified - Luma generates sslip.io domain automatically
+    proxy:
+      app_port: 3000
+```
+
+After deployment, your app will be available at a URL like:
+- `https://a1b2c3d4-web-luma-192-168-1-100.sslip.io`
+
+**Benefits:**
+- ✅ **No DNS setup required** - works immediately
+- ✅ **Automatic HTTPS** - Let's Encrypt certificates provisioned instantly  
+- ✅ **Deterministic URLs** - same project+app+server always generates the same domain
+- ✅ **Perfect for testing** - get a working HTTPS domain in seconds
+
+The domain format is: `{hash}-{app}-luma-{server-ip}.sslip.io` where the hash is deterministically generated from your project name, app name, and server IP.
 
 ### Health Checks
 

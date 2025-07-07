@@ -14,6 +14,7 @@ import {
 } from "../docker";
 import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh";
 import { generateReleaseId, getProjectNetworkName } from "../utils";
+import { shouldUseSslip, generateAppSslipDomain } from "../utils/sslip";
 import { execSync } from "child_process";
 import { LumaProxyClient } from "../proxy";
 import { performBlueGreenDeployment } from "./blue-green";
@@ -1062,7 +1063,8 @@ async function configureProxyForApp(
   config: LumaConfig,
   verbose: boolean = false
 ): Promise<void> {
-  if (!appEntry.proxy?.hosts?.length) return;
+  // Skip proxy configuration if no proxy config at all
+  if (!appEntry.proxy) return;
 
   logger.verboseLog(`Configuring luma-proxy for ${appEntry.name}`);
 
@@ -1071,7 +1073,18 @@ async function configureProxyForApp(
     serverHostname,
     verbose
   );
-  const hosts = appEntry.proxy.hosts;
+  
+  // Determine hosts to configure
+  let hosts: string[];
+  if (shouldUseSslip(appEntry.proxy.hosts)) {
+    // Generate sslip.io domain if no hosts configured
+    const sslipDomain = generateAppSslipDomain(projectName, appEntry.name, serverHostname);
+    hosts = [sslipDomain];
+    logger.verboseLog(`Generated sslip.io domain: ${sslipDomain}`);
+  } else {
+    hosts = appEntry.proxy.hosts!;
+  }
+
   const appPort = appEntry.proxy.app_port || 80;
   const healthPath = appEntry.health_check?.path || "/up";
 
@@ -1569,8 +1582,17 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     if (!deployServicesFlag) {
       for (const entry of targetEntries) {
         const appEntry = entry as AppEntry;
-        if (appEntry.proxy?.hosts) {
-          for (const host of appEntry.proxy.hosts) {
+        if (appEntry.proxy) {
+          // Use configured hosts or generate sslip.io domain
+          let hosts: string[];
+          if (shouldUseSslip(appEntry.proxy.hosts)) {
+            const sslipDomain = generateAppSslipDomain(projectName, appEntry.name, appEntry.server);
+            hosts = [sslipDomain];
+          } else {
+            hosts = appEntry.proxy.hosts!;
+          }
+          
+          for (const host of hosts) {
             urls.push(`https://${host}`);
           }
         }
