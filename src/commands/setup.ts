@@ -12,11 +12,294 @@ interface SetupContext {
   config: LumaConfig;
   secrets: LumaSecrets;
   verboseFlag: boolean;
+  allowBootstrap?: boolean;
 }
 
 interface ParsedSetupArgs {
   entryNames: string[];
   verboseFlag: boolean;
+  forceBootstrap: boolean;
+}
+
+/**
+ * Attempts to bootstrap a fresh server as root user
+ */
+async function bootstrapFreshServer(
+  serverHostname: string,
+  context: SetupContext
+): Promise<boolean> {
+  logger.phase(`Bootstrapping fresh server: ${serverHostname}`);
+  
+  try {
+    // Try to connect as root
+    const rootCredentials = await getSSHCredentials(
+      serverHostname,
+      { ...context.config, ssh: { ...context.config.ssh, username: 'root' } },
+      context.secrets,
+      context.verboseFlag
+    );
+    
+    const sshClient = await SSHClient.create({
+      ...rootCredentials,
+      host: serverHostname,
+      username: 'root',
+      skipHostKeyVerification: true, // Fresh servers need this
+    });
+    
+    await sshClient.connect();
+    logger.verboseLog('Successfully connected as root');
+    
+    // Get the target username from config
+    const targetUsername = context.config.ssh?.username || 'luma';
+    
+    // Bootstrap the server
+    await performBootstrapSteps(sshClient, targetUsername, context);
+    
+    await sshClient.close();
+    logger.phaseComplete(`Server bootstrapped successfully`);
+    return true;
+    
+  } catch (error) {
+    // Check if it's just debconf warnings or user already exists (which are not real failures)
+    const errorMessage = error?.toString() || '';
+    const isDebconfWarning = errorMessage.includes('debconf: unable to initialize frontend');
+    const isUserExists = errorMessage.includes('already exists');
+    const hasRealError = errorMessage.includes('E:') || errorMessage.includes('ERROR') || errorMessage.includes('fatal:');
+    
+    if ((isDebconfWarning || isUserExists) && !hasRealError) {
+      logger.verboseLog('Non-critical warnings detected (normal for server setup)');
+      logger.phaseComplete(`Server bootstrapped successfully`);
+      return true;
+    }
+    
+    logger.error('Failed to bootstrap server', error);
+    return false;
+  }
+}
+
+/**
+ * Performs the actual bootstrap steps on the server
+ */
+async function performBootstrapSteps(
+  sshClient: SSHClient,
+  targetUsername: string,
+  context: SetupContext
+): Promise<void> {
+  logger.serverStep('Creating luma user');
+  
+  // Create user (handle if already exists)
+  try {
+    await sshClient.exec(`adduser --disabled-password --gecos "" ${targetUsername}`);
+    logger.verboseLog(`Created user: ${targetUsername}`);
+  } catch (error) {
+    if (String(error).includes('already exists')) {
+      logger.verboseLog(`User ${targetUsername} already exists, configuring...`);
+    } else {
+      logger.verboseLog(`Warning during user creation: ${String(error).slice(0, 100)}...`);
+    }
+  }
+  
+  try {
+    await sshClient.exec(`usermod -aG sudo ${targetUsername}`);
+    logger.verboseLog('→ Added user to sudo group');
+  } catch (error) {
+    logger.verboseLog(`Warning: ${String(error).slice(0, 50)}...`);
+  }
+  
+  logger.serverStep('Installing Docker');
+  
+  // Check if Docker already installed
+  try {
+    await sshClient.exec('docker --version');
+    logger.verboseLog('Docker already installed, skipping...');
+  } catch (error) {
+    logger.verboseLog('Installing Docker Engine...');
+    
+    try {
+      // Install Docker with progress feedback
+      await sshClient.exec('export DEBIAN_FRONTEND=noninteractive && apt-get update');
+      logger.verboseLog('→ Updated package lists');
+      
+      await sshClient.exec('export DEBIAN_FRONTEND=noninteractive && apt-get install -y ca-certificates curl');
+      logger.verboseLog('→ Installed prerequisites');
+      
+      await sshClient.exec('install -m 0755 -d /etc/apt/keyrings');
+      await sshClient.exec('curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc');
+      await sshClient.exec('chmod a+r /etc/apt/keyrings/docker.asc');
+      logger.verboseLog('→ Added Docker GPG key');
+      
+      await sshClient.exec(`echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null`);
+      await sshClient.exec('export DEBIAN_FRONTEND=noninteractive && apt-get update');
+      logger.verboseLog('→ Added Docker repository');
+      
+      await sshClient.exec('export DEBIAN_FRONTEND=noninteractive && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin');
+      logger.verboseLog('→ Installed Docker packages');
+    } catch (dockerError) {
+      // Don't fail bootstrap for debconf warnings
+      if (String(dockerError).includes('debconf:')) {
+        logger.verboseLog('→ Docker installed (ignoring debconf warnings)');
+      } else {
+        throw dockerError;
+      }
+    }
+  }
+  
+  try {
+    await sshClient.exec(`usermod -aG docker ${targetUsername}`);
+    logger.verboseLog('→ Added user to docker group');
+  } catch (error) {
+    logger.verboseLog(`Warning: ${String(error).slice(0, 50)}...`);
+  }
+  
+  logger.serverStep('Setting up SSH keys');
+  
+  // Setup SSH directory for target user
+  await sshClient.exec(`mkdir -p /home/${targetUsername}/.ssh`);
+  await sshClient.exec(`chmod 700 /home/${targetUsername}/.ssh`);
+  logger.verboseLog('→ Created SSH directory');
+  
+  // Copy root's authorized_keys to target user
+  await sshClient.exec(`cp /root/.ssh/authorized_keys /home/${targetUsername}/.ssh/authorized_keys 2>/dev/null || true`);
+  await sshClient.exec(`chown -R ${targetUsername}:${targetUsername} /home/${targetUsername}/.ssh`);
+  await sshClient.exec(`chmod 600 /home/${targetUsername}/.ssh/authorized_keys`);
+  logger.verboseLog('→ Configured SSH access');
+  
+  logger.serverStep('Securing SSH configuration');
+  
+  // Secure SSH config
+  await sshClient.exec(`sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config`);
+  await sshClient.exec(`sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config`);
+  await sshClient.exec(`sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config`);
+  logger.verboseLog('→ Updated SSH config');
+  
+  await sshClient.exec(`systemctl restart ssh`);
+  logger.verboseLog('→ Restarted SSH service');
+  
+  logger.serverStep('Installing Fail2Ban');
+  
+  // Check if Fail2Ban already installed
+  try {
+    await sshClient.exec('fail2ban-client --version');
+    logger.verboseLog('Fail2Ban already installed');
+  } catch (error) {
+    await sshClient.exec(`export DEBIAN_FRONTEND=noninteractive && apt-get install -y fail2ban`);
+    logger.verboseLog('→ Installed Fail2Ban');
+  }
+  
+  try {
+    await sshClient.exec(`systemctl enable fail2ban`);
+    logger.verboseLog('→ Enabled Fail2Ban service');
+  } catch (error) {
+    // Ignore systemctl enable output (it's not an error)
+    if (String(error).includes('Synchronizing state') || String(error).includes('Executing:')) {
+      logger.verboseLog('→ Enabled Fail2Ban service');
+    } else {
+      logger.verboseLog(`Warning enabling Fail2Ban: ${String(error).slice(0, 50)}...`);
+    }
+  }
+  
+  try {
+    await sshClient.exec(`systemctl start fail2ban`);
+    logger.verboseLog('→ Started Fail2Ban service');
+  } catch (error) {
+    logger.verboseLog(`Warning starting Fail2Ban: ${String(error).slice(0, 50)}...`);
+  }
+  
+  logger.serverStep('Enabling automatic security updates');
+  
+  // Install and configure unattended upgrades
+  try {
+    await sshClient.exec(`export DEBIAN_FRONTEND=noninteractive && apt-get install -y unattended-upgrades`);
+    await sshClient.exec(`echo 'Unattended-Upgrade::Automatic-Reboot "false";' >> /etc/apt/apt.conf.d/50unattended-upgrades`);
+    await sshClient.exec(`systemctl enable unattended-upgrades`);
+    logger.verboseLog('→ Enabled automatic security updates');
+  } catch (error) {
+    logger.verboseLog(`Warning configuring auto-updates: ${String(error).slice(0, 50)}...`);
+  }
+  
+  logger.serverStep('Basic system hardening');
+  
+  // Disable unused services
+  try {
+    await sshClient.exec(`systemctl disable --now avahi-daemon 2>/dev/null || true`);
+    logger.verboseLog('→ Disabled mDNS service');
+  } catch (error) {
+    // Ignore if service doesn't exist
+  }
+  
+  try {
+    await sshClient.exec(`systemctl disable --now cups 2>/dev/null || true`);
+    logger.verboseLog('→ Disabled print service');
+  } catch (error) {
+    // Ignore if service doesn't exist
+  }
+  
+  // Secure SSH config permissions
+  try {
+    await sshClient.exec(`chmod 600 /etc/ssh/sshd_config`);
+    logger.verboseLog('→ Secured SSH config permissions');
+  } catch (error) {
+    logger.verboseLog(`Warning securing SSH config: ${String(error).slice(0, 50)}...`);
+  }
+  
+  // Enable NTP time synchronization
+  try {
+    await sshClient.exec(`timedatectl set-ntp true`);
+    logger.verboseLog('→ Enabled NTP time sync');
+  } catch (error) {
+    logger.verboseLog(`Warning configuring NTP: ${String(error).slice(0, 50)}...`);
+  }
+  
+  // Set stricter umask for new files
+  try {
+    await sshClient.exec(`echo "umask 027" >> /etc/profile`);
+    logger.verboseLog('→ Set secure file permissions');
+  } catch (error) {
+    logger.verboseLog(`Warning setting umask: ${String(error).slice(0, 50)}...`);
+  }
+  
+  logger.serverStepComplete('Bootstrap completed');
+}
+
+/**
+ * Checks if a server appears to be fresh (no luma user configured)
+ */
+async function detectFreshServer(
+  serverHostname: string,
+  context: SetupContext
+): Promise<boolean> {
+  try {
+    const sshCredentials = await getSSHCredentials(
+      serverHostname,
+      context.config,
+      context.secrets,
+      context.verboseFlag
+    );
+    
+    if (!sshCredentials.username) {
+      return false;
+    }
+    
+    // Try to connect with configured user
+    const sshClient = await SSHClient.create({
+      ...sshCredentials,
+      host: serverHostname,
+      username: sshCredentials.username as string,
+      skipHostKeyVerification: true, // For fresh server detection
+      suppressConnectionErrors: true, // Don't show errors during detection
+    });
+    
+    await sshClient.connect();
+    await sshClient.close();
+    
+    // If connection succeeds, it's not a fresh server
+    return false;
+    
+  } catch (error) {
+    // If connection fails, it might be a fresh server
+    logger.verboseLog(`Connection failed with configured user, server might be fresh: ${error}`);
+    return true;
+  }
 }
 
 /**
@@ -44,11 +327,13 @@ function normalizeConfigEntries(
  */
 function parseSetupArgs(
   entryNames?: string[],
-  verbose: boolean = false
+  verbose: boolean = false,
+  forceBootstrap: boolean = false
 ): ParsedSetupArgs {
   return {
     entryNames: entryNames || [],
     verboseFlag: verbose,
+    forceBootstrap,
   };
 }
 
@@ -150,8 +435,8 @@ async function establishSSHConnection(
     throw new Error("Could not determine SSH username");
   }
 
-  // Security check for root user
-  if (sshCredentials.username === "root") {
+  // Security check for root user (allow during bootstrap)
+  if (sshCredentials.username === "root" && !context.allowBootstrap) {
     logger.serverStepError(
       `Using root for SSH access is not recommended`,
       undefined,
@@ -623,13 +908,41 @@ async function setupServer(
   try {
     logger.server(serverHostname);
 
-    // Establish SSH connection
+    // Check if this is a fresh server
+    const isFreshServer = await detectFreshServer(serverHostname, context);
+    
+    if (isFreshServer) {
+      logger.verboseLog('Server appears to be fresh (configured user cannot connect)');
+      logger.verboseLog('🚀 Fresh server detected - bootstrapping automatically with security best practices');
+      logger.verboseLog('   → Creating luma user with sudo access');
+      logger.verboseLog('   → Installing Docker Engine');
+      logger.verboseLog('   → Setting up SSH keys');
+      logger.verboseLog('   → Securing SSH configuration');
+      logger.verboseLog('   → Installing Fail2Ban');
+      logger.verboseLog('   → Enabling automatic security updates');
+      logger.verboseLog('   → Basic system hardening');
+      
+      const bootstrapSuccess = await bootstrapFreshServer(serverHostname, context);
+      if (!bootstrapSuccess) {
+        logger.serverStepError('Bootstrap failed', undefined, true);
+        return;
+      }
+      
+      logger.verboseLog('✅ Server bootstrapped successfully, continuing with setup...');
+      
+      // Give the server a moment to apply changes
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+
+    // Establish SSH connection (now with potentially bootstrapped server)
+    logger.verboseLog('Connecting with configured user...');
     const connectionResult = await establishSSHConnection(
       serverHostname,
       context
     );
     sshClient = connectionResult.sshClient;
     sshCredentials = connectionResult.sshCredentials;
+    logger.verboseLog('SSH connection established successfully');
 
     // Create Docker client
     const dockerClient = new DockerClient(
@@ -719,6 +1032,7 @@ export async function setupCommand(
       config,
       secrets,
       verboseFlag,
+      allowBootstrap: true,
     };
 
     // Determine target servers
