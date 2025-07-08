@@ -15,7 +15,7 @@
 cd examples/basic  # or examples/nextjs
 
 # Deploy with force flag
-bun ../../src/index.ts deploy --force
+bun ../../packages/cli/src/index.ts deploy --force
 
 # Enable staging mode immediately after setup
 ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy set-staging --enabled true"
@@ -31,11 +31,11 @@ ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy set-st
 ### Update Proxy
 
 ```bash
-cd proxy
+cd packages/proxy
 ./publish.sh
 
 # Setup will automatically pull latest proxy if available and start it
-bun ../../src/index.ts setup --verbose
+bun ../../packages/cli/src/index.ts setup --verbose
 
 # Manual approach if needed (usually not required):
 # Stop and remove proxy container
@@ -139,9 +139,9 @@ ssh luma@157.180.25.101 "rm -rf ./.luma"
 
 # 2. Setup and deploy
 cd examples/basic
-bun ../../src/index.ts setup --verbose
+bun ../../packages/cli/src/index.ts setup --verbose
 ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy set-staging --enabled true"
-bun ../../src/index.ts deploy --force
+bun ../../packages/cli/src/index.ts deploy --force
 
 # 3. Test
 curl -k -I https://test.eliasson.me
@@ -165,7 +165,7 @@ When troubleshooting Luma issues, follow this systematic feedback loop:
 ```bash
 # 1. Test deploy
 cd examples/basic
-bun ../../src/index.ts deploy --force --verbose
+bun ../../packages/cli/src/index.ts deploy --force --verbose
 
 # 2. Check the logs
 ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy"
@@ -182,9 +182,9 @@ ssh luma@157.180.25.101 "docker logs --tail 30 gmail-web"
 # - Update CLI logic if needed
 
 # 5. Redeploy
-cd proxy && ./publish.sh && cd ../examples/basic  # If proxy changes
-bun ../../src/index.ts setup --verbose            # Automatically pulls updated proxy and starts it
-bun ../../src/index.ts deploy --force --verbose   # Deploy again
+cd packages/proxy && ./publish.sh && cd ../../examples/basic  # If proxy changes
+bun ../../packages/cli/src/index.ts setup --verbose            # Automatically pulls updated proxy and starts it
+bun ../../packages/cli/src/index.ts deploy --force --verbose   # Deploy again
 
 # 6. Start over
 # Go back to step 2 and check logs again

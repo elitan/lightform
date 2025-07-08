@@ -3,7 +3,7 @@
 
 ## CLI
 
-The cli code is in typescript and placed in the root folder with the source code in the ./src folder.
+The cli code is in typescript and placed in the ./packages/cli folder with the source code in the ./packages/cli/src folder.
 
 ### Commands:
 
@@ -13,4 +13,4 @@ The cli code is in typescript and placed in the root folder with the source code
 
 ## Proxy
 
-In the ./proxy folder.
+In the ./packages/proxy folder.
