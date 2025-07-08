@@ -1,6 +1,7 @@
 {
-  "name": "@elitan/luma",
-  "description": "Zero-downtime deployments for your own servers.",
+  "name": "luma-monorepo",
+  "private": true,
+  "description": "Zero-downtime deployments for your own servers - Monorepo",
   "version": "0.1.2",
   "author": "Elitan",
   "license": "MIT",
@@ -8,51 +9,23 @@
     "type": "git",
     "url": "git+https://github.com/elitan/luma.git"
   },
-  "keywords": [
-    "deployment",
-    "zero-downtime",
-    "docker",
-    "ssh",
-    "cli"
+  "workspaces": [
+    "packages/*"
   ],
-  "bin": {
-    "luma": "dist/index.js"
-  },
-  "main": "./dist/index.js",
-  "files": [
-    "dist/**/*",
-    "README.md"
-  ],
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
-    "build": "tsc",
-    "prepublishOnly": "bun run build",
-    "start": "bun run src/index.ts",
-    "test": "bun test",
-    "publish:current": "bun publish --access public",
-    "release:patch": "npm version patch && git push origin main --tags && bun publish --access public",
-    "release:minor": "npm version minor && git push origin main --tags && bun publish --access public",
-    "release:major": "npm version major && git push origin main --tags && bun publish --access public",
-    "release:alpha": "npm version prerelease --preid=alpha && git push origin main --tags && bun publish --tag alpha --access public",
-    "release:beta": "npm version prerelease --preid=beta && git push origin main --tags && bun publish --tag beta --access public",
-    "release:rc": "npm version prerelease --preid=rc && git push origin main --tags && bun publish --tag rc --access public",
-    "publish:dry-run": "bun publish --dry-run",
-    "version:check": "npm version --json"
-  },
-  "dependencies": {
-    "@types/cli-progress": "^3.11.6",
-    "cli-progress": "^3.12.0",
-    "js-yaml": "^4.1.0",
-    "ssh2-promise": "^1.0.0",
-    "zod": "^3.24.4"
+    "build": "bun run build:cli && bun run build:proxy",
+    "build:cli": "cd packages/cli && bun run build",
+    "build:proxy": "cd packages/proxy && go build -o dist/luma-proxy ./cmd/luma-proxy",
+    "test": "bun run test:cli",
+    "test:cli": "cd packages/cli && bun test",
+    "start:cli": "cd packages/cli && bun run start",
+    "publish:cli": "cd packages/cli && bun publish --access public",
+    "release:patch": "cd packages/cli && npm version patch && git push origin main --tags && bun publish --access public",
+    "release:minor": "cd packages/cli && npm version minor && git push origin main --tags && bun publish --access public",
+    "release:major": "cd packages/cli && npm version major && git push origin main --tags && bun publish --access public"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/js-yaml": "^4.0.5",
-    "@types/node": "^20",
-    "@types/ssh2": "^1.15.0",
     "typescript": "^5"
   },
   "engines": {
