@@ -165,10 +165,10 @@ luma deploy -c luma.production.yml
 
 ## How it works
 
-**Registry-free deployment**: Build Docker images locally, transfer via SSH, deploy with zero downtime
-**Smart server setup**: Detects fresh servers and automatically installs Docker, hardens SSH, sets up users
-**Blue-green deployment**: New version deployed alongside current, health checked, then traffic switched atomically
-**Automatic HTTPS**: Provisions SSL certificates and domains automatically (or use your own)
+- **Registry-free deployment**: Build Docker images locally, transfer via SSH, deploy with zero downtime
+- **Smart server setup**: Detects fresh servers and automatically installs Docker, hardens SSH, sets up users
+- **Blue-green deployment**: New version deployed alongside current, health checked, then traffic switched atomically
+- **Automatic HTTPS**: Provisions SSL certificates and domains automatically (or use your own)
 
 ## Requirements
 
