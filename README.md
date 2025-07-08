@@ -37,9 +37,23 @@ https://a1b2c3d4-web-luma-192-168-1-100.sslip.io
 
 **Own your infrastructure** without the complexity. Deploy any Docker app to your servers with zero configuration.
 
-**vs Kamal**: TypeScript instead of Ruby, no Docker registry required, automatic server setup
-**vs Vercel/Netlify**: Your servers, any Docker app, no cold starts, no vendor lock-in
-**vs Docker Compose**: Zero-downtime deployments, multi-server support, automatic SSL
+**vs Kamal**:
+- TypeScript/Bun instead of Ruby
+- No Docker registry required - build locally, transfer directly 
+- Automatic fresh server setup and security hardening
+- Instant domains with no DNS configuration needed
+
+**vs Vercel/Netlify**:
+- Your own servers - full control, no vendor lock-in
+- Any Docker app - not limited to specific frameworks
+- No cold starts - containers always running
+- Cost-effective - pay only for your servers
+
+**vs Docker Compose**:
+- Zero-downtime deployments - Compose restarts cause downtime
+- Multi-server support - deploy across multiple machines
+- Automatic SSL certificates and reverse proxy
+- Git-based releases with rollback capabilities
 
 ## Features
 
