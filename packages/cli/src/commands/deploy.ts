@@ -1077,10 +1077,10 @@ async function configureProxyForApp(
   // Determine hosts to configure
   let hosts: string[];
   if (shouldUseSslip(appEntry.proxy.hosts)) {
-    // Generate sslip.io domain if no hosts configured
+    // Generate x.myluma.cloud domain if no hosts configured
     const sslipDomain = generateAppSslipDomain(projectName, appEntry.name, serverHostname);
     hosts = [sslipDomain];
-    logger.verboseLog(`Generated sslip.io domain: ${sslipDomain}`);
+    logger.verboseLog(`Generated x.myluma.cloud domain: ${sslipDomain}`);
   } else {
     hosts = appEntry.proxy.hosts!;
   }
@@ -1583,7 +1583,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       for (const entry of targetEntries) {
         const appEntry = entry as AppEntry;
         if (appEntry.proxy) {
-          // Use configured hosts or generate sslip.io domain
+          // Use configured hosts or generate x.myluma.cloud domain
           let hosts: string[];
           if (shouldUseSslip(appEntry.proxy.hosts)) {
             const sslipDomain = generateAppSslipDomain(projectName, appEntry.name, appEntry.server);

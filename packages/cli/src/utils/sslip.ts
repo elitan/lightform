@@ -17,7 +17,7 @@ function sanitizeHostForDns(host: string): string {
 }
 
 /**
- * Generates a deterministic hash for sslip.io domain
+ * Generates a deterministic hash for x.myluma.cloud domain
  */
 function generateDeterministicHash(projectName: string, appName: string, serverHost: string): string {
   const input = `${projectName}:${appName}:${serverHost}`;
@@ -25,7 +25,7 @@ function generateDeterministicHash(projectName: string, appName: string, serverH
 }
 
 /**
- * Generates a deterministic sslip.io domain for an app
+ * Generates a deterministic x.myluma.cloud domain for an app
  */
 export function generateAppSslipDomain(
   projectName: string,
@@ -35,13 +35,13 @@ export function generateAppSslipDomain(
   const hash = generateDeterministicHash(projectName, appName, serverHost);
   const sanitizedHost = sanitizeHostForDns(serverHost);
   
-  return `${hash}-${appName}-luma-${sanitizedHost}.sslip.io`;
+  return `${hash}-${appName}-luma-${sanitizedHost}.x.myluma.cloud`;
 }
 
 /**
- * Checks if sslip.io should be used for domain generation
+ * Checks if x.myluma.cloud should be used for domain generation
  */
 export function shouldUseSslip(hosts?: string[]): boolean {
-  // Use sslip.io if no custom hosts are specified
+  // Use x.myluma.cloud if no custom hosts are specified
   return !hosts || hosts.length === 0;
 }

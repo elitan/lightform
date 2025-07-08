@@ -30,7 +30,7 @@ apps:
 [✓] Zero-downtime deployment of web (3.5s)
 [✓] Deployment completed successfully in 9.8s
 
-https://a1b2c3d4-web-luma-192-168-1-100.sslip.io
+https://a1b2c3d4-web-luma-192-168-1-100.x.myluma.cloud
 ```
 
 ## Why Luma?
