@@ -13,7 +13,14 @@ import {
   DockerContainerOptions,
 } from "../docker";
 import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh";
-import { generateReleaseId, getProjectNetworkName } from "../utils";
+import {
+  generateReleaseId,
+  getProjectNetworkName,
+  PortChecker,
+  parsePortMappings,
+  validateConfig,
+  formatValidationErrors,
+} from "../utils";
 import { shouldUseSslip, generateAppSslipDomain } from "../utils/sslip";
 import { execSync } from "child_process";
 import { LumaProxyClient } from "../proxy";
@@ -214,6 +221,21 @@ async function loadConfigurationAndSecrets(): Promise<{
   try {
     const config = await loadConfig();
     const secrets = await loadSecrets();
+
+    // Validate configuration for common issues
+    const validationErrors = validateConfig(config);
+    if (validationErrors.length > 0) {
+      logger.error("Configuration validation failed:");
+      logger.error("");
+
+      const formattedErrors = formatValidationErrors(validationErrors);
+      for (const error of formattedErrors) {
+        logger.error(error);
+      }
+
+      throw new Error("Configuration validation failed");
+    }
+
     return { config, secrets };
   } catch (error) {
     logger.error("Failed to load configuration/secrets", error);
@@ -282,6 +304,7 @@ function identifyTargetEntries(
 
 /**
  * Verifies that required networks and luma-proxy containers exist on target servers
+ * and checks for port conflicts
  */
 async function verifyInfrastructure(
   targetEntries: (AppEntry | ServiceEntry)[],
@@ -303,6 +326,7 @@ async function verifyInfrastructure(
 
   let missingNetworkServers: string[] = [];
   let missingProxyServers: string[] = [];
+  let hasPortConflicts = false;
 
   for (const serverHostname of Array.from(allTargetServers)) {
     let sshClientNetwork: SSHClient | undefined;
@@ -335,10 +359,29 @@ async function verifyInfrastructure(
       if (!proxyRunning) {
         missingProxyServers.push(serverHostname);
       }
+
+      // Check for port conflicts
+      await checkPortConflictsOnServer(
+        serverHostname,
+        sshClientNetwork,
+        dockerClientRemote,
+        targetEntries,
+        config.name,
+        verbose
+      );
     } catch (networkError) {
       logger.verboseLog(`Error verifying ${serverHostname}: ${networkError}`);
-      missingNetworkServers.push(serverHostname);
-      missingProxyServers.push(serverHostname);
+
+      // Check if this was a port conflict error
+      if (
+        networkError instanceof Error &&
+        networkError.message.includes("Port conflicts detected")
+      ) {
+        hasPortConflicts = true;
+      } else {
+        missingNetworkServers.push(serverHostname);
+        missingProxyServers.push(serverHostname);
+      }
     } finally {
       if (sshClientNetwork) {
         await sshClientNetwork.close();
@@ -346,7 +389,11 @@ async function verifyInfrastructure(
     }
   }
 
-  if (missingNetworkServers.length > 0 || missingProxyServers.length > 0) {
+  if (
+    missingNetworkServers.length > 0 ||
+    missingProxyServers.length > 0 ||
+    hasPortConflicts
+  ) {
     if (missingNetworkServers.length > 0) {
       logger.error(
         `Required network "${networkName}" is missing on servers: ${missingNetworkServers.join(
@@ -361,11 +408,85 @@ async function verifyInfrastructure(
         )}`
       );
     }
-    logger.error(
-      "Please run `luma setup` to create the required infrastructure"
-    );
+    if (!hasPortConflicts) {
+      logger.error(
+        "Please run `luma setup` to create the required infrastructure"
+      );
+    }
     throw new Error("Infrastructure verification failed");
   }
+}
+
+/**
+ * Checks for port conflicts on a specific server
+ */
+async function checkPortConflictsOnServer(
+  serverHostname: string,
+  sshClient: SSHClient,
+  dockerClient: DockerClient,
+  targetEntries: (AppEntry | ServiceEntry)[],
+  projectName: string,
+  verbose: boolean = false
+): Promise<void> {
+  const portChecker = new PortChecker(
+    sshClient,
+    dockerClient,
+    serverHostname,
+    verbose
+  );
+
+  // Get all entries targeting this server
+  const serverEntries = targetEntries.filter(
+    (entry) => entry.server === serverHostname
+  );
+
+  // Build list of planned port mappings
+  const plannedPorts: Array<{
+    hostPort: number;
+    containerPort: number;
+    requestedBy: string;
+    protocol?: "tcp" | "udp";
+  }> = [];
+
+  for (const entry of serverEntries) {
+    if (entry.ports) {
+      const portMappings = parsePortMappings(entry.ports);
+      for (const mapping of portMappings) {
+        plannedPorts.push({
+          hostPort: mapping.hostPort,
+          containerPort: mapping.containerPort,
+          requestedBy: `${projectName}-${entry.name}`,
+          protocol: mapping.protocol,
+        });
+      }
+    }
+  }
+
+  // Skip port checking if no ports are exposed
+  if (plannedPorts.length === 0) {
+    return;
+  }
+
+  logger.verboseLog(
+    `[${serverHostname}] Checking ${plannedPorts.length} planned port mappings for conflicts`
+  );
+
+  // Check for conflicts
+  const conflicts = await portChecker.checkPortConflicts(plannedPorts);
+
+  if (conflicts.length > 0) {
+    logger.error(`Port conflicts detected on server ${serverHostname}:`);
+    logger.error("");
+
+    const suggestions = portChecker.generateConflictSuggestions(conflicts);
+    for (const suggestion of suggestions) {
+      logger.error(suggestion);
+    }
+
+    throw new Error("Port conflicts detected");
+  }
+
+  logger.verboseLog(`[${serverHostname}] No port conflicts detected`);
 }
 
 /**
@@ -660,7 +781,6 @@ async function buildOrTagAppImage(
     }
   }
 }
-
 
 /**
  * Saves an app image to a tar archive for transfer
@@ -1073,12 +1193,16 @@ async function configureProxyForApp(
     serverHostname,
     verbose
   );
-  
+
   // Determine hosts to configure
   let hosts: string[];
   if (shouldUseSslip(appEntry.proxy.hosts)) {
     // Generate x.myluma.cloud domain if no hosts configured
-    const sslipDomain = generateAppSslipDomain(projectName, appEntry.name, serverHostname);
+    const sslipDomain = generateAppSslipDomain(
+      projectName,
+      appEntry.name,
+      serverHostname
+    );
     hosts = [sslipDomain];
     logger.verboseLog(`Generated x.myluma.cloud domain: ${sslipDomain}`);
   } else {
@@ -1586,12 +1710,16 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           // Use configured hosts or generate x.myluma.cloud domain
           let hosts: string[];
           if (shouldUseSslip(appEntry.proxy.hosts)) {
-            const sslipDomain = generateAppSslipDomain(projectName, appEntry.name, appEntry.server);
+            const sslipDomain = generateAppSslipDomain(
+              projectName,
+              appEntry.name,
+              appEntry.server
+            );
             hosts = [sslipDomain];
           } else {
             hosts = appEntry.proxy.hosts!;
           }
-          
+
           for (const host of hosts) {
             urls.push(`https://${host}`);
           }
