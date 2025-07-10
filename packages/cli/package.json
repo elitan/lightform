@@ -1,5 +1,5 @@
 {
-  "name": "@elitan/lightform",
+  "name": "lightform-cli",
   "description": "Ship Docker Anywhere",
   "version": "0.1.3",
   "author": "elitan",
