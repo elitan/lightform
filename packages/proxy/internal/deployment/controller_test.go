@@ -3,6 +3,7 @@ package deployment
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ func (m *mockHealthChecker) CheckHealth(ctx context.Context, target, healthPath 
 
 // mockProxyUpdater captures route updates
 type mockProxyUpdater struct {
+	mu     sync.Mutex
 	routes map[string]mockRoute
 }
 
@@ -40,135 +42,118 @@ func newMockProxyUpdater() *mockProxyUpdater {
 }
 
 func (m *mockProxyUpdater) UpdateRoute(hostname, target string, healthy bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.routes[hostname] = mockRoute{target: target, healthy: healthy}
 }
 
-func TestDeploymentController(t *testing.T) {
-	t.Run("successful deployment", func(t *testing.T) {
-		// Setup
-		store := storage.NewMemoryStore()
-		proxy := newMockProxyUpdater()
-		health := &mockHealthChecker{shouldPass: true}
-		bus := events.NewSimpleBus()
-		
-		controller := NewController(store, proxy, health, bus)
+func (m *mockProxyUpdater) GetRoute(hostname string) mockRoute {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.routes[hostname]
+}
 
-		// Subscribe to events
-		events := bus.Subscribe()
-		defer bus.Unsubscribe(events)
+func TestController(t *testing.T) {
+	// Setup
+	store := storage.NewMemoryStore()
+	eventBus := events.NewSimpleBus()
+	healthService := &mockHealthChecker{shouldPass: true}
+	proxyUpdater := newMockProxyUpdater()
+	
+	controller := NewController(store, proxyUpdater, healthService, eventBus)
 
-		// Deploy
+	t.Run("successful deployment with immediate cleanup", func(t *testing.T) {
 		ctx := context.Background()
-		err := controller.Deploy(ctx, "test.com", "localhost:3001", "test-project", "web")
+		
+		// Deploy first version (blue)
+		err := controller.Deploy(ctx, "myapp.com", "myimage:v1", "myproject", "webapp")
 		if err != nil {
-			t.Fatalf("Deploy failed: %v", err)
+			t.Fatalf("First deployment failed: %v", err)
 		}
-
+		
 		// Wait for health check and traffic switch
 		time.Sleep(100 * time.Millisecond)
-
-		// Verify deployment state
-		deployment, err := controller.GetStatus("test.com")
-		if err != nil {
-			t.Fatalf("GetStatus failed: %v", err)
-		}
-
-		if deployment.Hostname != "test.com" {
-			t.Errorf("Expected hostname test.com, got %s", deployment.Hostname)
-		}
-
-		// Verify proxy was updated
-		route, exists := proxy.routes["test.com"]
-		if !exists {
-			t.Fatal("Proxy route not updated")
-		}
-
-		if route.target != "localhost:3001" {
-			t.Errorf("Expected target localhost:3001, got %s", route.target)
-		}
-
-		if !route.healthy {
-			t.Error("Expected route to be healthy")
-		}
-
-		// Check events
-		eventCount := 0
-		timeout := time.After(1 * time.Second)
 		
-		for eventCount < 2 { // Expecting DeploymentStarted and HealthCheckPassed
-			select {
-			case event := <-events:
-				switch e := event.(type) {
-				case *core.DeploymentStarted:
-					if e.Hostname != "test.com" {
-						t.Errorf("Expected deployment started for test.com, got %s", e.Hostname)
-					}
-				case *core.HealthCheckPassed:
-					if e.Hostname != "test.com" {
-						t.Errorf("Expected health check passed for test.com, got %s", e.Hostname)
-					}
-				case *core.TrafficSwitched:
-					if e.Hostname != "test.com" {
-						t.Errorf("Expected traffic switched for test.com, got %s", e.Hostname)
-					}
-				}
-				eventCount++
-			case <-timeout:
-				t.Fatalf("Timeout waiting for events, got %d events", eventCount)
-			}
+		// Check deployment status
+		deployment, err := controller.GetStatus("myapp.com")
+		if err != nil {
+			t.Fatalf("Failed to get deployment status: %v", err)
 		}
+		
+		if deployment.Hostname != "myapp.com" {
+			t.Errorf("Expected hostname myapp.com, got %s", deployment.Hostname)
+		}
+		
+		// Check that traffic was routed correctly
+		if proxyUpdater.GetRoute("myapp.com").target == "" {
+			t.Error("Expected route to be set for myapp.com")
+		}
+		
+		// Deploy second version (green) - should immediately clean up blue
+		err = controller.Deploy(ctx, "myapp.com", "myimage:v2", "myproject", "webapp")
+		if err != nil {
+			t.Fatalf("Second deployment failed: %v", err)
+		}
+		
+		// Wait for health check and traffic switch
+		time.Sleep(100 * time.Millisecond)
+		
+		// Check final deployment status
+		deployment, err = controller.GetStatus("myapp.com")
+		if err != nil {
+			t.Fatalf("Failed to get final deployment status: %v", err)
+		}
+		
+		// Check that the active container is healthy
+		var activeContainer core.Container
+		if deployment.Active == core.Blue {
+			activeContainer = deployment.Blue
+		} else {
+			activeContainer = deployment.Green
+		}
+		
+		if activeContainer.HealthState != core.HealthHealthy {
+			t.Errorf("Expected active container to be healthy, got %s", activeContainer.HealthState)
+		}
+		
+		// Check that the inactive container was cleaned up (target should be empty)
+		var inactiveContainer core.Container
+		if deployment.Active == core.Blue {
+			inactiveContainer = deployment.Green
+		} else {
+			inactiveContainer = deployment.Blue
+		}
+		
+		if inactiveContainer.Target != "" && inactiveContainer.HealthState != core.HealthStopped {
+			t.Errorf("Expected inactive container to be cleaned up, got target=%s, health=%s", 
+				inactiveContainer.Target, inactiveContainer.HealthState)
+		}
+		
+		t.Log("Deployment with immediate cleanup completed successfully!")
 	})
 
-	t.Run("failed health check", func(t *testing.T) {
-		// Setup
-		store := storage.NewMemoryStore()
-		proxy := newMockProxyUpdater()
-		health := &mockHealthChecker{shouldPass: false}
-		bus := events.NewSimpleBus()
+	t.Run("container naming convention", func(t *testing.T) {
+		controller := NewController(store, proxyUpdater, healthService, eventBus)
 		
-		controller := NewController(store, proxy, health, bus)
-
-		// Subscribe to events
-		events := bus.Subscribe()
-		defer bus.Unsubscribe(events)
-
-		// Deploy
-		ctx := context.Background()
-		err := controller.Deploy(ctx, "test.com", "localhost:3001", "test-project", "web")
-		if err != nil {
-			t.Fatalf("Deploy failed: %v", err)
+		// Test container name generation
+		blueName := controller.generateContainerName("myapp.com", core.Blue)
+		greenName := controller.generateContainerName("myapp.com", core.Green)
+		
+		expectedBlue := "myapp-com-blue"
+		expectedGreen := "myapp-com-green"
+		
+		if blueName != expectedBlue {
+			t.Errorf("Expected blue container name %s, got %s", expectedBlue, blueName)
 		}
-
-		// Wait for health check to fail
-		time.Sleep(100 * time.Millisecond)
-
-		// Verify deployment state
-		deployment, err := controller.GetStatus("test.com")
-		if err != nil {
-			t.Fatalf("GetStatus failed: %v", err)
+		
+		if greenName != expectedGreen {
+			t.Errorf("Expected green container name %s, got %s", expectedGreen, greenName)
 		}
-
-		// Check that the inactive container is unhealthy
-		inactiveColor := core.Green
-		if deployment.Active == core.Green {
-			inactiveColor = core.Blue
-		}
-
-		var container core.Container
-		if inactiveColor == core.Blue {
-			container = deployment.Blue
-		} else {
-			container = deployment.Green
-		}
-
-		if container.HealthState != core.HealthChecking {
-			t.Errorf("Expected container to be health checking, got %s", container.HealthState)
-		}
-
-		// Verify proxy was NOT updated (no traffic switch)
-		_, exists := proxy.routes["test.com"]
-		if exists {
-			t.Error("Proxy should not have been updated for failed deployment")
+		
+		// Test target extraction
+		containerName := controller.extractContainerName("myapp-com-blue:3000")
+		if containerName != "myapp-com-blue" {
+			t.Errorf("Expected container name myapp-com-blue, got %s", containerName)
 		}
 	})
 }

@@ -112,67 +112,63 @@ export class SSHClient {
       console.log(`[${this.host}] Executing: ${sanitizedCommand}`);
     }
 
-    try {
-      const result = await this.ssh.exec(command);
-      if (typeof result === "string") {
-        return result;
-      }
-      if (this.verbose) {
-        console.warn(
-          `Unexpected exec result type on ${
-            this.host
-          } for command "${sanitizedCommand}": ${typeof result}`
-        );
-      }
-      return String(result);
-    } catch (err: any) {
-      // Check if error has stdout/stderr (common for exec errors)
-      const execError = err as {
-        stdout?: string;
-        stderr?: string;
-        message?: string;
-        code?: number | string;
-      };
-
-      // Only show detailed error info in verbose mode
-      if (this.verbose) {
-        // Sanitize error outputs
-        if (execError.stderr && isSensitiveCommand) {
-          const sanitizedStderr = this.sanitizeErrorOutput(execError.stderr);
-          console.error(
-            `Command "${sanitizedCommand}" on ${this.host} failed with stderr:\n${sanitizedStderr}`
-          );
-        } else if (execError.stderr) {
-          console.error(
-            `Command "${sanitizedCommand}" on ${this.host} failed with stderr:\n${execError.stderr}`
-          );
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Use shell command with explicit exit code checking
+        // This command runs the original command and captures both stdout/stderr and exit code
+        const wrappedCommand = `${command}; echo "EXIT_CODE:$?"`;
+        const result = await this.ssh.exec(wrappedCommand);
+        
+        // Parse the result to extract exit code
+        const lines = result.split('\n');
+        let exitCodeLine = '';
+        let output = '';
+        
+        // Find the exit code line (should be last non-empty line)
+        for (let i = lines.length - 1; i >= 0; i--) {
+          if (lines[i].trim()) {
+            if (lines[i].startsWith('EXIT_CODE:')) {
+              exitCodeLine = lines[i];
+              // Everything before this line is the actual output
+              output = lines.slice(0, i).join('\n');
+              break;
+            }
+          }
         }
-
-        if (execError.stdout && isSensitiveCommand) {
-          const sanitizedStdout = this.sanitizeErrorOutput(execError.stdout);
-          console.warn(
-            `Command "${sanitizedCommand}" on ${this.host} had stdout despite error:\n${sanitizedStdout}`
-          );
-        } else if (execError.stdout) {
-          console.warn(
-            `Command "${sanitizedCommand}" on ${this.host} had stdout despite error:\n${execError.stdout}`
-          );
+        
+        const exitCode = exitCodeLine ? parseInt(exitCodeLine.replace('EXIT_CODE:', '')) : 0;
+        
+        if (exitCode === 0) {
+          // Command succeeded
+          resolve(output);
+        } else {
+          // Command failed
+          if (this.verbose) {
+            console.error(`Command "${sanitizedCommand}" on ${this.host} failed with exit code ${exitCode}`);
+          }
+          reject(new Error(`Command failed with exit code ${exitCode}: ${output}`));
         }
-
-        // Sanitize the error message
-        const errorMessage = execError.message || String(err);
-        const sanitizedError = isSensitiveCommand
-          ? this.sanitizeErrorOutput(errorMessage)
-          : errorMessage;
-
-        console.error(
-          `Error executing command "${sanitizedCommand}" on ${this.host}:`,
-          sanitizedError
-        );
+        
+      } catch (err: any) {
+        // Handle the original ssh2-promise behavior for stderr as error
+        const errorMessage = String(err);
+        
+        // If this is just a Docker warning or similar, treat as success
+        if (errorMessage.includes("WARNING: No swap limit support") ||
+            (errorMessage.includes("WARNING:") && !errorMessage.includes("error") && !errorMessage.includes("failed"))) {
+          if (this.verbose) {
+            console.warn(`[${this.host}] Command "${sanitizedCommand}" succeeded but had warnings:\n${errorMessage}`);
+          }
+          resolve(errorMessage);
+        } else {
+          // This is a real error
+          if (this.verbose) {
+            console.error(`Error executing command "${sanitizedCommand}" on ${this.host}:`, errorMessage);
+          }
+          reject(err);
+        }
       }
-
-      throw err;
-    }
+    });
   }
 
   // Helper method to sanitize potentially sensitive output

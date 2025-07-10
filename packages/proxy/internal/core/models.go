@@ -37,6 +37,7 @@ const (
 	HealthChecking  HealthState = "checking"
 	HealthHealthy   HealthState = "healthy"
 	HealthUnhealthy HealthState = "unhealthy"
+	HealthStopped   HealthState = "stopped"
 )
 
 // Route represents the active routing configuration

@@ -42,7 +42,6 @@ type EventBus interface {
 type DeploymentController interface {
 	Deploy(ctx context.Context, hostname, target, project, app string) error
 	GetStatus(hostname string) (*Deployment, error)
-	Rollback(ctx context.Context, hostname string) error
 }
 
 // ProxyRouter routes HTTP requests

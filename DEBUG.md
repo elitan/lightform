@@ -18,7 +18,7 @@ cd examples/basic  # or examples/nextjs
 bun ../../packages/cli/src/index.ts deploy --force
 
 # Enable staging mode immediately after setup
-ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
 ```
 
 ### Server Info
@@ -39,9 +39,9 @@ bun ../../packages/cli/src/index.ts setup --verbose
 
 # Manual approach if needed (usually not required):
 # Stop and remove proxy container
-# ssh lightform@157.180.25.101 "docker stop lightform-proxy && docker rm lightform-proxy"
+# ssh lightform@157.180.47.213 "docker stop lightform-proxy && docker rm lightform-proxy"
 # Force pull latest image
-# ssh lightform@157.180.25.101 "docker pull elitan/lightform-proxy:latest"
+# ssh lightform@157.180.47.213 "docker pull elitan/lightform-proxy:latest"
 ```
 
 ### Clear Proxy State (.lightform directory)
@@ -52,23 +52,23 @@ The `.lightform` directory stores proxy state and is owned by root. **Only the u
 
 ```bash
 # After user confirms deletion, verify it was removed
-ssh lightform@157.180.25.101 "ls -la .lightform 2>/dev/null || echo '.lightform directory not found (successfully deleted)'"
+ssh lightform@157.180.47.213 "ls -la .lightform 2>/dev/null || echo '.lightform directory not found (successfully deleted)'"
 ```
 
 ### Proxy Commands
 
 ```bash
 # Check status and routes
-ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy list"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy list"
 
 # View logs
-ssh lightform@157.180.25.101 "docker logs --tail 50 lightform-proxy"
+ssh lightform@157.180.47.213 "docker logs --tail 50 lightform-proxy"
 
 # Enable staging mode (essential for testing)
-ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
 
 # Check certificate status
-ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy cert-status"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy cert-status"
 ```
 
 ## HTTP API Debugging
@@ -77,13 +77,13 @@ The proxy uses HTTP API on localhost:8080 for CLI communication:
 
 ```bash
 # List all hosts
-ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -s localhost:8080/api/hosts"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy curl -s localhost:8080/api/hosts"
 
 # Check status
-ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -s localhost:8080/api/status"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy curl -s localhost:8080/api/status"
 
 # Manual deploy
-ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -X POST localhost:8080/api/deploy -H 'Content-Type: application/json' -d '{\"host\":\"test.com\",\"target\":\"app:3000\",\"project\":\"test\",\"ssl\":true}'"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy curl -X POST localhost:8080/api/deploy -H 'Content-Type: application/json' -d '{\"host\":\"test.com\",\"target\":\"app:3000\",\"project\":\"test\",\"ssl\":true}'"
 ```
 
 ## SSL Certificate Testing
@@ -92,7 +92,7 @@ ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -X POST localhost
 
 ```bash
 # Always enable for testing
-ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
 
 # Test SSL (ignore staging warnings)
 curl -k -I https://test.eliasson.me
@@ -102,45 +102,45 @@ curl -k -I https://test.eliasson.me
 
 ```bash
 # For fresh testing
-ssh lightform@157.180.25.101 "docker exec lightform-proxy rm -rf /var/lib/lightform-proxy/certs/*"
-ssh lightform@157.180.25.101 "docker exec lightform-proxy rm -f /var/lib/lightform-proxy/state.json"
-ssh lightform@157.180.25.101 "docker restart lightform-proxy"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy rm -rf /var/lib/lightform-proxy/certs/*"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy rm -f /var/lib/lightform-proxy/state.json"
+ssh lightform@157.180.47.213 "docker restart lightform-proxy"
 ```
 
 ## Container Debugging
 
 ```bash
 # Check project containers
-ssh lightform@157.180.25.101 "docker ps --filter 'label=lightform.project=<project-name>'"
+ssh lightform@157.180.47.213 "docker ps --filter 'label=lightform.project=<project-name>'"
 
 # View container logs
-ssh lightform@157.180.25.101 "docker logs --tail 50 <container-name>"
+ssh lightform@157.180.47.213 "docker logs --tail 50 <container-name>"
 
 # Test internal connectivity
-ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -s http://<project-name>-web:3000/"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy curl -s http://<project-name>-web:3000/"
 ```
 
 ## Cleanup Commands
 
 ```bash
 # Remove project containers
-ssh lightform@157.180.25.101 "docker ps -a --filter 'label=lightform.project=<project-name>' --format '{{.Names}}' | xargs docker rm -f"
+ssh lightform@157.180.47.213 "docker ps -a --filter 'label=lightform.project=<project-name>' --format '{{.Names}}' | xargs docker rm -f"
 
 # Full cleanup
-ssh lightform@157.180.25.101 "docker ps -a --filter 'label=lightform.project' --format '{{.Names}}' | xargs docker rm -f"
+ssh lightform@157.180.47.213 "docker ps -a --filter 'label=lightform.project' --format '{{.Names}}' | xargs docker rm -f"
 ```
 
 ## Complete Testing Workflow
 
 ```bash
 # 1. Complete cleanup
-ssh lightform@157.180.25.101 "docker stop \$(docker ps -aq) 2>/dev/null || true && docker rm \$(docker ps -aq) 2>/dev/null || true && docker system prune -af --volumes"
-ssh lightform@157.180.25.101 "rm -rf ./.lightform"
+ssh lightform@157.180.47.213 "docker stop \$(docker ps -aq) 2>/dev/null || true && docker rm \$(docker ps -aq) 2>/dev/null || true && docker system prune -af --volumes"
+ssh lightform@157.180.47.213 "rm -rf ./.lightform"
 
 # 2. Setup and deploy
 cd examples/basic
 bun ../../packages/cli/src/index.ts setup --verbose
-ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
+ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
 bun ../../packages/cli/src/index.ts deploy --force
 
 # 3. Test
@@ -168,8 +168,8 @@ cd examples/basic
 bun ../../packages/cli/src/index.ts deploy --force --verbose
 
 # 2. Check the logs
-ssh lightform@157.180.25.101 "docker logs --tail 50 lightform-proxy"
-ssh lightform@157.180.25.101 "docker logs --tail 30 gmail-web"
+ssh lightform@157.180.47.213 "docker logs --tail 50 lightform-proxy"
+ssh lightform@157.180.47.213 "docker logs --tail 30 gmail-web"
 
 # 3. Understand the problem
 # - Are there error messages?
@@ -201,14 +201,14 @@ bun ../../packages/cli/src/index.ts deploy --force --verbose   # Deploy again
 
 ```bash
 # SSL issues - check certificate logs
-ssh lightform@157.180.25.101 "docker logs --tail 100 lightform-proxy | grep -E 'CERT|ACME|SSL'"
+ssh lightform@157.180.47.213 "docker logs --tail 100 lightform-proxy | grep -E 'CERT|ACME|SSL'"
 
 # Proxy routing issues - check API logs
-ssh lightform@157.180.25.101 "docker logs --tail 50 lightform-proxy | grep -E 'PROXY|API'"
+ssh lightform@157.180.47.213 "docker logs --tail 50 lightform-proxy | grep -E 'PROXY|API'"
 
 # Container health issues - check container status
-ssh lightform@157.180.25.101 "docker ps --filter 'label=lightform.project=gmail'"
-ssh lightform@157.180.25.101 "docker logs --tail 30 gmail-web"
+ssh lightform@157.180.47.213 "docker ps --filter 'label=lightform.project=gmail'"
+ssh lightform@157.180.47.213 "docker logs --tail 30 gmail-web"
 ```
 
 This iterative approach helps systematically identify and fix issues without getting stuck on assumptions.
