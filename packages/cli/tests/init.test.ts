@@ -30,23 +30,23 @@ describe("init command", () => {
     }
   });
 
-  test("should create luma.yml and .luma/secrets files", async () => {
+  test("should create lightform.yml and .lightform/secrets files", async () => {
     // Run the init command in non-interactive mode
     await initCommand(true);
 
     // Check that files were created
-    expect(existsSync("luma.yml")).toBe(true);
-    expect(existsSync(".luma")).toBe(true);
-    expect(existsSync(join(".luma", "secrets"))).toBe(true);
+    expect(existsSync("lightform.yml")).toBe(true);
+    expect(existsSync(".lightform")).toBe(true);
+    expect(existsSync(join(".lightform", "secrets"))).toBe(true);
 
     // Check file contents
-    const configFile = Bun.file("luma.yml");
+    const configFile = Bun.file("lightform.yml");
     const configContent = await configFile.text();
     expect(configContent).toContain("apps:");
     expect(configContent).toContain("web:");
 
     // Secrets file should be empty
-    const secretsFile = Bun.file(join(".luma", "secrets"));
+    const secretsFile = Bun.file(join(".lightform", "secrets"));
     const secretsContent = await secretsFile.text();
     expect(secretsContent).toBe("");
   });
@@ -54,22 +54,22 @@ describe("init command", () => {
   test("should not overwrite existing files", async () => {
     // Create the config file with custom content
     const customContent = "name: test-project";
-    await Bun.write("luma.yml", customContent);
+    await Bun.write("lightform.yml", customContent);
 
     // Create the secrets directory and file
-    await mkdir(".luma", { recursive: true });
+    await mkdir(".lightform", { recursive: true });
     const customSecrets = "API_KEY=1234";
-    await Bun.write(join(".luma", "secrets"), customSecrets);
+    await Bun.write(join(".lightform", "secrets"), customSecrets);
 
     // Run the init command in non-interactive mode
     await initCommand(true);
 
     // Verify files still have original content
-    const configFile = Bun.file("luma.yml");
+    const configFile = Bun.file("lightform.yml");
     const configContent = await configFile.text();
     expect(configContent).toBe(customContent);
 
-    const secretsFile = Bun.file(join(".luma", "secrets"));
+    const secretsFile = Bun.file(join(".lightform", "secrets"));
     const secretsContent = await secretsFile.text();
     expect(secretsContent).toBe(customSecrets);
   });
@@ -84,7 +84,7 @@ describe("init command", () => {
     // Check that secrets file is in .gitignore
     const gitignoreFile = Bun.file(".gitignore");
     const gitignoreContent = await gitignoreFile.text();
-    expect(gitignoreContent).toContain(".luma/secrets");
+    expect(gitignoreContent).toContain(".lightform/secrets");
   });
 
   test("should add secrets file to existing .gitignore", async () => {
@@ -105,14 +105,14 @@ dist/
     expect(gitignoreContent).toContain("node_modules/");
     expect(gitignoreContent).toContain("dist/");
     expect(gitignoreContent).toContain("*.log");
-    expect(gitignoreContent).toContain(".luma/secrets");
+    expect(gitignoreContent).toContain(".lightform/secrets");
   });
 
   test("should not duplicate secrets file in .gitignore if already present", async () => {
     // Create .gitignore that already contains the secrets file
     const existingContent = `node_modules/
 dist/
-.luma/secrets
+.lightform/secrets
 *.log
 `;
     await Bun.write(".gitignore", existingContent);
@@ -126,33 +126,33 @@ dist/
 
     const lines = gitignoreContent.split("\n");
     const secretsLines = lines.filter(
-      (line) => line.trim() === ".luma/secrets"
+      (line) => line.trim() === ".lightform/secrets"
     );
     expect(secretsLines.length).toBe(1);
   });
 
   test("should handle different variations of secrets path in .gitignore", async () => {
     // Test with leading slash
-    await Bun.write(".gitignore", "/.luma/secrets\n");
+    await Bun.write(".gitignore", "/.lightform/secrets\n");
     await initCommand(true);
 
     let gitignoreContent = await Bun.file(".gitignore").text();
     let lines = gitignoreContent.split("\n");
     let secretsLines = lines.filter(
       (line) =>
-        line.trim() === ".luma/secrets" || line.trim() === "/.luma/secrets"
+        line.trim() === ".lightform/secrets" || line.trim() === "/.lightform/secrets"
     );
     expect(secretsLines.length).toBe(1);
 
     // Clean up and test with forward slashes on Windows
-    await Bun.write(".gitignore", ".luma/secrets\n");
+    await Bun.write(".gitignore", ".lightform/secrets\n");
     await initCommand(true);
 
     gitignoreContent = await Bun.file(".gitignore").text();
     lines = gitignoreContent.split("\n");
     secretsLines = lines.filter(
       (line) =>
-        line.trim() === ".luma/secrets" || line.trim() === "/.luma/secrets"
+        line.trim() === ".lightform/secrets" || line.trim() === "/.lightform/secrets"
     );
     expect(secretsLines.length).toBe(1);
   });
@@ -167,6 +167,6 @@ dist/
     // Check that secrets file is added to .gitignore
     const gitignoreFile = Bun.file(".gitignore");
     const gitignoreContent = await gitignoreFile.text();
-    expect(gitignoreContent.trim()).toBe(".luma/secrets");
+    expect(gitignoreContent.trim()).toBe(".lightform/secrets");
   });
 });

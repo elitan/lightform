@@ -11,9 +11,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/elitan/luma/proxy/internal/cert"
-	"github.com/elitan/luma/proxy/internal/health"
-	"github.com/elitan/luma/proxy/internal/state"
+	"github.com/elitan/lightform/proxy/internal/cert"
+	"github.com/elitan/lightform/proxy/internal/health"
+	"github.com/elitan/lightform/proxy/internal/state"
 )
 
 type CLI struct {

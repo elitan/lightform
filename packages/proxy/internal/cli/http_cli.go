@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/elitan/luma/proxy/internal/api"
+	"github.com/elitan/lightform/proxy/internal/api"
 )
 
 // HTTPCli provides command-line interface using HTTP API

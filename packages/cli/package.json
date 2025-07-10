@@ -1,12 +1,12 @@
 {
-  "name": "@elitan/luma-cli",
-  "description": "Zero-downtime deployments for your own servers - CLI",
-  "version": "0.1.2",
-  "author": "Elitan",
+  "name": "lightform",
+  "description": "Ship Docker Anywhere",
+  "version": "0.1.3",
+  "author": "elitan",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/elitan/luma.git",
+    "url": "git+https://github.com/elitan/lightform.git",
     "directory": "packages/cli"
   },
   "keywords": [
@@ -17,7 +17,7 @@
     "cli"
   ],
   "bin": {
-    "luma": "dist/index.js"
+    "lightform": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [

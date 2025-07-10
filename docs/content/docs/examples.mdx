@@ -1,11 +1,11 @@
 ---
 title: Examples
-description: Real-world examples and configurations for Luma deployments
+description: Real-world examples and configurations for Lightform deployments
 ---
 
 # Examples
 
-Real-world examples showing how to deploy different types of applications with Luma.
+Real-world examples showing how to deploy different types of applications with Lightform.
 
 ## Basic Web Application
 
@@ -74,7 +74,7 @@ EXPOSE 3000
 CMD ["./main"]
 ```
 
-**luma.yml**:
+**lightform.yml**:
 
 ```yaml
 name: my-go-app
@@ -105,10 +105,10 @@ apps:
 ### Deployment
 
 ```bash
-luma init                  # Creates configuration files
-# Edit luma.yml with your settings
-luma setup                 # Prepare server
-luma deploy                # Deploy app
+lightform init                  # Creates configuration files
+# Edit lightform.yml with your settings
+lightform setup                 # Prepare server
+lightform deploy                # Deploy app
 ```
 
 ---
@@ -187,7 +187,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 CMD ["node", "server.js"]
 ```
 
-**luma.yml**:
+**lightform.yml**:
 
 ```yaml
 name: my-nextjs-app
@@ -229,7 +229,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
 Deploy a complete application with frontend, API, and PostgreSQL database.
 
-**luma.yml**:
+**lightform.yml**:
 
 ```yaml
 name: ecommerce-app
@@ -320,7 +320,7 @@ services:
       retries: 3
 ```
 
-**.luma/secrets**:
+**.lightform/secrets**:
 
 ```bash
 DATABASE_URL=postgres://ecommerce:secure_password@db.mysite.com:5432/ecommerce
@@ -334,13 +334,13 @@ STRIPE_SECRET_KEY=sk_live_...
 
 ```bash
 # Deploy services first (database, cache)
-luma deploy --services
+lightform deploy --services
 
 # Then deploy applications
-luma deploy
+lightform deploy
 
 # Check everything is running
-luma status
+lightform status
 ```
 
 ---
@@ -349,7 +349,7 @@ luma status
 
 Deploy multiple microservices with load balancing and service discovery.
 
-**luma.yml**:
+**lightform.yml**:
 
 ```yaml
 name: microservices-platform
@@ -458,7 +458,7 @@ services:
 
 Deploy the same application to different environments with environment-specific configurations.
 
-**luma.staging.yml**:
+**lightform.staging.yml**:
 
 ```yaml
 name: myapp-staging
@@ -514,7 +514,7 @@ services:
       - postgres_staging_data:/var/lib/postgresql/data
 ```
 
-**luma.production.yml**:
+**lightform.production.yml**:
 
 ```yaml
 name: myapp-production
@@ -582,16 +582,16 @@ services:
 
 ```bash
 # Deploy to staging
-luma deploy -c luma.staging.yml
+lightform deploy -c lightform.staging.yml
 
 # Test staging environment
 curl https://staging.myapp.com/health
 
 # Deploy to production
-luma deploy -c luma.production.yml
+lightform deploy -c lightform.production.yml
 
 # Monitor production
-luma status -c luma.production.yml
+lightform status -c lightform.production.yml
 ```
 
 ---
@@ -621,8 +621,8 @@ jobs:
         with:
           node-version: "18"
 
-      - name: Install Luma
-        run: npm install -g @elitan/luma
+      - name: Install Lightform
+        run: npm install -g lightform
 
       - name: Setup SSH
         run: |
@@ -633,12 +633,12 @@ jobs:
 
       - name: Create secrets file
         run: |
-          mkdir -p .luma
-          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .luma/secrets
-          echo "API_KEY=${{ secrets.API_KEY }}" >> .luma/secrets
+          mkdir -p .lightform
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .lightform/secrets
+          echo "API_KEY=${{ secrets.API_KEY }}" >> .lightform/secrets
 
       - name: Deploy to production
-        run: luma deploy -c luma.production.yml
+        run: lightform deploy -c lightform.production.yml
 ```
 
 ### GitLab CI
@@ -653,15 +653,15 @@ deploy:
   stage: deploy
   image: node:18
   before_script:
-    - npm install -g @elitan/luma
+    - npm install -g lightform
     - mkdir -p ~/.ssh
     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
     - chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -H $SERVER_HOST >> ~/.ssh/known_hosts
-    - mkdir -p .luma
-    - echo "DATABASE_URL=$DATABASE_URL" >> .luma/secrets
+    - mkdir -p .lightform
+    - echo "DATABASE_URL=$DATABASE_URL" >> .lightform/secrets
   script:
-    - luma deploy -c luma.production.yml
+    - lightform deploy -c lightform.production.yml
   only:
     - main
 ```
@@ -682,10 +682,10 @@ ssh:
 2. **Separate environment secrets**:
 
 ```bash
-# .luma/secrets.staging
+# .lightform/secrets.staging
 DATABASE_URL=postgres://...staging...
 
-# .luma/secrets.production
+# .lightform/secrets.production
 DATABASE_URL=postgres://...production...
 ```
 
@@ -747,8 +747,8 @@ app.get("/health", async (req, res) => {
 
 ```bash
 # Check all environments
-luma status -c luma.staging.yml
-luma status -c luma.production.yml
+lightform status -c lightform.staging.yml
+lightform status -c lightform.production.yml
 ```
 
-These examples provide a solid foundation for deploying various types of applications with Luma. Adapt them to your specific needs and infrastructure requirements.
+These examples provide a solid foundation for deploying various types of applications with Lightform. Adapt them to your specific needs and infrastructure requirements.

@@ -1,6 +1,6 @@
-# Luma Packages
+# Lightform Packages
 
-This directory contains the core packages for the Luma deployment system:
+This directory contains the core packages for the Lightform deployment system:
 
 ## Structure
 
@@ -34,7 +34,7 @@ bun test
 ```bash
 cd packages/proxy
 go mod download
-go build -o dist/luma-proxy ./cmd/luma-proxy
+go build -o dist/lightform-proxy ./cmd/lightform-proxy
 go test ./...
 ```
 

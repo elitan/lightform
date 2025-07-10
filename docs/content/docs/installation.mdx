@@ -1,62 +1,62 @@
 ---
 title: Installation
-description: Install Luma CLI tool and set up your environment
+description: Install Lightform CLI tool and set up your environment
 ---
 
 # Installation
 
-Get Luma up and running on your system.
+Get Lightform up and running on your system.
 
 ## Prerequisites
 
 ### Local Machine
 
-- **Bun** or **Node.js 18+** - For running the Luma CLI
+- **Bun** or **Node.js 18+** - For running the Lightform CLI
 - **Git** - For version tracking and release IDs
 - **Docker** (optional) - Only needed if you want to test builds locally
 
 ### Target Servers
 
-- **Ubuntu/Debian Linux** - Luma supports Ubuntu and Debian-based distributions
-- **SSH access with sudo privileges** - Luma needs to install Docker and configure services
+- **Ubuntu/Debian Linux** - Lightform supports Ubuntu and Debian-based distributions
+- **SSH access with sudo privileges** - Lightform needs to install Docker and configure services
 - **Ports 80 and 443 open** - For HTTP/HTTPS traffic
 - **Git** (installed automatically during setup)
 
-## Install Luma CLI
+## Install Lightform CLI
 
 ### Using npm (Recommended)
 
 ```bash
-npm install -g @elitan/luma
+npm install -g @elitan/lightform
 ```
 
 ### Using Bun
 
 ```bash
-bun install -g @elitan/luma
+bun install -g @elitan/lightform
 ```
 
 ### Using npx (No Installation)
 
-You can run Luma without installing it globally:
+You can run Lightform without installing it globally:
 
 ```bash
-npx @elitan/luma init
-npx @elitan/luma deploy
+npx @elitan/lightform init
+npx @elitan/lightform deploy
 ```
 
 ## Verify Installation
 
-Check that Luma is installed correctly:
+Check that Lightform is installed correctly:
 
 ```bash
-luma --help
+lightform --help
 ```
 
 You should see output similar to:
 
 ```
-Luma CLI - Please provide a command.
+Lightform CLI - Please provide a command.
 Available commands: init, setup, deploy, status, redeploy, rollback
 
 Flags:
@@ -67,7 +67,7 @@ Flags:
 
 ## Server Setup
 
-Luma will automatically install and configure Docker on your servers when you run `luma setup`. However, you may want to prepare your servers in advance:
+Lightform will automatically install and configure Docker on your servers when you run `lightform setup`. However, you may want to prepare your servers in advance:
 
 ### Create a Deployment User (Recommended)
 
@@ -82,10 +82,10 @@ sudo usermod -aG docker,sudo deploy
 ssh-copy-id deploy@your-server.com
 ```
 
-Then configure Luma to use this user:
+Then configure Lightform to use this user:
 
 ```yaml
-# luma.yml
+# lightform.yml
 ssh:
   username: deploy
 ```
@@ -105,14 +105,14 @@ sudo usermod -aG docker $USER
 
 Ensure your servers have the required ports open:
 
-- **Port 22** - SSH access for Luma
+- **Port 22** - SSH access for Lightform
 - **Port 80** - HTTP traffic (redirected to HTTPS)
 - **Port 443** - HTTPS traffic
-- **Custom ports** - Any ports specified in your `luma.yml` configuration
+- **Custom ports** - Any ports specified in your `lightform.yml` configuration
 
 ## Next Steps
 
-With Luma installed, you're ready to:
+With Lightform installed, you're ready to:
 
 1. [Initialize your first project](/quick-start)
 2. [Configure your deployment](/configuration)
@@ -126,7 +126,7 @@ If you get `command not found` after installation:
 
 1. **Check your PATH** - Make sure npm/bun global bin directory is in your PATH
 2. **Restart your terminal** - Close and reopen your terminal
-3. **Use npx** - Run `npx @elitan/luma` as an alternative
+3. **Use npx** - Run `npx @elitan/lightform` as an alternative
 
 ### Permission Issues
 

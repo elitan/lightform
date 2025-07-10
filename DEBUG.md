@@ -1,11 +1,11 @@
-# Luma - Debugging Guide
+# Lightform - Debugging Guide
 
 **⚠️ IMPORTANT: Always use Let's Encrypt staging mode for testing to avoid rate limits.**
 
 ## Example Applications
 
 - **Basic Go App** (`examples/basic/`): Project name `gmail`, domain `test.eliasson.me`
-- **Next.js App** (`examples/nextjs/`): Project name `luma-example-nextjs`, domain `nextjs.example.myluma.cloud`
+- **Next.js App** (`examples/nextjs/`): Project name `lightform-example-nextjs`, domain `nextjs.example.mylightform.cloud`
 
 ## Quick Commands
 
@@ -18,13 +18,13 @@ cd examples/basic  # or examples/nextjs
 bun ../../packages/cli/src/index.ts deploy --force
 
 # Enable staging mode immediately after setup
-ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy set-staging --enabled true"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
 ```
 
 ### Server Info
 
 - **Server IP**: `157.180.47.213`
-- **SSH Username**: `luma`
+- **SSH Username**: `lightform`
 
 ## Proxy Management
 
@@ -39,36 +39,36 @@ bun ../../packages/cli/src/index.ts setup --verbose
 
 # Manual approach if needed (usually not required):
 # Stop and remove proxy container
-# ssh luma@157.180.25.101 "docker stop luma-proxy && docker rm luma-proxy"
+# ssh lightform@157.180.25.101 "docker stop lightform-proxy && docker rm lightform-proxy"
 # Force pull latest image
-# ssh luma@157.180.25.101 "docker pull elitan/luma-proxy:latest"
+# ssh lightform@157.180.25.101 "docker pull elitan/lightform-proxy:latest"
 ```
 
-### Clear Proxy State (.luma directory)
+### Clear Proxy State (.lightform directory)
 
-The `.luma` directory stores proxy state and is owned by root. **Only the user can delete it.**
+The `.lightform` directory stores proxy state and is owned by root. **Only the user can delete it.**
 
-**When needed:** Ask user to delete `.luma` directory and wait for confirmation, then verify deletion.
+**When needed:** Ask user to delete `.lightform` directory and wait for confirmation, then verify deletion.
 
 ```bash
 # After user confirms deletion, verify it was removed
-ssh luma@157.180.25.101 "ls -la .luma 2>/dev/null || echo '.luma directory not found (successfully deleted)'"
+ssh lightform@157.180.25.101 "ls -la .lightform 2>/dev/null || echo '.lightform directory not found (successfully deleted)'"
 ```
 
 ### Proxy Commands
 
 ```bash
 # Check status and routes
-ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy list"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy list"
 
 # View logs
-ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy"
+ssh lightform@157.180.25.101 "docker logs --tail 50 lightform-proxy"
 
 # Enable staging mode (essential for testing)
-ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy set-staging --enabled true"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
 
 # Check certificate status
-ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy cert-status"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy cert-status"
 ```
 
 ## HTTP API Debugging
@@ -77,13 +77,13 @@ The proxy uses HTTP API on localhost:8080 for CLI communication:
 
 ```bash
 # List all hosts
-ssh luma@157.180.25.101 "docker exec luma-proxy curl -s localhost:8080/api/hosts"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -s localhost:8080/api/hosts"
 
 # Check status
-ssh luma@157.180.25.101 "docker exec luma-proxy curl -s localhost:8080/api/status"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -s localhost:8080/api/status"
 
 # Manual deploy
-ssh luma@157.180.25.101 "docker exec luma-proxy curl -X POST localhost:8080/api/deploy -H 'Content-Type: application/json' -d '{\"host\":\"test.com\",\"target\":\"app:3000\",\"project\":\"test\",\"ssl\":true}'"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -X POST localhost:8080/api/deploy -H 'Content-Type: application/json' -d '{\"host\":\"test.com\",\"target\":\"app:3000\",\"project\":\"test\",\"ssl\":true}'"
 ```
 
 ## SSL Certificate Testing
@@ -92,7 +92,7 @@ ssh luma@157.180.25.101 "docker exec luma-proxy curl -X POST localhost:8080/api/
 
 ```bash
 # Always enable for testing
-ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy set-staging --enabled true"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
 
 # Test SSL (ignore staging warnings)
 curl -k -I https://test.eliasson.me
@@ -102,45 +102,45 @@ curl -k -I https://test.eliasson.me
 
 ```bash
 # For fresh testing
-ssh luma@157.180.25.101 "docker exec luma-proxy rm -rf /var/lib/luma-proxy/certs/*"
-ssh luma@157.180.25.101 "docker exec luma-proxy rm -f /var/lib/luma-proxy/state.json"
-ssh luma@157.180.25.101 "docker restart luma-proxy"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy rm -rf /var/lib/lightform-proxy/certs/*"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy rm -f /var/lib/lightform-proxy/state.json"
+ssh lightform@157.180.25.101 "docker restart lightform-proxy"
 ```
 
 ## Container Debugging
 
 ```bash
 # Check project containers
-ssh luma@157.180.25.101 "docker ps --filter 'label=luma.project=<project-name>'"
+ssh lightform@157.180.25.101 "docker ps --filter 'label=lightform.project=<project-name>'"
 
 # View container logs
-ssh luma@157.180.25.101 "docker logs --tail 50 <container-name>"
+ssh lightform@157.180.25.101 "docker logs --tail 50 <container-name>"
 
 # Test internal connectivity
-ssh luma@157.180.25.101 "docker exec luma-proxy curl -s http://<project-name>-web:3000/"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -s http://<project-name>-web:3000/"
 ```
 
 ## Cleanup Commands
 
 ```bash
 # Remove project containers
-ssh luma@157.180.25.101 "docker ps -a --filter 'label=luma.project=<project-name>' --format '{{.Names}}' | xargs docker rm -f"
+ssh lightform@157.180.25.101 "docker ps -a --filter 'label=lightform.project=<project-name>' --format '{{.Names}}' | xargs docker rm -f"
 
 # Full cleanup
-ssh luma@157.180.25.101 "docker ps -a --filter 'label=luma.project' --format '{{.Names}}' | xargs docker rm -f"
+ssh lightform@157.180.25.101 "docker ps -a --filter 'label=lightform.project' --format '{{.Names}}' | xargs docker rm -f"
 ```
 
 ## Complete Testing Workflow
 
 ```bash
 # 1. Complete cleanup
-ssh luma@157.180.25.101 "docker stop \$(docker ps -aq) 2>/dev/null || true && docker rm \$(docker ps -aq) 2>/dev/null || true && docker system prune -af --volumes"
-ssh luma@157.180.25.101 "rm -rf ./.luma"
+ssh lightform@157.180.25.101 "docker stop \$(docker ps -aq) 2>/dev/null || true && docker rm \$(docker ps -aq) 2>/dev/null || true && docker system prune -af --volumes"
+ssh lightform@157.180.25.101 "rm -rf ./.lightform"
 
 # 2. Setup and deploy
 cd examples/basic
 bun ../../packages/cli/src/index.ts setup --verbose
-ssh luma@157.180.25.101 "docker exec luma-proxy /usr/local/bin/luma-proxy set-staging --enabled true"
+ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
 bun ../../packages/cli/src/index.ts deploy --force
 
 # 3. Test
@@ -149,7 +149,7 @@ curl -k -I https://test.eliasson.me
 
 ## 🔄 **ITERATIVE DEBUGGING METHODOLOGY**
 
-When troubleshooting Luma issues, follow this systematic feedback loop:
+When troubleshooting Lightform issues, follow this systematic feedback loop:
 
 ### Debugging Feedback Loop
 
@@ -168,8 +168,8 @@ cd examples/basic
 bun ../../packages/cli/src/index.ts deploy --force --verbose
 
 # 2. Check the logs
-ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy"
-ssh luma@157.180.25.101 "docker logs --tail 30 gmail-web"
+ssh lightform@157.180.25.101 "docker logs --tail 50 lightform-proxy"
+ssh lightform@157.180.25.101 "docker logs --tail 30 gmail-web"
 
 # 3. Understand the problem
 # - Are there error messages?
@@ -201,14 +201,14 @@ bun ../../packages/cli/src/index.ts deploy --force --verbose   # Deploy again
 
 ```bash
 # SSL issues - check certificate logs
-ssh luma@157.180.25.101 "docker logs --tail 100 luma-proxy | grep -E 'CERT|ACME|SSL'"
+ssh lightform@157.180.25.101 "docker logs --tail 100 lightform-proxy | grep -E 'CERT|ACME|SSL'"
 
 # Proxy routing issues - check API logs
-ssh luma@157.180.25.101 "docker logs --tail 50 luma-proxy | grep -E 'PROXY|API'"
+ssh lightform@157.180.25.101 "docker logs --tail 50 lightform-proxy | grep -E 'PROXY|API'"
 
 # Container health issues - check container status
-ssh luma@157.180.25.101 "docker ps --filter 'label=luma.project=gmail'"
-ssh luma@157.180.25.101 "docker logs --tail 30 gmail-web"
+ssh lightform@157.180.25.101 "docker ps --filter 'label=lightform.project=gmail'"
+ssh lightform@157.180.25.101 "docker logs --tail 30 gmail-web"
 ```
 
 This iterative approach helps systematically identify and fix issues without getting stuck on assumptions.

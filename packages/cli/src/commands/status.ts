@@ -1,9 +1,9 @@
 import { loadConfig, loadSecrets } from "../config";
 import {
-  LumaConfig,
+  LightformConfig,
   AppEntry,
   ServiceEntry,
-  LumaSecrets,
+  LightformSecrets,
 } from "../config/types";
 import { DockerClient } from "../docker";
 import { SSHClient, getSSHCredentials, SSHClientOptions } from "../ssh";
@@ -18,8 +18,8 @@ import {
 let logger: Logger;
 
 interface StatusContext {
-  config: LumaConfig;
-  secrets: LumaSecrets;
+  config: LightformConfig;
+  secrets: LightformSecrets;
   verboseFlag: boolean;
   verboseMessages: string[]; // Store verbose messages for later display
   projectName: string;
@@ -158,11 +158,11 @@ function parseStatusArgs(
 }
 
 /**
- * Loads and validates Luma configuration and secrets files
+ * Loads and validates Lightform configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
-  config: LumaConfig;
-  secrets: LumaSecrets;
+  config: LightformConfig;
+  secrets: LightformSecrets;
 }> {
   try {
     const config = await loadConfig();
@@ -227,7 +227,7 @@ async function getEntryContainersOnServer(
   dockerClient: DockerClient,
   projectName: string
 ): Promise<ServerEntryStatus> {
-  const labelKey = entryType === "app" ? "luma.app" : "luma.service";
+  const labelKey = entryType === "app" ? "lightform.app" : "lightform.service";
   const allContainers = await dockerClient.findContainersByLabelAndProject(
     `${labelKey}=${entry.name}`,
     projectName
@@ -253,7 +253,7 @@ async function getEntryContainersOnServer(
     // Only check for color labels for apps (services don't use blue/green deployment)
     if (entryType === "app") {
       const labels = await dockerClient.getContainerLabels(containerName);
-      const color = labels["luma.color"];
+      const color = labels["lightform.color"];
 
       if (color === "blue") {
         blueContainers.push(containerName);
@@ -325,7 +325,7 @@ async function getProxyStatusSummary(
       // Add error status for this server
       proxyStatuses.push({
         running: false,
-        containerName: "luma-proxy",
+        containerName: "lightform-proxy",
         serverId: serverHostname,
         ports: [],
         error: `Failed to connect to server: ${error}`,

@@ -1,8 +1,8 @@
-# Next.js + Luma Deployment Example
+# Next.js + Lightform Deployment Example
 
-This is a [Next.js](https://nextjs.org) project that demonstrates zero-downtime deployments using [Luma](https://github.com/elitan/luma).
+This is a [Next.js](https://nextjs.org) project that demonstrates zero-downtime deployments using [Lightform](https://github.com/elitan/lightform).
 
-## 🚀 Quick Start with Luma
+## 🚀 Quick Start with Lightform
 
 ### 1. Development Setup
 
@@ -20,21 +20,21 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-### 2. Deploy with Luma
+### 2. Deploy with Lightform
 
-This example includes a complete Luma configuration for zero-downtime deployment:
+This example includes a complete Lightform configuration for zero-downtime deployment:
 
 ```bash
 # Set up your servers
-luma setup
+lightform setup
 
 # Deploy with zero downtime!
-luma deploy
+lightform deploy
 ```
 
 ## 🐳 Docker Configuration
 
-The included `Dockerfile` is optimized for Next.js deployments with Luma:
+The included `Dockerfile` is optimized for Next.js deployments with Lightform:
 
 ### Features
 
@@ -50,12 +50,12 @@ The included `Dockerfile` is optimized for Next.js deployments with Luma:
 - [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API
 - [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial
 
-### Luma Resources
+### Lightform Resources
 
-- [Luma Documentation](https://github.com/elitan/luma) - zero-downtime Docker deployments
-- [Luma Examples](https://github.com/elitan/luma/tree/main/examples) - more deployment examples
+- [Lightform Documentation](https://github.com/elitan/lightform) - zero-downtime Docker deployments
+- [Lightform Examples](https://github.com/elitan/lightform/tree/main/examples) - more deployment examples
 
-## 🆚 Why Luma vs Vercel?
+## 🆚 Why Lightform vs Vercel?
 
 - **Your own servers** - full control, no vendor lock-in
 - **Cost-effective** - pay only for your servers, not per deployment
@@ -65,4 +65,4 @@ The included `Dockerfile` is optimized for Next.js deployments with Luma:
 
 ---
 
-**This example demonstrates how easy it is to deploy Next.js applications with zero downtime using Luma! 🚀**
+**This example demonstrates how easy it is to deploy Next.js applications with zero downtime using Lightform! 🚀**

@@ -74,7 +74,7 @@ func NewState(filePath string) *State {
 	return &State{
 		Projects: make(map[string]*Project),
 		LetsEncrypt: &LetsEncryptConfig{
-			AccountKeyFile: "/var/lib/luma-proxy/certs/account.key",
+			AccountKeyFile: "/var/lib/lightform-proxy/certs/account.key",
 			DirectoryURL:   "https://acme-v02.api.letsencrypt.org/directory",
 			Email:          "",
 			Staging:        false,

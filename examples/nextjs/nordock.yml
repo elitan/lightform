@@ -1,7 +1,7 @@
-name: luma-example-nextjs
+name: lightform-example-nextjs
 
 ssh:
-  username: luma
+  username: lightform
 
 apps:
   web:
@@ -14,5 +14,5 @@ apps:
         - NODE_ENV=production
     proxy:
       hosts:
-        - nextjs.example.myluma.cloud
+        - nextjs.example.mylightform.cloud
       app_port: 3000

@@ -2,17 +2,17 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "luma-monorepo",
+      "name": "lightform-monorepo",
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5",
       },
     },
     "packages/cli": {
-      "name": "@elitan/luma-cli",
+      "name": "@elitan/lightform",
       "version": "0.1.2",
       "bin": {
-        "luma": "dist/index.js",
+        "lightform": "dist/index.js",
       },
       "dependencies": {
         "@types/cli-progress": "^3.11.6",
@@ -31,7 +31,7 @@
     },
   },
   "packages": {
-    "@elitan/luma-cli": ["@elitan/luma-cli@workspace:packages/cli"],
+    "@elitan/lightform": ["@elitan/lightform@workspace:packages/cli"],
 
     "@heroku/socksv5": ["@heroku/socksv5@0.0.9", "", { "dependencies": { "ip-address": "^5.8.8" } }, "sha512-bV8v7R/c0gNve8i7yPmZbcCTJUqRbCnMSvcegcMaz+ly+FoZf9i4+3MTjKsX+OZn9w0w1I6VJYQBcdM+yMWPQQ=="],
 

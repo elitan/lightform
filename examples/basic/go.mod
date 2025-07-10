@@ -1,3 +1,3 @@
-module github.com/elitan/luma-example
+module github.com/elitan/lightform-example
 
 go 1.22

@@ -1,29 +1,29 @@
 ---
 title: Quick Start
-description: Deploy your first application with Luma in minutes
+description: Deploy your first application with Lightform in minutes
 ---
 
 # Quick Start
 
-Get your first application deployed with Luma in just a few minutes. This guide will walk you through creating a simple web application and deploying it to your server.
+Get your first application deployed with Lightform in just a few minutes. This guide will walk you through creating a simple web application and deploying it to your server.
 
 ## Step 1: Initialize Your Project
 
-Navigate to your project directory and initialize Luma:
+Navigate to your project directory and initialize Lightform:
 
 ```bash
 cd your-project
-luma init
+lightform init
 ```
 
 This creates two files:
 
-- **`luma.yml`** - Your deployment configuration
-- **`.luma/secrets`** - Secure credentials storage (add to `.gitignore`)
+- **`lightform.yml`** - Your deployment configuration
+- **`.lightform/secrets`** - Secure credentials storage (add to `.gitignore`)
 
 ## Step 2: Configure Your Deployment
 
-Edit the generated `luma.yml` file:
+Edit the generated `lightform.yml` file:
 
 ```yaml
 name: my-app
@@ -48,7 +48,7 @@ apps:
         - NODE_ENV=production
         - PORT=3000
       secret:
-        - DATABASE_URL # Optional: from .luma/secrets
+        - DATABASE_URL # Optional: from .lightform/secrets
 ```
 
 ### Key Configuration Options
@@ -61,15 +61,15 @@ apps:
 
 ## Step 3: Add Secrets (Optional)
 
-If your app needs environment variables with sensitive values, add them to `.luma/secrets`:
+If your app needs environment variables with sensitive values, add them to `.lightform/secrets`:
 
 ```bash
-# .luma/secrets
+# .lightform/secrets
 DATABASE_URL=postgres://user:pass@localhost:5432/myapp
 API_KEY=your-secret-api-key
 ```
 
-**Important**: Add `.luma/secrets` to your `.gitignore` file!
+**Important**: Add `.lightform/secrets` to your `.gitignore` file!
 
 ## Step 4: Prepare Your Dockerfile
 
@@ -115,7 +115,7 @@ app.get("/up", (req, res) => {
 Prepare your server for deployments:
 
 ```bash
-luma setup
+lightform setup
 ```
 
 This will:
@@ -130,13 +130,13 @@ This will:
 Deploy your application:
 
 ```bash
-luma deploy
+lightform deploy
 ```
 
 You'll see output like this:
 
 ```
-❯ luma deploy
+❯ lightform deploy
 Using Git SHA for release ID: a1b2c3d
 Starting deployment with release a1b2c3d
 
@@ -160,7 +160,7 @@ Your app is live at:
 Check the status of your deployment:
 
 ```bash
-luma status
+lightform status
 ```
 
 Output:
@@ -176,7 +176,7 @@ Visit your domain - it should be live with automatic HTTPS!
 
 ## What Happened?
 
-During deployment, Luma:
+During deployment, Lightform:
 
 1. **Built your Docker image** locally using your Dockerfile
 2. **Transferred the image** securely to your server via SSH (no registry needed)
@@ -206,10 +206,10 @@ If your Docker build fails:
 
 ### Connection Issues
 
-If Luma can't connect to your server:
+If Lightform can't connect to your server:
 
 1. **Verify SSH access** - Test with `ssh user@your-server.com`
-2. **Check SSH configuration** - Ensure the username in `luma.yml` matches your server
+2. **Check SSH configuration** - Ensure the username in `lightform.yml` matches your server
 3. **Firewall settings** - Make sure ports 22, 80, and 443 are open
 
 ### Health Check Failures

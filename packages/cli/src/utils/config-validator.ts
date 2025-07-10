@@ -1,4 +1,4 @@
-import { LumaConfig, AppEntry, ServiceEntry } from "../config/types";
+import { LightformConfig, AppEntry, ServiceEntry } from "../config/types";
 import { parsePortMappings } from "./port-checker";
 
 export interface ConfigValidationError {
@@ -11,9 +11,9 @@ export interface ConfigValidationError {
 }
 
 export class ConfigValidator {
-  private config: LumaConfig;
+  private config: LightformConfig;
 
-  constructor(config: LumaConfig) {
+  constructor(config: LightformConfig) {
     this.config = config;
   }
 
@@ -224,9 +224,9 @@ export class ConfigValidator {
 }
 
 /**
- * Validates a Luma configuration and returns any errors found
+ * Validates a Lightform configuration and returns any errors found
  */
-export function validateConfig(config: LumaConfig): ConfigValidationError[] {
+export function validateConfig(config: LightformConfig): ConfigValidationError[] {
   const validator = new ConfigValidator(config);
   return validator.validate();
 }

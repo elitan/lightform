@@ -2,15 +2,15 @@ import { DockerClient } from "../docker";
 import { SSHClient } from "../ssh";
 
 /**
- * Client for interacting with the luma-proxy service
+ * Client for interacting with the lightform-proxy service
  */
-export class LumaProxyClient {
+export class LightformProxyClient {
   private dockerClient: DockerClient;
   private serverHostname?: string;
   private verbose: boolean = false;
 
   /**
-   * Create a new LumaProxyClient
+   * Create a new LightformProxyClient
    * @param dockerClient An initialized DockerClient for the target server
    * @param serverHostname The hostname of the server (for logging purposes)
    * @param verbose Whether to enable verbose logging
@@ -50,35 +50,35 @@ export class LumaProxyClient {
   }
 
   /**
-   * Check if the luma-proxy container is running
-   * @returns true if the luma-proxy container exists and is running
+   * Check if the lightform-proxy container is running
+   * @returns true if the lightform-proxy container exists and is running
    */
   async isProxyRunning(): Promise<boolean> {
     try {
-      const proxyExists = await this.dockerClient.containerExists("luma-proxy");
+      const proxyExists = await this.dockerClient.containerExists("lightform-proxy");
       if (!proxyExists) {
-        this.log("luma-proxy container does not exist");
+        this.log("lightform-proxy container does not exist");
         return false;
       }
 
       const isRunning = await this.dockerClient.containerIsRunning(
-        "luma-proxy"
+        "lightform-proxy"
       );
       if (!isRunning) {
-        this.log("luma-proxy container exists but is not running");
+        this.log("lightform-proxy container exists but is not running");
         return false;
       }
 
-      this.log("luma-proxy container is running");
+      this.log("lightform-proxy container is running");
       return true;
     } catch (error) {
-      this.logError(`Error checking luma-proxy status: ${error}`);
+      this.logError(`Error checking lightform-proxy status: ${error}`);
       return false;
     }
   }
 
   /**
-   * Configure the luma-proxy to route traffic from a host to a target container
+   * Configure the lightform-proxy to route traffic from a host to a target container
    * @param host The hostname to route traffic from (e.g., api.example.com)
    * @param targetContainer The container name to route traffic to
    * @param targetPort The port on the target container
@@ -108,9 +108,9 @@ export class LumaProxyClient {
         "--ssl",
       ];
 
-      const command = `/usr/local/bin/luma-proxy ${args.join(" ")}`;
+      const command = `/usr/local/bin/lightform-proxy ${args.join(" ")}`;
       const execResult = await this.dockerClient.execInContainer(
-        "luma-proxy",
+        "lightform-proxy",
         command
       );
 
@@ -134,42 +134,42 @@ export class LumaProxyClient {
   }
 
   /**
-   * Remove a host configuration from the luma-proxy
+   * Remove a host configuration from the lightform-proxy
    * @param host The hostname to remove
    * @returns true if the removal was successful
    */
   async removeProxyConfig(host: string): Promise<boolean> {
     try {
-      // Check if luma-proxy is running
+      // Check if lightform-proxy is running
       if (!(await this.isProxyRunning())) {
         this.logError(
-          "Cannot remove proxy config: luma-proxy container is not running"
+          "Cannot remove proxy config: lightform-proxy container is not running"
         );
         return false;
       }
 
-      this.log(`Removing luma-proxy configuration for host: ${host}`);
+      this.log(`Removing lightform-proxy configuration for host: ${host}`);
 
       // Build the proxy removal command
-      const proxyCmd = `luma-proxy remove --host ${host}`;
+      const proxyCmd = `lightform-proxy remove --host ${host}`;
 
-      // Execute the command in the luma-proxy container
+      // Execute the command in the lightform-proxy container
       const execResult = await this.dockerClient.execInContainer(
-        "luma-proxy",
+        "lightform-proxy",
         proxyCmd
       );
 
       if (execResult.success) {
-        this.log(`Successfully removed luma-proxy configuration for ${host}`);
+        this.log(`Successfully removed lightform-proxy configuration for ${host}`);
         return true;
       } else {
         this.logError(
-          `Failed to remove luma-proxy configuration: ${execResult.output}`
+          `Failed to remove lightform-proxy configuration: ${execResult.output}`
         );
         return false;
       }
     } catch (error) {
-      this.logError(`Error removing luma-proxy configuration: ${error}`);
+      this.logError(`Error removing lightform-proxy configuration: ${error}`);
       return false;
     }
   }
@@ -180,32 +180,32 @@ export class LumaProxyClient {
    */
   async listProxyConfigs(): Promise<string | null> {
     try {
-      // Check if luma-proxy is running
+      // Check if lightform-proxy is running
       if (!(await this.isProxyRunning())) {
         this.logError(
-          "Cannot list proxy configs: luma-proxy container is not running"
+          "Cannot list proxy configs: lightform-proxy container is not running"
         );
         return null;
       }
 
-      this.log("Listing luma-proxy configurations");
+      this.log("Listing lightform-proxy configurations");
 
-      // Execute the list command in the luma-proxy container
+      // Execute the list command in the lightform-proxy container
       const execResult = await this.dockerClient.execInContainer(
-        "luma-proxy",
-        "luma-proxy list"
+        "lightform-proxy",
+        "lightform-proxy list"
       );
 
       if (execResult.success) {
         return execResult.output;
       } else {
         this.logError(
-          `Failed to list luma-proxy configurations: ${execResult.output}`
+          `Failed to list lightform-proxy configurations: ${execResult.output}`
         );
         return null;
       }
     } catch (error) {
-      this.logError(`Error listing luma-proxy configurations: ${error}`);
+      this.logError(`Error listing lightform-proxy configurations: ${error}`);
       return null;
     }
   }
@@ -218,10 +218,10 @@ export class LumaProxyClient {
    */
   async updateServiceHealth(host: string, healthy: boolean): Promise<boolean> {
     try {
-      // Check if luma-proxy is running
+      // Check if lightform-proxy is running
       if (!(await this.isProxyRunning())) {
         this.logError(
-          "Cannot update service health: luma-proxy container is not running"
+          "Cannot update service health: lightform-proxy container is not running"
         );
         return false;
       }
@@ -234,11 +234,11 @@ export class LumaProxyClient {
 
       // Build the proxy update health command
       const healthStatus = healthy ? "true" : "false";
-      const proxyCmd = `/usr/local/bin/luma-proxy updatehealth --host ${host} --healthy ${healthStatus}`;
+      const proxyCmd = `/usr/local/bin/lightform-proxy updatehealth --host ${host} --healthy ${healthStatus}`;
 
-      // Execute the command in the luma-proxy container
+      // Execute the command in the lightform-proxy container
       const execResult = await this.dockerClient.execInContainer(
-        "luma-proxy",
+        "lightform-proxy",
         proxyCmd
       );
 

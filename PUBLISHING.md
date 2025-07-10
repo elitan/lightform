@@ -1,6 +1,6 @@
-# 📦 Luma Publishing & Release Guide
+# 📦 Lightform Publishing & Release Guide
 
-This guide explains how to publish and manage releases for the Luma package on npmjs.org using Bun.
+This guide explains how to publish and manage releases for the Lightform package on npmjs.org using Bun.
 
 ## 🚀 Quick Reference
 
@@ -59,7 +59,7 @@ bun run version:check    # Check current version
 
 ## 🔢 Semantic Versioning (SemVer)
 
-Luma follows semantic versioning: `MAJOR.MINOR.PATCH`
+Lightform follows semantic versioning: `MAJOR.MINOR.PATCH`
 
 ### **PATCH** (0.1.0 → 0.1.1)
 
@@ -116,7 +116,7 @@ Luma follows semantic versioning: `MAJOR.MINOR.PATCH`
 
 5. **Verify publication:**
    ```bash
-   bun pm view @elitan/luma
+   bun pm view lightform
    ```
 
 ### Workflow 2: Bug Fix Release
@@ -196,8 +196,8 @@ Luma follows semantic versioning: `MAJOR.MINOR.PATCH`
 3. **Install and test:**
 
    ```bash
-   bun add -g @elitan/luma@beta
-   luma --version  # Shows: 0.1.1-beta.0
+   bun add -g lightform@beta
+   lightform --version  # Shows: 0.1.1-beta.0
    ```
 
 4. **When ready, promote to stable:**
@@ -253,17 +253,17 @@ After publishing, verify everything worked:
 
 ```bash
 # Check if package exists and view info
-bun pm view @elitan/luma
+bun pm view lightform
 
 # See all available versions
-bun pm view @elitan/luma --versions
+bun pm view lightform --versions
 
 # Install globally and test
-bun add -g @elitan/luma@latest
-luma --version
+bun add -g lightform@latest
+lightform --version
 
 # Check package page
-open https://www.npmjs.com/package/@elitan/luma
+open https://www.npmjs.com/package/lightform
 ```
 
 ---
@@ -273,7 +273,7 @@ open https://www.npmjs.com/package/@elitan/luma
 ### "Error: 403 Forbidden"
 
 - Make sure you're logged in: `bun pm login` or `npm whoami`
-- Make sure you have permission to publish `@elitan/luma`
+- Make sure you have permission to publish `lightform`
 
 ### "Error: Version already exists"
 
@@ -294,8 +294,8 @@ open https://www.npmjs.com/package/@elitan/luma
 
 ## 📚 Additional Resources
 
-- **NPM Package:** https://www.npmjs.com/package/@elitan/luma
-- **GitHub Repository:** https://github.com/elitan/luma
+- **NPM Package:** https://www.npmjs.com/package/lightform
+- **GitHub Repository:** https://github.com/elitan/lightform
 - **Semantic Versioning:** https://semver.org/
 - **Bun Publishing Guide:** https://bun.sh/docs/cli/publish
 

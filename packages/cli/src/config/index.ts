@@ -2,23 +2,23 @@ import fs from "node:fs/promises";
 import path from "path";
 import yaml from "js-yaml";
 import {
-  LumaConfigSchema,
-  LumaSecretsSchema,
-  LumaConfig,
-  LumaSecrets,
+  LightformConfigSchema,
+  LightformSecretsSchema,
+  LightformConfig,
+  LightformSecrets,
 } from "./types";
 
-const LUMA_DIR = ".luma";
-const CONFIG_FILE = "luma.yml";
+const LIGHTFORM_DIR = ".lightform";
+const CONFIG_FILE = "lightform.yml";
 const SECRETS_FILE = "secrets";
 
-export async function loadConfig(): Promise<LumaConfig> {
+export async function loadConfig(): Promise<LightformConfig> {
   try {
     const configFile = await fs.readFile(CONFIG_FILE, "utf-8");
     const rawConfig = yaml.load(configFile);
 
     // Validate and parse using Zod schema
-    const validationResult = LumaConfigSchema.safeParse(rawConfig);
+    const validationResult = LightformConfigSchema.safeParse(rawConfig);
     if (!validationResult.success) {
       console.error(`Invalid configuration in ${CONFIG_FILE}:`);
 
@@ -31,7 +31,7 @@ export async function loadConfig(): Promise<LumaConfig> {
         if (path === "name" && message.includes("Required")) {
           console.error(`  Error: Missing required 'name' field`);
           console.error(
-            `  Help: Add 'name: your-project-name' to the top of luma.yml`
+            `  Help: Add 'name: your-project-name' to the top of lightform.yml`
           );
           console.error(
             `  Note: The project name is used for network naming and other identifiers.`
@@ -39,7 +39,7 @@ export async function loadConfig(): Promise<LumaConfig> {
         } else if (path === "project_name") {
           console.error(`  Error: 'project_name' field is not recognized`);
           console.error(
-            `  Help: Use 'name' instead of 'project_name' at the top of luma.yml`
+            `  Help: Use 'name' instead of 'project_name' at the top of lightform.yml`
           );
         } else if (path === "apps" && message.includes("Expected")) {
           console.error(`  Error: Issue with the 'apps' section format`);
@@ -97,8 +97,8 @@ export async function loadConfig(): Promise<LumaConfig> {
   }
 }
 
-export async function loadSecrets(): Promise<LumaSecrets> {
-  const secretsPath = path.join(LUMA_DIR, SECRETS_FILE);
+export async function loadSecrets(): Promise<LightformSecrets> {
+  const secretsPath = path.join(LIGHTFORM_DIR, SECRETS_FILE);
   try {
     const secretsFile = await fs.readFile(secretsPath, "utf-8");
     const parsedSecrets: Record<string, string> = {};
@@ -118,7 +118,7 @@ export async function loadSecrets(): Promise<LumaSecrets> {
     });
 
     // Validate and parse secrets using Zod schema
-    const validationResult = LumaSecretsSchema.safeParse(parsedSecrets);
+    const validationResult = LightformSecretsSchema.safeParse(parsedSecrets);
     if (!validationResult.success) {
       console.error(`Invalid secrets in ${secretsPath}:`);
       validationResult.error.errors.forEach((err) => {
@@ -131,7 +131,7 @@ export async function loadSecrets(): Promise<LumaSecrets> {
     const nodeError = error as NodeJS.ErrnoException;
     if (nodeError.code === "ENOENT") {
       console.warn(`${secretsPath} not found. Proceeding with empty secrets.`);
-      return LumaSecretsSchema.parse({}); // Return validated empty secrets
+      return LightformSecretsSchema.parse({}); // Return validated empty secrets
     }
     if (error instanceof Error && error.message.startsWith("Invalid secrets")) {
       throw error; // Re-throw Zod validation error for secrets

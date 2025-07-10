@@ -130,8 +130,8 @@ export const ServiceEntrySchema = ServiceEntryWithoutNameSchema.extend({
 });
 export type ServiceEntry = z.infer<typeof ServiceEntrySchema>;
 
-// Zod schema for LumaConfig - allowing both object and array formats for apps and services
-export const LumaConfigSchema = z.object({
+// Zod schema for LightformConfig - allowing both object and array formats for apps and services
+export const LightformConfigSchema = z.object({
   name: z.string().min(1, "Project name is required"), // Used for network naming etc.
   apps: z
     .union([
@@ -154,7 +154,7 @@ export const LumaConfigSchema = z.object({
           "Global Docker registry (optional - only needed for services using private registries)"
         ), // Global Docker registry
       username: z.string().optional().describe("Global registry username"), // Global username
-      // Global password_secret should be defined in LumaSecrets and referenced
+      // Global password_secret should be defined in LightformSecrets and referenced
       // e.g. global_docker_password_secret: "DOCKER_REGISTRY_PASSWORD"
     })
     .optional()
@@ -172,13 +172,13 @@ export const LumaConfigSchema = z.object({
     .object({
       image: z
         .string()
-        .describe("Custom Docker image for the Luma proxy")
+        .describe("Custom Docker image for the Lightform proxy")
         .optional(),
     })
     .optional(),
 });
-export type LumaConfig = z.infer<typeof LumaConfigSchema>;
+export type LightformConfig = z.infer<typeof LightformConfigSchema>;
 
-// Zod schema for LumaSecrets (simple key-value)
-export const LumaSecretsSchema = z.record(z.string());
-export type LumaSecrets = z.infer<typeof LumaSecretsSchema>;
+// Zod schema for LightformSecrets (simple key-value)
+export const LightformSecretsSchema = z.record(z.string());
+export type LightformSecrets = z.infer<typeof LightformSecretsSchema>;

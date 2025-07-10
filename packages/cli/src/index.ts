@@ -28,10 +28,10 @@ async function main() {
   const args = process.argv.slice(2); // Remove 'node' and script path from args
 
   if (args.length === 0) {
-    console.log("Luma CLI - Please provide a command.");
+    console.log("Lightform CLI - Please provide a command.");
     console.log("Available commands: init, setup, deploy, status, proxy");
     console.log("\nProxy Management:");
-    console.log("  luma proxy help  Show proxy command help");
+    console.log("  lightform proxy help  Show proxy command help");
     return;
   }
 

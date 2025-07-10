@@ -9,12 +9,12 @@ import {
 import { constants } from "node:fs";
 import { createInterface } from "readline";
 
-const LUMA_DIR = ".luma";
-const CONFIG_FILE = "luma.yml";
+const LIGHTFORM_DIR = ".lightform";
+const CONFIG_FILE = "lightform.yml";
 const SECRETS_FILE = "secrets";
 
 const ACTUAL_CONFIG_PATH = CONFIG_FILE; // Config file will be in the root
-const ACTUAL_SECRETS_PATH = path.join(LUMA_DIR, SECRETS_FILE);
+const ACTUAL_SECRETS_PATH = path.join(LIGHTFORM_DIR, SECRETS_FILE);
 
 interface ConfigPrompts {
   projectName: string;
@@ -34,7 +34,7 @@ function prompt(question: string): Promise<string> {
 }
 
 async function promptForConfig(): Promise<ConfigPrompts> {
-  console.log("Let's set up your Luma configuration!\n");
+  console.log("Let's set up your Lightform configuration!\n");
 
   const projectName =
     (await prompt("Project name (my-project): ")) || "my-project";
@@ -105,11 +105,11 @@ export async function initCommand(nonInteractive: boolean = false) {
   let secretsCreated = false;
 
   try {
-    await mkdir(LUMA_DIR, { recursive: true });
+    await mkdir(LIGHTFORM_DIR, { recursive: true });
   } catch (e) {
     const error = e as Error & { code?: string };
     if (error.code !== "EEXIST") {
-      console.error(`Error creating directory ${LUMA_DIR}: ${error.message}`);
+      console.error(`Error creating directory ${LIGHTFORM_DIR}: ${error.message}`);
       return;
     }
   }

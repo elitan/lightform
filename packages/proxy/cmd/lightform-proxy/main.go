@@ -14,16 +14,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/elitan/luma/proxy/internal/api"
-	"github.com/elitan/luma/proxy/internal/cert"
-	"github.com/elitan/luma/proxy/internal/cli"
-	"github.com/elitan/luma/proxy/internal/health"
-	"github.com/elitan/luma/proxy/internal/router"
-	"github.com/elitan/luma/proxy/internal/state"
+	"github.com/elitan/lightform/proxy/internal/api"
+	"github.com/elitan/lightform/proxy/internal/cert"
+	"github.com/elitan/lightform/proxy/internal/cli"
+	"github.com/elitan/lightform/proxy/internal/health"
+	"github.com/elitan/lightform/proxy/internal/router"
+	"github.com/elitan/lightform/proxy/internal/state"
 )
 
 const (
-	defaultStateFile = "/var/lib/luma-proxy/state.json"
+	defaultStateFile = "/var/lib/lightform-proxy/state.json"
 )
 
 func getStateFile() string {
@@ -40,7 +40,7 @@ func getStateFile() string {
 		return "./state.json"
 	}
 
-	localStateDir := filepath.Join(currentUser.HomeDir, ".luma-proxy")
+	localStateDir := filepath.Join(currentUser.HomeDir, ".lightform-proxy")
 	os.MkdirAll(localStateDir, 0755)
 	return filepath.Join(localStateDir, "state.json")
 }
@@ -68,7 +68,7 @@ func handleCLI() error {
 }
 
 func runProxy() error {
-	log.Println("[PROXY] Starting Luma proxy...")
+	log.Println("[PROXY] Starting Lightform proxy...")
 
 	// Load state
 	st := state.NewState(getStateFile())

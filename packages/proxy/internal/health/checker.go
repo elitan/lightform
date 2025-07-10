@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/elitan/luma/proxy/internal/state"
+	"github.com/elitan/lightform/proxy/internal/state"
 )
 
 type Checker struct {

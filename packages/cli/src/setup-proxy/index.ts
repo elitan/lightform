@@ -1,20 +1,20 @@
 import { DockerClient } from "../docker";
-import { LumaConfig, LumaSecrets } from "../config/types";
+import { LightformConfig, LightformSecrets } from "../config/types";
 import { SSHClient } from "../ssh";
 import { loadConfig } from "../config";
 
 // Constants
-export const LUMA_PROXY_NAME = "luma-proxy";
-const DEFAULT_LUMA_PROXY_IMAGE = "elitan/luma-proxy:latest";
+export const LIGHTFORM_PROXY_NAME = "lightform-proxy";
+const DEFAULT_LIGHTFORM_PROXY_IMAGE = "elitan/lightform-proxy:latest";
 
 /**
- * Check if the Luma proxy is running and set it up if not
+ * Check if the Lightform proxy is running and set it up if not
  * @param serverHostname The hostname of the server
  * @param sshClient SSH client connection
  * @param verbose Whether to show verbose output
  * @param forceUpdate Whether to force update the proxy even if it exists (default: false - only install if not present)
  */
-export async function setupLumaProxy(
+export async function setupLightformProxy(
   serverHostname: string,
   sshClient: SSHClient,
   verbose: boolean = false,
@@ -22,7 +22,7 @@ export async function setupLumaProxy(
 ): Promise<boolean> {
   try {
     if (verbose) {
-      console.log(`[${serverHostname}] Checking Luma proxy status...`);
+      console.log(`[${serverHostname}] Checking Lightform proxy status...`);
     }
 
     // Get SSH client from Docker client (reusing existing SSH connection)
@@ -30,16 +30,16 @@ export async function setupLumaProxy(
 
     // Get config to check for custom proxy image
     const config = await loadConfig();
-    const proxyImage = config.proxy?.image || DEFAULT_LUMA_PROXY_IMAGE;
+    const proxyImage = config.proxy?.image || DEFAULT_LIGHTFORM_PROXY_IMAGE;
 
     // Check if container exists
-    const proxyExists = await dockerClient.containerExists(LUMA_PROXY_NAME);
+    const proxyExists = await dockerClient.containerExists(LIGHTFORM_PROXY_NAME);
 
     if (proxyExists) {
       if (forceUpdate) {
         if (verbose) {
           console.log(
-            `[${serverHostname}] Luma proxy already exists. Force updating to latest version...`
+            `[${serverHostname}] Lightform proxy already exists. Force updating to latest version...`
           );
           console.log(
             `[${serverHostname}] Stopping and removing existing proxy container...`
@@ -49,12 +49,12 @@ export async function setupLumaProxy(
         // Stop and remove existing container to force update
         try {
           const proxyRunning = await dockerClient.containerIsRunning(
-            LUMA_PROXY_NAME
+            LIGHTFORM_PROXY_NAME
           );
           if (proxyRunning) {
-            await dockerClient.stopContainer(LUMA_PROXY_NAME);
+            await dockerClient.stopContainer(LIGHTFORM_PROXY_NAME);
           }
-          await dockerClient.removeContainer(LUMA_PROXY_NAME);
+          await dockerClient.removeContainer(LIGHTFORM_PROXY_NAME);
           if (verbose) {
             console.log(
               `[${serverHostname}] Existing proxy container removed successfully.`
@@ -69,27 +69,27 @@ export async function setupLumaProxy(
       } else {
         // Check if proxy is running, if not start it
         const proxyRunning = await dockerClient.containerIsRunning(
-          LUMA_PROXY_NAME
+          LIGHTFORM_PROXY_NAME
         );
 
         if (proxyRunning) {
           if (verbose) {
             console.log(
-              `[${serverHostname}] Luma proxy already exists and is running. Skipping setup.`
+              `[${serverHostname}] Lightform proxy already exists and is running. Skipping setup.`
             );
           }
           return true;
         } else {
           if (verbose) {
             console.log(
-              `[${serverHostname}] Luma proxy exists but is not running. Starting it...`
+              `[${serverHostname}] Lightform proxy exists but is not running. Starting it...`
             );
           }
           try {
-            await dockerClient.startContainer(LUMA_PROXY_NAME);
+            await dockerClient.startContainer(LIGHTFORM_PROXY_NAME);
             if (verbose) {
               console.log(
-                `[${serverHostname}] Luma proxy started successfully.`
+                `[${serverHostname}] Lightform proxy started successfully.`
               );
             }
             return true;
@@ -105,9 +105,9 @@ export async function setupLumaProxy(
 
     // Force pull the latest image (whether container existed or not)
     if (verbose) {
-      console.log(`[${serverHostname}] Setting up Luma proxy...`);
+      console.log(`[${serverHostname}] Setting up Lightform proxy...`);
       console.log(
-        `[${serverHostname}] Force pulling latest Luma proxy image from registry...`
+        `[${serverHostname}] Force pulling latest Lightform proxy image from registry...`
       );
       console.log(
         `[${serverHostname}] Force pulling latest image ${proxyImage}...`
@@ -118,14 +118,14 @@ export async function setupLumaProxy(
 
     if (!pullResult) {
       console.error(
-        `[${serverHostname}] Failed to pull Luma proxy image. Aborting setup.`
+        `[${serverHostname}] Failed to pull Lightform proxy image. Aborting setup.`
       );
       if (verbose) {
         console.error(
           `[${serverHostname}] If you are seeing "pull access denied" errors, you may need to use a different proxy image.`
         );
         console.error(
-          `[${serverHostname}] You can configure a custom proxy image in your luma.yml file:`
+          `[${serverHostname}] You can configure a custom proxy image in your lightform.yml file:`
         );
         console.error(`[${serverHostname}] proxy:`);
         console.error(
@@ -135,28 +135,28 @@ export async function setupLumaProxy(
       return false;
     }
 
-    // Ensure .luma directories exist on the server before mounting
+    // Ensure .lightform directories exist on the server before mounting
     if (verbose) {
-      console.log(`[${serverHostname}] Creating .luma directory structure...`);
+      console.log(`[${serverHostname}] Creating .lightform directory structure...`);
     }
     try {
-      await sshClient.exec("mkdir -p ~/.luma/luma-proxy-certs ~/.luma/luma-proxy-config");
+      await sshClient.exec("mkdir -p ~/.lightform/lightform-proxy-certs ~/.lightform/lightform-proxy-config");
       if (verbose) {
-        console.log(`[${serverHostname}] .luma directories created successfully.`);
+        console.log(`[${serverHostname}] .lightform directories created successfully.`);
       }
     } catch (error) {
-      console.error(`[${serverHostname}] Failed to create .luma directories: ${error}`);
+      console.error(`[${serverHostname}] Failed to create .lightform directories: ${error}`);
       return false;
     }
 
     // Create container options
     const containerOptions = {
-      name: LUMA_PROXY_NAME,
+      name: LIGHTFORM_PROXY_NAME,
       image: proxyImage,
       ports: ["80:80", "443:443"],
       volumes: [
-        "./.luma/luma-proxy-certs:/var/lib/luma-proxy/certs",
-        "./.luma/luma-proxy-config:/tmp",
+        "./.lightform/lightform-proxy-certs:/var/lib/lightform-proxy/certs",
+        "./.lightform/lightform-proxy-config:/tmp",
         "/var/run/docker.sock:/var/run/docker.sock",
       ],
       restart: "always",
@@ -169,38 +169,38 @@ export async function setupLumaProxy(
 
     if (!containerCreated) {
       console.error(
-        `[${serverHostname}] Failed to create Luma proxy container.`
+        `[${serverHostname}] Failed to create Lightform proxy container.`
       );
       return false;
     }
 
     // Verify the container actually exists and is running
-    const containerExists = await dockerClient.containerExists(LUMA_PROXY_NAME);
+    const containerExists = await dockerClient.containerExists(LIGHTFORM_PROXY_NAME);
     if (!containerExists) {
       console.error(
-        `[${serverHostname}] Luma proxy container was not created successfully despite no errors.`
+        `[${serverHostname}] Lightform proxy container was not created successfully despite no errors.`
       );
       return false;
     }
 
     const containerRunning = await dockerClient.containerIsRunning(
-      LUMA_PROXY_NAME
+      LIGHTFORM_PROXY_NAME
     );
     if (!containerRunning) {
       console.error(
-        `[${serverHostname}] Luma proxy container exists but is not running.`
+        `[${serverHostname}] Lightform proxy container exists but is not running.`
       );
       return false;
     }
 
     if (verbose) {
       console.log(
-        `[${serverHostname}] Luma proxy has been successfully set up.`
+        `[${serverHostname}] Lightform proxy has been successfully set up.`
       );
     }
     return true;
   } catch (error) {
-    console.error(`[${serverHostname}] Failed to set up Luma proxy: ${error}`);
+    console.error(`[${serverHostname}] Failed to set up Lightform proxy: ${error}`);
     return false;
   }
 }
