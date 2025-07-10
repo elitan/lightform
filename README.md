@@ -30,7 +30,7 @@ apps:
 [✓] Zero-downtime deployment of web (3.5s)
 [✓] Deployment completed successfully in 9.8s
 
-https://a1b2c3d4-web-lightform-192-168-1-100.x.mylightform.cloud
+https://a1b2c3d4-web-lightform-192-168-1-100.app.lightform.dev
 ```
 
 ## Why Lightform?
