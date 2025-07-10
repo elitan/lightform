@@ -1197,14 +1197,14 @@ async function configureProxyForApp(
   // Determine hosts to configure
   let hosts: string[];
   if (shouldUseSslip(appEntry.proxy.hosts)) {
-    // Generate x.mylightform.cloud domain if no hosts configured
+    // Generate app.lightform.dev domain if no hosts configured
     const sslipDomain = generateAppSslipDomain(
       projectName,
       appEntry.name,
       serverHostname
     );
     hosts = [sslipDomain];
-    logger.verboseLog(`Generated x.mylightform.cloud domain: ${sslipDomain}`);
+    logger.verboseLog(`Generated app.lightform.dev domain: ${sslipDomain}`);
   } else {
     hosts = appEntry.proxy.hosts!;
   }
@@ -1707,7 +1707,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       for (const entry of targetEntries) {
         const appEntry = entry as AppEntry;
         if (appEntry.proxy) {
-          // Use configured hosts or generate x.mylightform.cloud domain
+          // Use configured hosts or generate app.lightform.dev domain
           let hosts: string[];
           if (shouldUseSslip(appEntry.proxy.hosts)) {
             const sslipDomain = generateAppSslipDomain(

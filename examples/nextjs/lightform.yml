@@ -13,6 +13,6 @@ apps:
       plain:
         - NODE_ENV=production
     proxy:
-      hosts:
-        - nextjs.example.mylightform.cloud
+      #hosts:
+      #  - nextjs.example.mylightform.cloud
       app_port: 3000
