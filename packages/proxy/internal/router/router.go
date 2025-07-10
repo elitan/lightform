@@ -16,7 +16,12 @@ import (
 type Router struct {
 	state       *state.State
 	certManager CertificateProvider
-	proxies     map[string]*httputil.ReverseProxy
+	proxies     map[string]*routerProxy
+}
+
+type routerProxy struct {
+	target string
+	proxy  *httputil.ReverseProxy
 }
 
 // NewRouter creates a new router instance
@@ -24,7 +29,7 @@ func NewRouter(st *state.State, cm CertificateProvider) *Router {
 	return &Router{
 		state:       st,
 		certManager: cm,
-		proxies:     make(map[string]*httputil.ReverseProxy),
+		proxies:     make(map[string]*routerProxy),
 	}
 }
 
@@ -75,7 +80,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Get or create proxy
-	proxy := r.getOrCreateProxy(host.Target)
+	proxy := r.getOrCreateProxy(req.Host, host.Target)
 
 	// Set forwarding headers
 	if host.ForwardHeaders {
@@ -119,12 +124,24 @@ func (r *Router) GetTLSConfig() *tls.Config {
 	return config
 }
 
-// getOrCreateProxy returns a reverse proxy for the given target
-func (r *Router) getOrCreateProxy(target string) *httputil.ReverseProxy {
-	if proxy, exists := r.proxies[target]; exists {
-		return proxy
+// getOrCreateProxy returns a reverse proxy for the given hostname/target combination
+func (r *Router) getOrCreateProxy(hostname, target string) *httputil.ReverseProxy {
+	// Check if we have a proxy for this hostname and if the target matches
+	if hp, exists := r.proxies[hostname]; exists && hp.target == target {
+		return hp.proxy
 	}
 
+	// Create new proxy
+	proxy := r.createProxy(target)
+	r.proxies[hostname] = &routerProxy{
+		target: target,
+		proxy:  proxy,
+	}
+	return proxy
+}
+
+// createProxy creates a new reverse proxy for the given target
+func (r *Router) createProxy(target string) *httputil.ReverseProxy {
 	targetURL, err := url.Parse("http://" + target)
 	if err != nil {
 		log.Printf("[PROXY] Failed to parse target URL %s: %v", target, err)
@@ -165,7 +182,6 @@ func (r *Router) getOrCreateProxy(target string) *httputil.ReverseProxy {
 		return nil
 	}
 
-	r.proxies[target] = proxy
 	return proxy
 }
 
