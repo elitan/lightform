@@ -8,28 +8,37 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/elitan/lightform/proxy/internal/state"
 )
 
-type Router struct {
+// FixedRouter is a version that properly handles blue-green deployments
+type FixedRouter struct {
 	state       *state.State
 	certManager CertificateProvider
-	proxies     map[string]*httputil.ReverseProxy
+	
+	// Instead of caching by target, cache by hostname
+	proxiesMu sync.RWMutex
+	proxies   map[string]*hostProxy
 }
 
-// NewRouter creates a new router instance
-func NewRouter(st *state.State, cm CertificateProvider) *Router {
-	return &Router{
+type hostProxy struct {
+	target string
+	proxy  *httputil.ReverseProxy
+}
+
+// NewFixedRouter creates a router that properly handles target switches
+func NewFixedRouter(st *state.State, cm CertificateProvider) *FixedRouter {
+	return &FixedRouter{
 		state:       st,
 		certManager: cm,
-		proxies:     make(map[string]*httputil.ReverseProxy),
+		proxies:     make(map[string]*hostProxy),
 	}
 }
 
-// ServeHTTP handles incoming HTTP requests
-func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (r *FixedRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	start := time.Now()
 
 	// Handle ACME challenges
@@ -74,8 +83,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Get or create proxy
-	proxy := r.getOrCreateProxy(host.Target)
+	// Get or create proxy for this hostname
+	proxy := r.getOrCreateProxy(req.Host, host.Target)
 
 	// Set forwarding headers
 	if host.ForwardHeaders {
@@ -97,34 +106,27 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		req.Host, req.Method, req.URL.Path, host.Target, wrapped.statusCode, duration.Milliseconds())
 }
 
-// GetTLSConfig returns the TLS configuration for HTTPS
-func (r *Router) GetTLSConfig() *tls.Config {
-	config := &tls.Config{
-		MinVersion:     tls.VersionTLS12,
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-		},
-		PreferServerCipherSuites: true,
+// getOrCreateProxy returns a reverse proxy for the given hostname
+func (r *FixedRouter) getOrCreateProxy(hostname, target string) *httputil.ReverseProxy {
+	r.proxiesMu.RLock()
+	hp, exists := r.proxies[hostname]
+	if exists && hp.target == target {
+		r.proxiesMu.RUnlock()
+		return hp.proxy
 	}
-	
-	if r.certManager != nil {
-		config.GetCertificate = r.certManager.GetCertificate
-	}
-	
-	return config
-}
+	r.proxiesMu.RUnlock()
 
-// getOrCreateProxy returns a reverse proxy for the given target
-func (r *Router) getOrCreateProxy(target string) *httputil.ReverseProxy {
-	if proxy, exists := r.proxies[target]; exists {
-		return proxy
+	// Need to create new proxy or target changed
+	r.proxiesMu.Lock()
+	defer r.proxiesMu.Unlock()
+
+	// Double-check in case another goroutine created it
+	hp, exists = r.proxies[hostname]
+	if exists && hp.target == target {
+		return hp.proxy
 	}
 
+	// Create new proxy
 	targetURL, err := url.Parse("http://" + target)
 	if err != nil {
 		log.Printf("[PROXY] Failed to parse target URL %s: %v", target, err)
@@ -165,12 +167,39 @@ func (r *Router) getOrCreateProxy(target string) *httputil.ReverseProxy {
 		return nil
 	}
 
-	r.proxies[target] = proxy
+	// Store the new proxy
+	r.proxies[hostname] = &hostProxy{
+		target: target,
+		proxy:  proxy,
+	}
+
 	return proxy
 }
 
+// GetTLSConfig returns the TLS configuration for HTTPS
+func (r *FixedRouter) GetTLSConfig() *tls.Config {
+	config := &tls.Config{
+		MinVersion:     tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		},
+		PreferServerCipherSuites: true,
+	}
+	
+	if r.certManager != nil {
+		config.GetCertificate = r.certManager.GetCertificate
+	}
+	
+	return config
+}
+
 // getClientIP extracts the client IP from the request
-func (r *Router) getClientIP(req *http.Request) string {
+func (r *FixedRouter) getClientIP(req *http.Request) string {
 	// Check X-Forwarded-For header first
 	if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
 		ips := strings.Split(xff, ",")
@@ -193,7 +222,7 @@ func (r *Router) getClientIP(req *http.Request) string {
 }
 
 // getProto returns the protocol (http or https)
-func (r *Router) getProto(req *http.Request) string {
+func (r *FixedRouter) getProto(req *http.Request) string {
 	if req.TLS != nil {
 		return "https"
 	}
@@ -204,22 +233,4 @@ func (r *Router) getProto(req *http.Request) string {
 	}
 
 	return "http"
-}
-
-// responseWriter wraps http.ResponseWriter to capture status code
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (w *responseWriter) WriteHeader(statusCode int) {
-	w.statusCode = statusCode
-	w.ResponseWriter.WriteHeader(statusCode)
-}
-
-func (w *responseWriter) Write(b []byte) (int, error) {
-	if w.statusCode == 0 {
-		w.statusCode = http.StatusOK
-	}
-	return w.ResponseWriter.Write(b)
 }
