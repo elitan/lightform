@@ -220,14 +220,16 @@ func (s *State) RemoveHost(hostname string) error {
 	return fmt.Errorf("host %s not found", hostname)
 }
 
-// GetHost returns the host configuration for a given hostname
+// GetHost returns a copy of the host configuration for a given hostname
 func (s *State) GetHost(hostname string) (*Host, string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	for projectName, project := range s.Projects {
 		if host, exists := project.Hosts[hostname]; exists {
-			return host, projectName, nil
+			// Return a copy of the host to prevent race conditions
+			hostCopy := *host
+			return &hostCopy, projectName, nil
 		}
 	}
 

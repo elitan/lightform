@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,10 +85,10 @@ func TestHealthCheckDebug(t *testing.T) {
 
 	t.Run("simulated_startup_delay", func(t *testing.T) {
 		// Test the scenario where a container takes some time to start up
-		started := false
+		var started int32
 
 		testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !started {
+			if atomic.LoadInt32(&started) == 0 {
 				// Simulate container not ready yet
 				w.WriteHeader(503)
 				w.Write([]byte("Service Unavailable"))
@@ -106,7 +107,7 @@ func TestHealthCheckDebug(t *testing.T) {
 		// Simulate container startup delay
 		go func() {
 			time.Sleep(2 * time.Second)
-			started = true
+			atomic.StoreInt32(&started, 1)
 			t.Log("Container is now ready")
 		}()
 

@@ -42,26 +42,25 @@ func TestRealisticBlueGreen(t *testing.T) {
 		st.UpdateHealthStatus("app.com", true)
 
 		// Simulate continuous traffic
-		stopTraffic := make(chan bool)
 		trafficResults := make(chan string, 1000)
+		done := make(chan bool)
 
 		// Start traffic generator - 10 requests per second
 		go func() {
+			defer close(trafficResults)
 			ticker := time.NewTicker(100 * time.Millisecond)
 			defer ticker.Stop()
 			
 			for {
 				select {
-				case <-stopTraffic:
+				case <-done:
 					return
 				case <-ticker.C:
-					go func() {
-						req := httptest.NewRequest("GET", "/", nil)
-						req.Host = "app.com"
-						w := httptest.NewRecorder()
-						rt.ServeHTTP(w, req)
-						trafficResults <- w.Body.String()
-					}()
+					req := httptest.NewRequest("GET", "/", nil)
+					req.Host = "app.com"
+					w := httptest.NewRecorder()
+					rt.ServeHTTP(w, req)
+					trafficResults <- w.Body.String()
 				}
 			}
 		}()
@@ -80,9 +79,7 @@ func TestRealisticBlueGreen(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 
 		// Stop traffic
-		close(stopTraffic)
-		time.Sleep(200 * time.Millisecond) // Let final requests complete
-		close(trafficResults)
+		close(done)
 
 		// Count results
 		blueResponses := 0
