@@ -1,11 +1,11 @@
 ---
 title: Configuration Reference
-description: Complete reference for luma.yml configuration options
+description: Complete reference for lightform.yml configuration options
 ---
 
 # Configuration Reference
 
-Complete reference for all configuration options available in `luma.yml`.
+Complete reference for all configuration options available in `lightform.yml`.
 
 ## Basic Structure
 
@@ -32,7 +32,7 @@ services: # Services (pre-built images)
 
 ## Apps Configuration
 
-Apps are your main applications that Luma builds and deploys with zero-downtime.
+Apps are your main applications that Lightform builds and deploys with zero-downtime.
 
 ### Basic App Configuration
 
@@ -59,7 +59,7 @@ apps:
       plain: # Plain text variables
         - NODE_ENV=production
         - PORT=3000
-      secret: # Variables from .luma/secrets
+      secret: # Variables from .lightform/secrets
         - DATABASE_URL
         - API_KEY
 
@@ -119,7 +119,7 @@ services:
       plain:
         - POSTGRES_DB=myapp
       secret:
-        - POSTGRES_PASSWORD # From .luma/secrets
+        - POSTGRES_PASSWORD # From .lightform/secrets
 
     ports: # Port mapping
       - "5432:5432"
@@ -182,7 +182,7 @@ docker:
 
 ## Environment Variables
 
-Luma supports both plain text and secret environment variables.
+Lightform supports both plain text and secret environment variables.
 
 ### Plain Variables
 
@@ -196,10 +196,10 @@ environment:
 
 ### Secret Variables
 
-Store sensitive values in `.luma/secrets`:
+Store sensitive values in `.lightform/secrets`:
 
 ```bash
-# .luma/secrets
+# .lightform/secrets
 DATABASE_URL=postgres://user:pass@localhost:5432/myapp
 JWT_SECRET=supersecretkey
 API_KEY=secret-api-key
@@ -323,7 +323,7 @@ apps:
         NODE_VERSION: 18
         BUILD_ENV: production
 
-      # Build secrets (from .luma/secrets)
+      # Build secrets (from .lightform/secrets)
       secrets:
         - PRIVATE_NPM_TOKEN
 ```
@@ -358,7 +358,7 @@ services:
 ### Environment-Specific Files
 
 ```yaml
-# luma.staging.yml
+# lightform.staging.yml
 name: myapp-staging
 apps:
   web:
@@ -368,7 +368,7 @@ apps:
       hosts:
         - staging.myapp.com
 
-# luma.production.yml
+# lightform.production.yml
 name: myapp-prod
 apps:
   web:
@@ -384,8 +384,8 @@ apps:
 Deploy with specific configuration:
 
 ```bash
-luma deploy -c luma.staging.yml
-luma deploy -c luma.production.yml
+lightform deploy -c lightform.staging.yml
+lightform deploy -c lightform.production.yml
 ```
 
 ## Complete Example

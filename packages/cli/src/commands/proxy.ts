@@ -1,9 +1,9 @@
 import { loadConfig, loadSecrets } from "../config";
-import { LumaConfig, LumaSecrets } from "../config/types";
+import { LightformConfig, LightformSecrets } from "../config/types";
 import { SSHClient, getSSHCredentials } from "../ssh";
 import { DockerClient } from "../docker";
-import { setupLumaProxy, LUMA_PROXY_NAME } from "../setup-proxy/index";
-import { LumaProxyClient } from "../proxy";
+import { setupLightformProxy, LIGHTFORM_PROXY_NAME } from "../setup-proxy/index";
+import { LightformProxyClient } from "../proxy";
 import { Logger } from "../utils/logger";
 import {
   checkProxyStatus,
@@ -15,8 +15,8 @@ import {
 let logger: Logger;
 
 interface ProxyContext {
-  config: LumaConfig;
-  secrets: LumaSecrets;
+  config: LightformConfig;
+  secrets: LightformSecrets;
   verboseFlag: boolean;
 }
 
@@ -67,11 +67,11 @@ function parseProxyArgs(args: string[]): ParsedProxyArgs {
 }
 
 /**
- * Loads and validates Luma configuration and secrets files
+ * Loads and validates Lightform configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
-  config: LumaConfig;
-  secrets: LumaSecrets;
+  config: LightformConfig;
+  secrets: LightformSecrets;
 }> {
   try {
     const config = await loadConfig();
@@ -86,7 +86,7 @@ async function loadConfigurationAndSecrets(): Promise<{
 /**
  * Collects all unique servers from apps and services configuration
  */
-function collectAllServers(config: LumaConfig): Set<string> {
+function collectAllServers(config: LightformConfig): Set<string> {
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
   const allServers = new Set<string>();
@@ -113,7 +113,7 @@ function collectAllServers(config: LumaConfig): Set<string> {
  */
 function filterServersByEntries(
   entryNames: string[],
-  config: LumaConfig
+  config: LightformConfig
 ): Set<string> {
   if (entryNames.length === 0) {
     return collectAllServers(config);
@@ -192,7 +192,7 @@ async function getCurrentProxyImageDigest(
 ): Promise<string | null> {
   try {
     // Get the image digest of the running proxy container
-    const inspectCmd = `docker inspect ${LUMA_PROXY_NAME} --format='{{.Image}}'`;
+    const inspectCmd = `docker inspect ${LIGHTFORM_PROXY_NAME} --format='{{.Image}}'`;
     const currentImageId = await sshClient.exec(inspectCmd);
 
     // Get the full digest
@@ -303,7 +303,7 @@ async function proxyStatusSubcommand(context: ProxyContext): Promise<void> {
       // If proxy is running, check if it needs update
       if (proxyStatus.running) {
         const proxyImage =
-          context.config.proxy?.image || "elitan/luma-proxy:latest";
+          context.config.proxy?.image || "elitan/lightform-proxy:latest";
         const updateCheck = await checkProxyNeedsUpdate(
           sshClient,
           serverHostname,
@@ -320,7 +320,7 @@ async function proxyStatusSubcommand(context: ProxyContext): Promise<void> {
       logger.verboseLog(`Failed to check proxy on ${serverHostname}: ${error}`);
       proxyStatuses.push({
         running: false,
-        containerName: LUMA_PROXY_NAME,
+        containerName: LIGHTFORM_PROXY_NAME,
         serverId: serverHostname,
         ports: [],
         error: `Failed to connect: ${error}`,
@@ -373,7 +373,7 @@ async function proxyUpdateSubcommand(
       sshClient = await establishSSHConnection(serverHostname, context);
 
       const proxyImage =
-        context.config.proxy?.image || "elitan/luma-proxy:latest";
+        context.config.proxy?.image || "elitan/lightform-proxy:latest";
 
       // Check if update is needed (unless force flag is used)
       if (!forceFlag) {
@@ -390,9 +390,9 @@ async function proxyUpdateSubcommand(
         }
       }
 
-      logger.serverStep("Updating Luma Proxy");
+      logger.serverStep("Updating Lightform Proxy");
 
-      const updateResult = await setupLumaProxy(
+      const updateResult = await setupLightformProxy(
         serverHostname,
         sshClient,
         context.verboseFlag,
@@ -428,11 +428,11 @@ async function proxyUpdateSubcommand(
  * Shows help for proxy command
  */
 function showProxyHelp(): void {
-  console.log("Luma Proxy Management");
+  console.log("Lightform Proxy Management");
   console.log("====================");
   console.log("");
   console.log("USAGE:");
-  console.log("  luma proxy <subcommand> [flags]");
+  console.log("  lightform proxy <subcommand> [flags]");
   console.log("");
   console.log("SUBCOMMANDS:");
   console.log("  status     Show proxy status on all servers (default)");
@@ -446,13 +446,13 @@ function showProxyHelp(): void {
   console.log("");
   console.log("EXAMPLES:");
   console.log(
-    "  luma proxy status                 # Check status on all servers"
+    "  lightform proxy status                 # Check status on all servers"
   );
   console.log(
-    "  luma proxy update --verbose       # Update proxy on all servers with details"
+    "  lightform proxy update --verbose       # Update proxy on all servers with details"
   );
   console.log(
-    "  luma proxy update --force         # Force update on all servers"
+    "  lightform proxy update --force         # Force update on all servers"
   );
 }
 

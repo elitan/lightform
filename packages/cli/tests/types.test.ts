@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   ServiceEntryWithoutNameSchema,
-  LumaConfigSchema,
-  LumaSecretsSchema,
+  LightformConfigSchema,
+  LightformSecretsSchema,
 } from "../src/config/types";
 
 describe("type schemas", () => {
@@ -68,7 +68,7 @@ describe("type schemas", () => {
     });
   });
 
-  describe("LumaConfigSchema", () => {
+  describe("LightformConfigSchema", () => {
     test("should validate a minimal valid config", () => {
       const validConfig = {
         name: "test-project",
@@ -80,7 +80,7 @@ describe("type schemas", () => {
         },
       };
 
-      const result = LumaConfigSchema.safeParse(validConfig);
+      const result = LightformConfigSchema.safeParse(validConfig);
       expect(result.success).toBe(true);
     });
 
@@ -107,7 +107,7 @@ describe("type schemas", () => {
         },
       };
 
-      const result = LumaConfigSchema.safeParse(validConfig);
+      const result = LightformConfigSchema.safeParse(validConfig);
       expect(result.success).toBe(true);
     });
 
@@ -122,7 +122,7 @@ describe("type schemas", () => {
         },
       };
 
-      const result = LumaConfigSchema.safeParse(invalidConfig);
+      const result = LightformConfigSchema.safeParse(invalidConfig);
       expect(result.success).toBe(false);
 
       if (!result.success) {
@@ -132,7 +132,7 @@ describe("type schemas", () => {
     });
   });
 
-  describe("LumaSecretsSchema", () => {
+  describe("LightformSecretsSchema", () => {
     test("should validate a secrets object", () => {
       const validSecrets = {
         API_KEY: "123456",
@@ -140,14 +140,14 @@ describe("type schemas", () => {
         JWT_SECRET: "very-secret",
       };
 
-      const result = LumaSecretsSchema.safeParse(validSecrets);
+      const result = LightformSecretsSchema.safeParse(validSecrets);
       expect(result.success).toBe(true);
     });
 
     test("should validate an empty secrets object", () => {
       const validSecrets = {};
 
-      const result = LumaSecretsSchema.safeParse(validSecrets);
+      const result = LightformSecretsSchema.safeParse(validSecrets);
       expect(result.success).toBe(true);
     });
 
@@ -157,7 +157,7 @@ describe("type schemas", () => {
         CONFIG: { key: "value" }, // Object instead of string
       };
 
-      const result = LumaSecretsSchema.safeParse(invalidSecrets);
+      const result = LightformSecretsSchema.safeParse(invalidSecrets);
       expect(result.success).toBe(false);
 
       if (!result.success) {

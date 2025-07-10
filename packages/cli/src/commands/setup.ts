@@ -1,16 +1,16 @@
 import { loadConfig, loadSecrets } from "../config";
-import { LumaConfig, LumaSecrets, ServiceEntry } from "../config/types";
+import { LightformConfig, LightformSecrets, ServiceEntry } from "../config/types";
 import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh";
 import { DockerClient } from "../docker";
-import { setupLumaProxy, LUMA_PROXY_NAME } from "../setup-proxy/index";
+import { setupLightformProxy, LIGHTFORM_PROXY_NAME } from "../setup-proxy/index";
 import { Logger } from "../utils/logger";
 
 // Module-level logger that gets configured when setupCommand runs
 let logger: Logger;
 
 interface SetupContext {
-  config: LumaConfig;
-  secrets: LumaSecrets;
+  config: LightformConfig;
+  secrets: LightformSecrets;
   verboseFlag: boolean;
   allowBootstrap?: boolean;
 }
@@ -29,50 +29,56 @@ async function bootstrapFreshServer(
   context: SetupContext
 ): Promise<boolean> {
   logger.phase(`Bootstrapping fresh server: ${serverHostname}`);
-  
+
   try {
     // Try to connect as root
     const rootCredentials = await getSSHCredentials(
       serverHostname,
-      { ...context.config, ssh: { ...context.config.ssh, username: 'root' } },
+      { ...context.config, ssh: { ...context.config.ssh, username: "root" } },
       context.secrets,
       context.verboseFlag
     );
-    
+
     const sshClient = await SSHClient.create({
       ...rootCredentials,
       host: serverHostname,
-      username: 'root',
+      username: "root",
       skipHostKeyVerification: true, // Fresh servers need this
     });
-    
+
     await sshClient.connect();
-    logger.verboseLog('Successfully connected as root');
-    
+    logger.verboseLog("Successfully connected as root");
+
     // Get the target username from config
-    const targetUsername = context.config.ssh?.username || 'luma';
-    
+    const targetUsername = context.config.ssh?.username || "lightform";
+
     // Bootstrap the server
     await performBootstrapSteps(sshClient, targetUsername, context);
-    
+
     await sshClient.close();
     logger.phaseComplete(`Server bootstrapped successfully`);
     return true;
-    
   } catch (error) {
     // Check if it's just debconf warnings or user already exists (which are not real failures)
-    const errorMessage = error?.toString() || '';
-    const isDebconfWarning = errorMessage.includes('debconf: unable to initialize frontend');
-    const isUserExists = errorMessage.includes('already exists');
-    const hasRealError = errorMessage.includes('E:') || errorMessage.includes('ERROR') || errorMessage.includes('fatal:');
-    
+    const errorMessage = error?.toString() || "";
+    const isDebconfWarning = errorMessage.includes(
+      "debconf: unable to initialize frontend"
+    );
+    const isUserExists = errorMessage.includes("already exists");
+    const hasRealError =
+      errorMessage.includes("E:") ||
+      errorMessage.includes("ERROR") ||
+      errorMessage.includes("fatal:");
+
     if ((isDebconfWarning || isUserExists) && !hasRealError) {
-      logger.verboseLog('Non-critical warnings detected (normal for server setup)');
+      logger.verboseLog(
+        "Non-critical warnings detected (normal for server setup)"
+      );
       logger.phaseComplete(`Server bootstrapped successfully`);
       return true;
     }
-    
-    logger.error('Failed to bootstrap server', error);
+
+    logger.error("Failed to bootstrap server", error);
     return false;
   }
 }
@@ -85,184 +91,237 @@ async function performBootstrapSteps(
   targetUsername: string,
   context: SetupContext
 ): Promise<void> {
-  logger.serverStep('Creating luma user');
-  
+  logger.serverStep("Creating lightform user");
+
   // Create user (handle if already exists)
   try {
-    await sshClient.exec(`adduser --disabled-password --gecos "" ${targetUsername}`);
+    await sshClient.exec(
+      `adduser --disabled-password --gecos "" ${targetUsername}`
+    );
     logger.verboseLog(`Created user: ${targetUsername}`);
   } catch (error) {
-    if (String(error).includes('already exists')) {
-      logger.verboseLog(`User ${targetUsername} already exists, configuring...`);
+    if (String(error).includes("already exists")) {
+      logger.verboseLog(
+        `User ${targetUsername} already exists, configuring...`
+      );
     } else {
-      logger.verboseLog(`Warning during user creation: ${String(error).slice(0, 100)}...`);
+      logger.verboseLog(
+        `Warning during user creation: ${String(error).slice(0, 100)}...`
+      );
     }
   }
-  
+
   try {
     await sshClient.exec(`usermod -aG sudo ${targetUsername}`);
-    logger.verboseLog('→ Added user to sudo group');
+    logger.verboseLog("→ Added user to sudo group");
   } catch (error) {
     logger.verboseLog(`Warning: ${String(error).slice(0, 50)}...`);
   }
-  
-  logger.serverStep('Installing Docker');
-  
+
+  logger.serverStep("Installing Docker");
+
   // Check if Docker already installed
   try {
-    await sshClient.exec('docker --version');
-    logger.verboseLog('Docker already installed, skipping...');
+    await sshClient.exec("docker --version");
+    logger.verboseLog("Docker already installed, skipping...");
   } catch (error) {
-    logger.verboseLog('Installing Docker Engine...');
-    
+    logger.verboseLog("Installing Docker Engine...");
+
     try {
       // Install Docker with progress feedback
-      await sshClient.exec('export DEBIAN_FRONTEND=noninteractive && apt-get update');
-      logger.verboseLog('→ Updated package lists');
-      
-      await sshClient.exec('export DEBIAN_FRONTEND=noninteractive && apt-get install -y ca-certificates curl');
-      logger.verboseLog('→ Installed prerequisites');
-      
-      await sshClient.exec('install -m 0755 -d /etc/apt/keyrings');
-      await sshClient.exec('curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc');
-      await sshClient.exec('chmod a+r /etc/apt/keyrings/docker.asc');
-      logger.verboseLog('→ Added Docker GPG key');
-      
-      await sshClient.exec(`echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null`);
-      await sshClient.exec('export DEBIAN_FRONTEND=noninteractive && apt-get update');
-      logger.verboseLog('→ Added Docker repository');
-      
-      await sshClient.exec('export DEBIAN_FRONTEND=noninteractive && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin');
-      logger.verboseLog('→ Installed Docker packages');
+      await sshClient.exec(
+        "export DEBIAN_FRONTEND=noninteractive && apt-get update"
+      );
+      logger.verboseLog("→ Updated package lists");
+
+      await sshClient.exec(
+        "export DEBIAN_FRONTEND=noninteractive && apt-get install -y ca-certificates curl"
+      );
+      logger.verboseLog("→ Installed prerequisites");
+
+      await sshClient.exec("install -m 0755 -d /etc/apt/keyrings");
+      await sshClient.exec(
+        "curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc"
+      );
+      await sshClient.exec("chmod a+r /etc/apt/keyrings/docker.asc");
+      logger.verboseLog("→ Added Docker GPG key");
+
+      await sshClient.exec(
+        `echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null`
+      );
+      await sshClient.exec(
+        "export DEBIAN_FRONTEND=noninteractive && apt-get update"
+      );
+      logger.verboseLog("→ Added Docker repository");
+
+      await sshClient.exec(
+        "export DEBIAN_FRONTEND=noninteractive && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+      );
+      logger.verboseLog("→ Installed Docker packages");
     } catch (dockerError) {
       // Don't fail bootstrap for debconf warnings
-      if (String(dockerError).includes('debconf:')) {
-        logger.verboseLog('→ Docker installed (ignoring debconf warnings)');
+      if (String(dockerError).includes("debconf:")) {
+        logger.verboseLog("→ Docker installed (ignoring debconf warnings)");
       } else {
         throw dockerError;
       }
     }
   }
-  
+
   try {
     await sshClient.exec(`usermod -aG docker ${targetUsername}`);
-    logger.verboseLog('→ Added user to docker group');
+    logger.verboseLog("→ Added user to docker group");
   } catch (error) {
     logger.verboseLog(`Warning: ${String(error).slice(0, 50)}...`);
   }
-  
-  logger.serverStep('Setting up SSH keys');
-  
+
+  logger.serverStep("Setting up SSH keys");
+
   // Setup SSH directory for target user
   await sshClient.exec(`mkdir -p /home/${targetUsername}/.ssh`);
   await sshClient.exec(`chmod 700 /home/${targetUsername}/.ssh`);
-  logger.verboseLog('→ Created SSH directory');
-  
+  logger.verboseLog("→ Created SSH directory");
+
   // Copy root's authorized_keys to target user
-  await sshClient.exec(`cp /root/.ssh/authorized_keys /home/${targetUsername}/.ssh/authorized_keys 2>/dev/null || true`);
-  await sshClient.exec(`chown -R ${targetUsername}:${targetUsername} /home/${targetUsername}/.ssh`);
-  await sshClient.exec(`chmod 600 /home/${targetUsername}/.ssh/authorized_keys`);
-  logger.verboseLog('→ Configured SSH access');
-  
-  logger.serverStep('Securing SSH configuration');
-  
+  await sshClient.exec(
+    `cp /root/.ssh/authorized_keys /home/${targetUsername}/.ssh/authorized_keys 2>/dev/null || true`
+  );
+  await sshClient.exec(
+    `chown -R ${targetUsername}:${targetUsername} /home/${targetUsername}/.ssh`
+  );
+  await sshClient.exec(
+    `chmod 600 /home/${targetUsername}/.ssh/authorized_keys`
+  );
+  logger.verboseLog("→ Configured SSH access");
+
+  logger.serverStep("Securing SSH configuration");
+
   // Secure SSH config
-  await sshClient.exec(`sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config`);
-  await sshClient.exec(`sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config`);
-  await sshClient.exec(`sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config`);
-  logger.verboseLog('→ Updated SSH config');
-  
+  await sshClient.exec(
+    `sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config`
+  );
+  await sshClient.exec(
+    `sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config`
+  );
+  await sshClient.exec(
+    `sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config`
+  );
+  logger.verboseLog("→ Updated SSH config");
+
   await sshClient.exec(`systemctl restart ssh`);
-  logger.verboseLog('→ Restarted SSH service');
-  
-  logger.serverStep('Installing Fail2Ban');
-  
+  logger.verboseLog("→ Restarted SSH service");
+
+  logger.serverStep("Installing Fail2Ban");
+
   // Check if Fail2Ban already installed
   try {
-    await sshClient.exec('fail2ban-client --version');
-    logger.verboseLog('Fail2Ban already installed');
+    await sshClient.exec("fail2ban-client --version");
+    logger.verboseLog("Fail2Ban already installed");
   } catch (error) {
-    await sshClient.exec(`export DEBIAN_FRONTEND=noninteractive && apt-get install -y fail2ban`);
-    logger.verboseLog('→ Installed Fail2Ban');
+    await sshClient.exec(
+      `export DEBIAN_FRONTEND=noninteractive && apt-get install -y fail2ban`
+    );
+    logger.verboseLog("→ Installed Fail2Ban");
   }
-  
+
   try {
     await sshClient.exec(`systemctl enable fail2ban`);
-    logger.verboseLog('→ Enabled Fail2Ban service');
+    logger.verboseLog("→ Enabled Fail2Ban service");
   } catch (error) {
     // Ignore systemctl enable output (it's not an error)
-    if (String(error).includes('Synchronizing state') || String(error).includes('Executing:')) {
-      logger.verboseLog('→ Enabled Fail2Ban service');
+    if (
+      String(error).includes("Synchronizing state") ||
+      String(error).includes("Executing:")
+    ) {
+      logger.verboseLog("→ Enabled Fail2Ban service");
     } else {
-      logger.verboseLog(`Warning enabling Fail2Ban: ${String(error).slice(0, 50)}...`);
+      logger.verboseLog(
+        `Warning enabling Fail2Ban: ${String(error).slice(0, 50)}...`
+      );
     }
   }
-  
+
   try {
     await sshClient.exec(`systemctl start fail2ban`);
-    logger.verboseLog('→ Started Fail2Ban service');
+    logger.verboseLog("→ Started Fail2Ban service");
   } catch (error) {
-    logger.verboseLog(`Warning starting Fail2Ban: ${String(error).slice(0, 50)}...`);
+    logger.verboseLog(
+      `Warning starting Fail2Ban: ${String(error).slice(0, 50)}...`
+    );
   }
-  
-  logger.serverStep('Enabling automatic security updates');
-  
+
+  logger.serverStep("Enabling automatic security updates");
+
   // Install and configure unattended upgrades
   try {
-    await sshClient.exec(`export DEBIAN_FRONTEND=noninteractive && apt-get install -y unattended-upgrades`);
-    await sshClient.exec(`echo 'Unattended-Upgrade::Automatic-Reboot "false";' >> /etc/apt/apt.conf.d/50unattended-upgrades`);
+    await sshClient.exec(
+      `export DEBIAN_FRONTEND=noninteractive && apt-get install -y unattended-upgrades`
+    );
+    await sshClient.exec(
+      `echo 'Unattended-Upgrade::Automatic-Reboot "false";' >> /etc/apt/apt.conf.d/50unattended-upgrades`
+    );
     await sshClient.exec(`systemctl enable unattended-upgrades`);
-    logger.verboseLog('→ Enabled automatic security updates');
+    logger.verboseLog("→ Enabled automatic security updates");
   } catch (error) {
-    logger.verboseLog(`Warning configuring auto-updates: ${String(error).slice(0, 50)}...`);
+    logger.verboseLog(
+      `Warning configuring auto-updates: ${String(error).slice(0, 50)}...`
+    );
   }
-  
-  logger.serverStep('Basic system hardening');
-  
+
+  logger.serverStep("Basic system hardening");
+
   // Disable unused services
   try {
-    await sshClient.exec(`systemctl disable --now avahi-daemon 2>/dev/null || true`);
-    logger.verboseLog('→ Disabled mDNS service');
+    await sshClient.exec(
+      `systemctl disable --now avahi-daemon 2>/dev/null || true`
+    );
+    logger.verboseLog("→ Disabled mDNS service");
   } catch (error) {
     // Ignore if service doesn't exist
   }
-  
+
   try {
     await sshClient.exec(`systemctl disable --now cups 2>/dev/null || true`);
-    logger.verboseLog('→ Disabled print service');
+    logger.verboseLog("→ Disabled print service");
   } catch (error) {
     // Ignore if service doesn't exist
   }
-  
+
   // Secure SSH config permissions
   try {
     await sshClient.exec(`chmod 600 /etc/ssh/sshd_config`);
-    logger.verboseLog('→ Secured SSH config permissions');
+    logger.verboseLog("→ Secured SSH config permissions");
   } catch (error) {
-    logger.verboseLog(`Warning securing SSH config: ${String(error).slice(0, 50)}...`);
+    logger.verboseLog(
+      `Warning securing SSH config: ${String(error).slice(0, 50)}...`
+    );
   }
-  
+
   // Enable NTP time synchronization
   try {
     await sshClient.exec(`timedatectl set-ntp true`);
-    logger.verboseLog('→ Enabled NTP time sync');
+    logger.verboseLog("→ Enabled NTP time sync");
   } catch (error) {
-    logger.verboseLog(`Warning configuring NTP: ${String(error).slice(0, 50)}...`);
+    logger.verboseLog(
+      `Warning configuring NTP: ${String(error).slice(0, 50)}...`
+    );
   }
-  
+
   // Set stricter umask for new files
   try {
     await sshClient.exec(`echo "umask 027" >> /etc/profile`);
-    logger.verboseLog('→ Set secure file permissions');
+    logger.verboseLog("→ Set secure file permissions");
   } catch (error) {
-    logger.verboseLog(`Warning setting umask: ${String(error).slice(0, 50)}...`);
+    logger.verboseLog(
+      `Warning setting umask: ${String(error).slice(0, 50)}...`
+    );
   }
-  
-  logger.serverStepComplete('Bootstrap completed');
+
+  logger.serverStepComplete("Bootstrap completed");
 }
 
 /**
- * Checks if a server appears to be fresh (no luma user configured)
+ * Checks if a server appears to be fresh (no lightform user configured)
  */
 async function detectFreshServer(
   serverHostname: string,
@@ -275,11 +334,11 @@ async function detectFreshServer(
       context.secrets,
       context.verboseFlag
     );
-    
+
     if (!sshCredentials.username) {
       return false;
     }
-    
+
     // Try to connect with configured user
     const sshClient = await SSHClient.create({
       ...sshCredentials,
@@ -288,16 +347,17 @@ async function detectFreshServer(
       skipHostKeyVerification: true, // For fresh server detection
       suppressConnectionErrors: true, // Don't show errors during detection
     });
-    
+
     await sshClient.connect();
     await sshClient.close();
-    
+
     // If connection succeeds, it's not a fresh server
     return false;
-    
   } catch (error) {
     // If connection fails, it might be a fresh server
-    logger.verboseLog(`Connection failed with configured user, server might be fresh: ${error}`);
+    logger.verboseLog(
+      `Connection failed with configured user, server might be fresh: ${error}`
+    );
     return true;
   }
 }
@@ -338,11 +398,11 @@ function parseSetupArgs(
 }
 
 /**
- * Loads and validates Luma configuration and secrets files
+ * Loads and validates Lightform configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
-  config: LumaConfig;
-  secrets: LumaSecrets;
+  config: LightformConfig;
+  secrets: LightformSecrets;
 }> {
   try {
     const config = await loadConfig();
@@ -357,7 +417,7 @@ async function loadConfigurationAndSecrets(): Promise<{
 /**
  * Collects all unique servers from apps and services configuration
  */
-function collectAllServers(config: LumaConfig): Set<string> {
+function collectAllServers(config: LightformConfig): Set<string> {
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
   const allServers = new Set<string>();
@@ -384,7 +444,7 @@ function collectAllServers(config: LumaConfig): Set<string> {
  */
 function filterServersByEntries(
   entryNames: string[],
-  config: LumaConfig
+  config: LightformConfig
 ): Set<string> {
   if (entryNames.length === 0) {
     return collectAllServers(config);
@@ -443,7 +503,7 @@ async function establishSSHConnection(
       true
     );
     logger.verboseLog(
-      `Please see https://github.com/elitan/luma for security best practices.`
+      `Please see https://github.com/elitan/lightform for security best practices.`
     );
     throw new Error("Root SSH access not recommended");
   }
@@ -518,7 +578,7 @@ async function ensureDockerInstallation(
     if (!installSuccess) {
       logger.serverStepError(`Docker installation failed`, undefined, true);
       logger.verboseLog(
-        `Please install Docker manually. See https://github.com/elitan/luma for server setup instructions.`
+        `Please install Docker manually. See https://github.com/elitan/lightform for server setup instructions.`
       );
       throw new Error("Docker installation failed");
     }
@@ -554,7 +614,7 @@ async function configureDockerRegistry(
       `Docker registry username or password not configured/found in secrets. Skipping Docker login.`
     );
     logger.verboseLog(
-      `Please ensure DOCKER_REGISTRY_PASSWORD is in .luma/secrets and docker.username is in luma.yml if login is required.`
+      `Please ensure DOCKER_REGISTRY_PASSWORD is in .lightform/secrets and docker.username is in lightform.yml if login is required.`
     );
   }
 
@@ -569,13 +629,13 @@ async function createProjectNetwork(
   context: SetupContext
 ): Promise<string> {
   if (!context.config.name) {
-    const errorMsg = `Project name is required in luma.yml`;
+    const errorMsg = `Project name is required in lightform.yml`;
     logger.serverStepError(errorMsg, undefined, true);
     logger.verboseLog(
       `The project name is used to create a unique Docker network for your services.`
     );
     throw new Error(
-      `Project name not specified in configuration. Please add 'name: your_project_name' to your luma.yml file.`
+      `Project name not specified in configuration. Please add 'name: your_project_name' to your lightform.yml file.`
     );
   }
 
@@ -588,73 +648,73 @@ async function createProjectNetwork(
 }
 
 /**
- * Sets up and configures the Luma Proxy
+ * Sets up and configures the Lightform Proxy
  */
-async function setupAndConfigureLumaProxy(
+async function setupAndConfigureLightformProxy(
   sshClient: SSHClient,
   dockerClient: DockerClient,
   networkName: string,
   serverHostname: string,
   context: SetupContext
 ): Promise<void> {
-  logger.serverStep("Setting up Luma Proxy");
+  logger.serverStep("Setting up Lightform Proxy");
 
-  const proxySetupResult = await setupLumaProxy(
+  const proxySetupResult = await setupLightformProxy(
     serverHostname,
     sshClient,
     context.verboseFlag
   );
 
   if (!proxySetupResult) {
-    logger.serverStepError(`Failed to set up Luma Proxy`, undefined);
+    logger.serverStepError(`Failed to set up Lightform Proxy`, undefined);
     logger.verboseLog(`Some services may not work correctly.`);
   } else {
-    logger.verboseLog(`Luma Proxy is ready.`);
+    logger.verboseLog(`Lightform Proxy is ready.`);
     await connectProxyToNetwork(sshClient, dockerClient, networkName);
   }
 
   logger.serverStepComplete(
-    `Luma Proxy ${proxySetupResult ? "configured" : "failed"}`
+    `Lightform Proxy ${proxySetupResult ? "configured" : "failed"}`
   );
 }
 
 /**
- * Connects the Luma Proxy to the project network
+ * Connects the Lightform Proxy to the project network
  */
 async function connectProxyToNetwork(
   sshClient: SSHClient,
   dockerClient: DockerClient,
   networkName: string
 ): Promise<void> {
-  logger.verboseLog(`Connecting Luma Proxy to the project network...`);
+  logger.verboseLog(`Connecting Lightform Proxy to the project network...`);
 
   try {
-    const proxyExists = await dockerClient.containerExists(LUMA_PROXY_NAME);
+    const proxyExists = await dockerClient.containerExists(LIGHTFORM_PROXY_NAME);
 
     if (!proxyExists) {
       throw new Error(
-        `Luma Proxy container (${LUMA_PROXY_NAME}) does not exist despite setup reporting success`
+        `Lightform Proxy container (${LIGHTFORM_PROXY_NAME}) does not exist despite setup reporting success`
       );
     }
 
     // Check if the proxy is already connected to the network
-    const checkNetworkCmd = `docker inspect ${LUMA_PROXY_NAME} --format "{{json .NetworkSettings.Networks}}"`;
+    const checkNetworkCmd = `docker inspect ${LIGHTFORM_PROXY_NAME} --format "{{json .NetworkSettings.Networks}}"`;
     const networkOutput = await sshClient.exec(checkNetworkCmd);
     const networks = JSON.parse(networkOutput.trim());
 
     if (networks && networks[networkName]) {
       logger.verboseLog(
-        `Luma Proxy is already connected to network: ${networkName}`
+        `Lightform Proxy is already connected to network: ${networkName}`
       );
     } else {
-      const connectCmd = `docker network connect ${networkName} ${LUMA_PROXY_NAME}`;
+      const connectCmd = `docker network connect ${networkName} ${LIGHTFORM_PROXY_NAME}`;
       await sshClient.exec(connectCmd);
       logger.verboseLog(
-        `Successfully connected Luma Proxy to network: ${networkName}`
+        `Successfully connected Lightform Proxy to network: ${networkName}`
       );
     }
   } catch (error) {
-    logger.verboseLog(`Failed to connect Luma Proxy to network: ${error}`);
+    logger.verboseLog(`Failed to connect Lightform Proxy to network: ${error}`);
     logger.verboseLog(`Some services may not be accessible through the proxy.`);
   }
 }
@@ -713,7 +773,7 @@ async function authenticateServiceRegistries(
           });
         } else {
           logger.verboseLog(
-            `Service ${service.name}: Secret ${service.registry.password_secret} not found in .luma/secrets. Skipping registry login.`
+            `Service ${service.name}: Secret ${service.registry.password_secret} not found in .lightform/secrets. Skipping registry login.`
           );
         }
       }
@@ -873,8 +933,8 @@ function handleSetupError(
       error.message.includes("All configured authentication methods failed"))
   ) {
     logger.verboseLog(`Authentication failure. Please verify:
-      1. SSH key path ('identity') in Luma config/secrets is correct and accessible.
-      2. If using a password, it's correct in Luma secrets.
+      1. SSH key path ('identity') in Lightform config/secrets is correct and accessible.
+      2. If using a password, it's correct in Lightform secrets.
       3. SSH agent (if used) is configured correctly with the right keys.
       4. The user '${sshCredentials.username}' is allowed to SSH to '${serverHostname}'.`);
   } else if (error.code === "ECONNREFUSED") {
@@ -910,39 +970,48 @@ async function setupServer(
 
     // Check if this is a fresh server
     const isFreshServer = await detectFreshServer(serverHostname, context);
-    
+
     if (isFreshServer) {
-      logger.verboseLog('Server appears to be fresh (configured user cannot connect)');
-      logger.verboseLog('🚀 Fresh server detected - bootstrapping automatically with security best practices');
-      logger.verboseLog('   → Creating luma user with sudo access');
-      logger.verboseLog('   → Installing Docker Engine');
-      logger.verboseLog('   → Setting up SSH keys');
-      logger.verboseLog('   → Securing SSH configuration');
-      logger.verboseLog('   → Installing Fail2Ban');
-      logger.verboseLog('   → Enabling automatic security updates');
-      logger.verboseLog('   → Basic system hardening');
-      
-      const bootstrapSuccess = await bootstrapFreshServer(serverHostname, context);
+      logger.verboseLog(
+        "Server appears to be fresh (configured user cannot connect)"
+      );
+      logger.verboseLog(
+        "🚀 Fresh server detected - bootstrapping automatically with security best practices"
+      );
+      logger.verboseLog("   → Creating lightform user with sudo access");
+      logger.verboseLog("   → Installing Docker Engine");
+      logger.verboseLog("   → Setting up SSH keys");
+      logger.verboseLog("   → Securing SSH configuration");
+      logger.verboseLog("   → Installing Fail2Ban");
+      logger.verboseLog("   → Enabling automatic security updates");
+      logger.verboseLog("   → Basic system hardening");
+
+      const bootstrapSuccess = await bootstrapFreshServer(
+        serverHostname,
+        context
+      );
       if (!bootstrapSuccess) {
-        logger.serverStepError('Bootstrap failed', undefined, true);
+        logger.serverStepError("Bootstrap failed", undefined, true);
         return;
       }
-      
-      logger.verboseLog('✅ Server bootstrapped successfully, continuing with setup...');
-      
+
+      logger.verboseLog(
+        "✅ Server bootstrapped successfully, continuing with setup..."
+      );
+
       // Give the server a moment to apply changes
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
 
     // Establish SSH connection (now with potentially bootstrapped server)
-    logger.verboseLog('Connecting with configured user...');
+    logger.verboseLog("Connecting with configured user...");
     const connectionResult = await establishSSHConnection(
       serverHostname,
       context
     );
     sshClient = connectionResult.sshClient;
     sshCredentials = connectionResult.sshCredentials;
-    logger.verboseLog('SSH connection established successfully');
+    logger.verboseLog("SSH connection established successfully");
 
     // Create Docker client
     const dockerClient = new DockerClient(
@@ -955,7 +1024,7 @@ async function setupServer(
     await ensureDockerInstallation(dockerClient, serverHostname);
     await configureDockerRegistry(dockerClient, context);
     const networkName = await createProjectNetwork(dockerClient, context);
-    await setupAndConfigureLumaProxy(
+    await setupAndConfigureLightformProxy(
       sshClient,
       dockerClient,
       networkName,
@@ -977,7 +1046,7 @@ async function setupServer(
  */
 function logSetupSummary(
   targetServers: Set<string>,
-  config: LumaConfig,
+  config: LightformConfig,
   verboseFlag: boolean
 ): void {
   const configuredApps = normalizeConfigEntries(config.apps);
@@ -1040,7 +1109,7 @@ export async function setupCommand(
 
     if (targetServers.size === 0) {
       logger.info(
-        "No servers to set up. Please check your luma.yml configuration has apps or services with servers defined."
+        "No servers to set up. Please check your lightform.yml configuration has apps or services with servers defined."
       );
       return;
     }

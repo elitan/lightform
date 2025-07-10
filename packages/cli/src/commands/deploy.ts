@@ -1,11 +1,11 @@
 import { loadConfig } from "../config"; // Assuming loadConfig is exported from src/config/index.ts
 import { loadSecrets } from "../config"; // Assuming loadSecrets is exported from src/config/index.ts
 import {
-  LumaConfig,
+  LightformConfig,
   AppEntry,
   ServiceEntry,
   HealthCheckConfig,
-  LumaSecrets,
+  LightformSecrets,
 } from "../config/types";
 import {
   DockerClient,
@@ -23,7 +23,7 @@ import {
 } from "../utils";
 import { shouldUseSslip, generateAppSslipDomain } from "../utils/sslip";
 import { execSync } from "child_process";
-import { LumaProxyClient } from "../proxy";
+import { LightformProxyClient } from "../proxy";
 import { performBlueGreenDeployment } from "./blue-green";
 import { Logger } from "../utils/logger";
 import * as path from "path";
@@ -39,7 +39,7 @@ let logger: Logger;
  */
 function resolveEnvironmentVariables(
   entry: AppEntry | ServiceEntry,
-  secrets: LumaSecrets
+  secrets: LightformSecrets
 ): Record<string, string> {
   const envVars: Record<string, string> = {};
 
@@ -87,7 +87,7 @@ async function hasUncommittedChanges(): Promise<boolean> {
 function appEntryToContainerOptions(
   appEntry: AppEntry,
   releaseId: string,
-  secrets: LumaSecrets,
+  secrets: LightformSecrets,
   projectName: string
 ): DockerContainerOptions {
   const imageNameWithRelease = buildImageName(appEntry, releaseId);
@@ -107,7 +107,7 @@ function appEntryToContainerOptions(
     network: networkName,
     networkAliases: [
       appEntry.name, // internal project docker network alias for internal project communication (e.g. "web")
-      projectSpecificAlias, // globally unique docker network alias used by the luma proxy to healthcheck and route traffic to the app (e.g. "gmail-web")
+      projectSpecificAlias, // globally unique docker network alias used by the lightform proxy to healthcheck and route traffic to the app (e.g. "gmail-web")
     ],
     restart: "unless-stopped",
   };
@@ -118,7 +118,7 @@ function appEntryToContainerOptions(
  */
 function serviceEntryToContainerOptions(
   serviceEntry: ServiceEntry,
-  secrets: LumaSecrets,
+  secrets: LightformSecrets,
   projectName: string
 ): DockerContainerOptions {
   const containerName = `${projectName}-${serviceEntry.name}`; // Project-prefixed names
@@ -134,10 +134,10 @@ function serviceEntryToContainerOptions(
     network: networkName,
     restart: "unless-stopped",
     labels: {
-      "luma.managed": "true",
-      "luma.project": projectName,
-      "luma.type": "service",
-      "luma.service": serviceEntry.name,
+      "lightform.managed": "true",
+      "lightform.project": projectName,
+      "lightform.type": "service",
+      "lightform.service": serviceEntry.name,
     },
   };
 }
@@ -163,8 +163,8 @@ function normalizeConfigEntries(
 }
 
 interface DeploymentContext {
-  config: LumaConfig;
-  secrets: LumaSecrets;
+  config: LightformConfig;
+  secrets: LightformSecrets;
   targetEntries: (AppEntry | ServiceEntry)[];
   releaseId: string;
   projectName: string;
@@ -212,11 +212,11 @@ async function checkUncommittedChanges(forceFlag: boolean): Promise<void> {
 }
 
 /**
- * Loads and validates Luma configuration and secrets files
+ * Loads and validates Lightform configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
-  config: LumaConfig;
-  secrets: LumaSecrets;
+  config: LightformConfig;
+  secrets: LightformSecrets;
 }> {
   try {
     const config = await loadConfig();
@@ -249,7 +249,7 @@ async function loadConfigurationAndSecrets(): Promise<{
 function identifyTargetEntries(
   entryNames: string[],
   deployServicesFlag: boolean,
-  config: LumaConfig
+  config: LightformConfig
 ): (AppEntry | ServiceEntry)[] {
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
@@ -303,13 +303,13 @@ function identifyTargetEntries(
 }
 
 /**
- * Verifies that required networks and luma-proxy containers exist on target servers
+ * Verifies that required networks and lightform-proxy containers exist on target servers
  * and checks for port conflicts
  */
 async function verifyInfrastructure(
   targetEntries: (AppEntry | ServiceEntry)[],
-  config: LumaConfig,
-  secrets: LumaSecrets,
+  config: LightformConfig,
+  secrets: LightformSecrets,
   networkName: string,
   verbose: boolean = false
 ): Promise<void> {
@@ -351,7 +351,7 @@ async function verifyInfrastructure(
         missingNetworkServers.push(serverHostname);
       }
 
-      const proxyClient = new LumaProxyClient(
+      const proxyClient = new LightformProxyClient(
         dockerClientRemote,
         serverHostname
       );
@@ -403,14 +403,14 @@ async function verifyInfrastructure(
     }
     if (missingProxyServers.length > 0) {
       logger.error(
-        `Required luma-proxy container is not running on servers: ${missingProxyServers.join(
+        `Required lightform-proxy container is not running on servers: ${missingProxyServers.join(
           ", "
         )}`
       );
     }
     if (!hasPortConflicts) {
       logger.error(
-        "Please run `luma setup` to create the required infrastructure"
+        "Please run `lightform setup` to create the required infrastructure"
       );
     }
     throw new Error("Infrastructure verification failed");
@@ -793,7 +793,7 @@ async function saveAppImage(
   logger.verboseLog(`Saving image ${imageNameWithRelease} to archive...`);
   try {
     // Create a temporary directory for the archive
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "luma-"));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "lightform-"));
     const compressedArchivePath = path.join(
       tempDir,
       `${appEntry.name}-${Date.now()}.tar.gz`
@@ -1080,8 +1080,8 @@ async function deployServiceDirectly(
  */
 async function establishSSHConnection(
   serverHostname: string,
-  config: LumaConfig,
-  secrets: LumaSecrets,
+  config: LightformConfig,
+  secrets: LightformSecrets,
   verbose: boolean = false
 ): Promise<SSHClient> {
   const sshCreds = await getSSHCredentials(
@@ -1173,22 +1173,22 @@ async function performRegistryLogin(
 }
 
 /**
- * Configures luma-proxy routing for an app's hosts
+ * Configures lightform-proxy routing for an app's hosts
  */
 async function configureProxyForApp(
   appEntry: AppEntry,
   dockerClient: DockerClient,
   serverHostname: string,
   projectName: string,
-  config: LumaConfig,
+  config: LightformConfig,
   verbose: boolean = false
 ): Promise<void> {
   // Skip proxy configuration if no proxy config at all
   if (!appEntry.proxy) return;
 
-  logger.verboseLog(`Configuring luma-proxy for ${appEntry.name}`);
+  logger.verboseLog(`Configuring lightform-proxy for ${appEntry.name}`);
 
-  const proxyClient = new LumaProxyClient(
+  const proxyClient = new LightformProxyClient(
     dockerClient,
     serverHostname,
     verbose
@@ -1197,14 +1197,14 @@ async function configureProxyForApp(
   // Determine hosts to configure
   let hosts: string[];
   if (shouldUseSslip(appEntry.proxy.hosts)) {
-    // Generate x.myluma.cloud domain if no hosts configured
+    // Generate x.mylightform.cloud domain if no hosts configured
     const sslipDomain = generateAppSslipDomain(
       projectName,
       appEntry.name,
       serverHostname
     );
     hosts = [sslipDomain];
-    logger.verboseLog(`Generated x.myluma.cloud domain: ${sslipDomain}`);
+    logger.verboseLog(`Generated x.mylightform.cloud domain: ${sslipDomain}`);
   } else {
     hosts = appEntry.proxy.hosts!;
   }
@@ -1493,7 +1493,7 @@ async function removeOrphanedApps(
 
       // Find all containers for this app (both blue and green)
       const appContainers = await dockerClient.findContainersByLabelAndProject(
-        `luma.app=${appName}`,
+        `lightform.app=${appName}`,
         projectName
       );
 
@@ -1547,7 +1547,7 @@ async function transferAndLoadImage(
     const isCompressed =
       archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz");
     const fileExt = isCompressed ? ".tar.gz" : ".tar";
-    const remoteArchivePath = `/tmp/luma-${appEntry.name}-${context.releaseId}${fileExt}`;
+    const remoteArchivePath = `/tmp/lightform-${appEntry.name}-${context.releaseId}${fileExt}`;
 
     logger.verboseLog(
       `Transferring ${
@@ -1707,7 +1707,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       for (const entry of targetEntries) {
         const appEntry = entry as AppEntry;
         if (appEntry.proxy) {
-          // Use configured hosts or generate x.myluma.cloud domain
+          // Use configured hosts or generate x.mylightform.cloud domain
           let hosts: string[];
           if (shouldUseSslip(appEntry.proxy.hosts)) {
             const sslipDomain = generateAppSslipDomain(

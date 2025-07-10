@@ -2,7 +2,7 @@
 set -e
 
 # Configuration
-IMAGE_NAME="elitan/luma-proxy"
+IMAGE_NAME="elitan/lightform-proxy"
 VERSION="latest"
 PLATFORMS="linux/amd64,linux/arm64"
 
@@ -10,7 +10,7 @@ PLATFORMS="linux/amd64,linux/arm64"
 echo "Building and publishing multi-platform image $IMAGE_NAME:$VERSION for platforms: $PLATFORMS..."
 
 # Create a new builder instance if it doesn't exist
-BUILDER_NAME="luma-multiplatform-builder"
+BUILDER_NAME="lightform-multiplatform-builder"
 if ! docker buildx inspect $BUILDER_NAME > /dev/null 2>&1; then
   echo "Creating new buildx builder instance..."
   docker buildx create --name $BUILDER_NAME --driver docker-container --use

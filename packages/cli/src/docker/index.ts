@@ -4,8 +4,8 @@ import { SSHClient } from "../ssh";
 import {
   ServiceEntry,
   AppEntry,
-  LumaSecrets,
-  LumaConfig,
+  LightformSecrets,
+  LightformConfig,
 } from "../config/types";
 import { exec } from "child_process";
 import { promisify } from "util";
@@ -817,7 +817,7 @@ EOF`);
 
   /**
    * Run a health check using project-specific DNS targets
-   * @param proxyContainerName Name of the luma-proxy container (should be "luma-proxy")
+   * @param proxyContainerName Name of the lightform-proxy container (should be "lightform-proxy")
    * @param targetNetworkAlias Network alias of the container to check (e.g., "web") - DEPRECATED, use projectSpecificTarget
    * @param targetContainerName Name of the container to check
    * @param projectName The project name for network isolation
@@ -825,7 +825,7 @@ EOF`);
    * @param healthCheckPath The health check endpoint path (default: "/up")
    * @returns true if the health check endpoint returns 200, false otherwise
    */
-  async checkHealthWithLumaProxy(
+  async checkHealthWithLightformProxy(
     proxyContainerName: string,
     targetNetworkAlias: string,
     targetContainerName: string,
@@ -987,12 +987,12 @@ EOF`);
   }
 
   /**
-   * Convert a Luma service definition to Docker container options
+   * Convert a Lightform service definition to Docker container options
    */
   static serviceToContainerOptions(
     service: ServiceEntry,
     projectName: string,
-    secrets: LumaSecrets
+    secrets: LightformSecrets
   ): DockerContainerOptions {
     const containerName = `${projectName}-${service.name}`;
     const options: DockerContainerOptions = {
@@ -1003,10 +1003,10 @@ EOF`);
       volumes: service.volumes,
       envVars: {},
       labels: {
-        "luma.managed": "true",
-        "luma.project": projectName,
-        "luma.type": "service",
-        "luma.service": service.name,
+        "lightform.managed": "true",
+        "lightform.project": projectName,
+        "lightform.type": "service",
+        "lightform.service": service.name,
       },
     };
 
@@ -1035,7 +1035,7 @@ EOF`);
 
   /**
    * Find containers by label filter
-   * @param labelFilter Docker label filter string (e.g., "luma.app=blog", "luma.color=blue")
+   * @param labelFilter Docker label filter string (e.g., "lightform.app=blog", "lightform.color=blue")
    * @returns Array of container names matching the filter
    */
   async findContainersByLabel(labelFilter: string): Promise<string[]> {
@@ -1057,7 +1057,7 @@ EOF`);
 
   /**
    * Find containers by label filter within a specific project
-   * @param labelFilter Docker label filter string (e.g., "luma.app=web", "luma.color=blue")
+   * @param labelFilter Docker label filter string (e.g., "lightform.app=web", "lightform.color=blue")
    * @param projectName Project name to scope the search to
    * @returns Array of container names matching the filter within the project
    */
@@ -1067,7 +1067,7 @@ EOF`);
   ): Promise<string[]> {
     try {
       const result = await this.execRemote(
-        `ps -a --filter "label=${labelFilter}" --filter "label=luma.project=${projectName}" --format "{{.Names}}"`
+        `ps -a --filter "label=${labelFilter}" --filter "label=lightform.project=${projectName}" --format "{{.Names}}"`
       );
       if (!result.trim()) {
         return [];
@@ -1115,7 +1115,7 @@ EOF`);
   ): Promise<"blue" | "green" | null> {
     try {
       const containers = await this.findContainersByLabel(
-        `luma.app=${appName}`
+        `lightform.app=${appName}`
       );
 
       if (containers.length === 0) {
@@ -1125,8 +1125,8 @@ EOF`);
       // First, try to find containers explicitly marked as active
       for (const containerName of containers) {
         const labels = await this.getContainerLabels(containerName);
-        if (labels["luma.active"] === "true") {
-          return labels["luma.color"] as "blue" | "green";
+        if (labels["lightform.active"] === "true") {
+          return labels["lightform.color"] as "blue" | "green";
         }
       }
 
@@ -1144,7 +1144,7 @@ EOF`);
           for (const networkData of Object.values(networks) as any[]) {
             if (networkData.Aliases && networkData.Aliases.includes(appName)) {
               const labels = await this.getContainerLabels(containerName);
-              return labels["luma.color"] as "blue" | "green";
+              return labels["lightform.color"] as "blue" | "green";
             }
           }
         } catch (error) {
@@ -1158,7 +1158,7 @@ EOF`);
         const isRunning = await this.containerIsRunning(containerName);
         if (isRunning) {
           const labels = await this.getContainerLabels(containerName);
-          return labels["luma.color"] as "blue" | "green";
+          return labels["lightform.color"] as "blue" | "green";
         }
       }
 
@@ -1183,7 +1183,7 @@ EOF`);
   ): Promise<"blue" | "green" | null> {
     try {
       const containers = await this.findContainersByLabelAndProject(
-        `luma.app=${appName}`,
+        `lightform.app=${appName}`,
         projectName
       );
 
@@ -1194,8 +1194,8 @@ EOF`);
       // First, try to find containers explicitly marked as active
       for (const containerName of containers) {
         const labels = await this.getContainerLabels(containerName);
-        if (labels["luma.active"] === "true") {
-          return labels["luma.color"] as "blue" | "green";
+        if (labels["lightform.active"] === "true") {
+          return labels["lightform.color"] as "blue" | "green";
         }
       }
 
@@ -1213,7 +1213,7 @@ EOF`);
           for (const networkData of Object.values(networks) as any[]) {
             if (networkData.Aliases && networkData.Aliases.includes(appName)) {
               const labels = await this.getContainerLabels(containerName);
-              return labels["luma.color"] as "blue" | "green";
+              return labels["lightform.color"] as "blue" | "green";
             }
           }
         } catch (error) {
@@ -1227,7 +1227,7 @@ EOF`);
         const isRunning = await this.containerIsRunning(containerName);
         if (isRunning) {
           const labels = await this.getContainerLabels(containerName);
-          return labels["luma.color"] as "blue" | "green";
+          return labels["lightform.color"] as "blue" | "green";
         }
       }
 
@@ -1289,11 +1289,11 @@ EOF`);
         ...options,
         labels: {
           ...options.labels,
-          "luma.app": appName,
-          "luma.color": color,
-          "luma.replica": replicaIndex.toString(),
-          "luma.active": active.toString(),
-          "luma.managed": "true",
+          "lightform.app": appName,
+          "lightform.color": color,
+          "lightform.replica": replicaIndex.toString(),
+          "lightform.active": active.toString(),
+          "lightform.managed": "true",
         },
       };
 
@@ -1324,13 +1324,13 @@ EOF`);
 
       // Get all containers for the new color
       const newContainers = await this.findContainersByLabel(
-        `luma.app=${appName}`
+        `lightform.app=${appName}`
       );
       const newColorContainers = [];
 
       for (const containerName of newContainers) {
         const labels = await this.getContainerLabels(containerName);
-        if (labels["luma.color"] === newColor) {
+        if (labels["lightform.color"] === newColor) {
           newColorContainers.push(containerName);
         }
       }
@@ -1390,14 +1390,14 @@ EOF`);
 
       // Get all containers for the new color within the project
       const newContainers = await this.findContainersByLabelAndProject(
-        `luma.app=${appName}`,
+        `lightform.app=${appName}`,
         projectName
       );
       const newColorContainers = [];
 
       for (const containerName of newContainers) {
         const labels = await this.getContainerLabels(containerName);
-        if (labels["luma.color"] === newColor) {
+        if (labels["lightform.color"] === newColor) {
           newColorContainers.push(containerName);
         }
       }
@@ -1496,13 +1496,13 @@ EOF`);
   }
 
   /**
-   * Find all containers managed by Luma for a specific project
+   * Find all containers managed by Lightform for a specific project
    * @param projectName The project name to filter by
    * @returns Array of container names belonging to the project
    */
   async findProjectContainers(projectName: string): Promise<string[]> {
     try {
-      return await this.findContainersByLabel(`luma.project=${projectName}`);
+      return await this.findContainersByLabel(`lightform.project=${projectName}`);
     } catch (error) {
       this.logError(
         `Failed to find containers for project ${projectName}: ${error}`
@@ -1519,7 +1519,7 @@ EOF`);
   async findProjectAppContainers(projectName: string): Promise<string[]> {
     try {
       const result = await this.execRemote(
-        `ps -a --filter "label=luma.project=${projectName}" --filter "label=luma.type=app" --format "{{.Names}}"`
+        `ps -a --filter "label=lightform.project=${projectName}" --filter "label=lightform.type=app" --format "{{.Names}}"`
       );
       if (!result.trim()) {
         return [];
@@ -1541,7 +1541,7 @@ EOF`);
   async findProjectServiceContainers(projectName: string): Promise<string[]> {
     try {
       const result = await this.execRemote(
-        `ps -a --filter "label=luma.project=${projectName}" --filter "label=luma.type=service" --format "{{.Names}}"`
+        `ps -a --filter "label=lightform.project=${projectName}" --filter "label=lightform.type=service" --format "{{.Names}}"`
       );
       if (!result.trim()) {
         return [];
@@ -1575,17 +1575,17 @@ EOF`);
       for (const containerName of allContainers) {
         const labels = await this.getContainerLabels(containerName);
 
-        if (labels["luma.type"] === "app" && labels["luma.app"]) {
-          const appName = labels["luma.app"];
+        if (labels["lightform.type"] === "app" && labels["lightform.app"]) {
+          const appName = labels["lightform.app"];
           if (!state.apps[appName]) {
             state.apps[appName] = [];
           }
           state.apps[appName].push(containerName);
         } else if (
-          labels["luma.type"] === "service" &&
-          labels["luma.service"]
+          labels["lightform.type"] === "service" &&
+          labels["lightform.service"]
         ) {
-          const serviceName = labels["luma.service"];
+          const serviceName = labels["lightform.service"];
           state.services[serviceName] = containerName;
         }
       }

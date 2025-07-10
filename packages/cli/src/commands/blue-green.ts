@@ -1,10 +1,10 @@
-import { AppEntry, LumaSecrets } from "../config/types";
+import { AppEntry, LightformSecrets } from "../config/types";
 import { DockerClient, DockerContainerOptions } from "../docker";
 
 export interface BlueGreenDeploymentOptions {
   appEntry: AppEntry;
   releaseId: string;
-  secrets: LumaSecrets;
+  secrets: LightformSecrets;
   projectName: string;
   networkName: string;
   dockerClient: DockerClient;
@@ -95,7 +95,7 @@ function buildImageName(appEntry: AppEntry, releaseId: string): string {
 function createBlueGreenContainerOptions(
   appEntry: AppEntry,
   releaseId: string,
-  secrets: LumaSecrets,
+  secrets: LightformSecrets,
   projectName: string,
   containerName: string
 ): DockerContainerOptions {
@@ -118,10 +118,10 @@ function createBlueGreenContainerOptions(
     ],
     restart: "unless-stopped",
     labels: {
-      "luma.managed": "true",
-      "luma.project": projectName,
-      "luma.type": "app",
-      "luma.app": appEntry.name,
+      "lightform.managed": "true",
+      "lightform.project": projectName,
+      "lightform.type": "app",
+      "lightform.app": appEntry.name,
     },
   };
 }
@@ -131,7 +131,7 @@ function createBlueGreenContainerOptions(
  */
 function resolveEnvironmentVariables(
   entry: AppEntry,
-  secrets: LumaSecrets
+  secrets: LightformSecrets
 ): Record<string, string> {
   const envVars: Record<string, string> = {};
 
@@ -180,8 +180,8 @@ async function performBlueGreenHealthChecks(
   const healthCheckPath = appEntry.health_check?.path || "/up";
   const healthPromises = containerNames.map(async (containerName) => {
     try {
-      const healthCheckPassed = await dockerClient.checkHealthWithLumaProxy(
-        "luma-proxy",
+      const healthCheckPassed = await dockerClient.checkHealthWithLightformProxy(
+        "lightform-proxy",
         appEntry.name,
         containerName,
         projectName,
@@ -461,14 +461,14 @@ export async function performBlueGreenDeployment(
     // Step 7: Graceful shutdown of old containers
     if (currentActiveColor) {
       const oldContainers = await dockerClient.findContainersByLabelAndProject(
-        `luma.app=${appEntry.name}`,
+        `lightform.app=${appEntry.name}`,
         projectName
       );
 
       const oldActiveContainers = [];
       for (const containerName of oldContainers) {
         const labels = await dockerClient.getContainerLabels(containerName);
-        if (labels["luma.color"] === currentActiveColor) {
+        if (labels["lightform.color"] === currentActiveColor) {
           oldActiveContainers.push(containerName);
         }
       }

@@ -1,16 +1,16 @@
-# Luma
+# Lightform
 
 Zero-downtime Docker deployments with automatic HTTPS. Build locally, deploy to your servers.
 
 ```bash
-bun install -g @elitan/luma
-luma init
-luma setup    # bootstraps fresh server automatically
-luma deploy   # zero-downtime blue-green deployment
+npm install -g lightform
+lightform init
+lightform setup    # bootstraps fresh server automatically
+lightform deploy   # zero-downtime blue-green deployment
 ```
 
 ```yaml
-# luma.yml
+# lightform.yml
 name: my-app
 apps:
   web:
@@ -25,31 +25,34 @@ apps:
 ```
 
 ```
-❯ luma deploy
+❯ lightform deploy
 [✓] Building Images (1.8s)
 [✓] Zero-downtime deployment of web (3.5s)
 [✓] Deployment completed successfully in 9.8s
 
-https://a1b2c3d4-web-luma-192-168-1-100.x.myluma.cloud
+https://a1b2c3d4-web-lightform-192-168-1-100.x.mylightform.cloud
 ```
 
-## Why Luma?
+## Why Lightform?
 
 **Own your infrastructure** without the complexity. Deploy any Docker app to your servers with zero configuration.
 
 **vs Kamal**:
+
 - TypeScript/Bun instead of Ruby
-- No Docker registry required - build locally, transfer directly 
+- No Docker registry required - build locally, transfer directly
 - Automatic fresh server setup and security hardening
 - Instant domains with no DNS configuration needed
 
 **vs Vercel/Netlify**:
+
 - Your own servers - full control, no vendor lock-in
 - Any Docker app - not limited to specific frameworks
 - No cold starts - containers always running
 - Cost-effective - pay only for your servers
 
 **vs Docker Compose**:
+
 - Zero-downtime deployments - Compose restarts cause downtime
 - Multi-server support - deploy across multiple machines
 - Automatic SSL certificates and reverse proxy
@@ -93,7 +96,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
 ```
 
-Secrets in `.luma/secrets`:
+Secrets in `.lightform/secrets`:
+
 ```bash
 DATABASE_URL=postgres://user:pass@localhost:5432/myapp
 POSTGRES_PASSWORD=supersecret
@@ -102,17 +106,18 @@ POSTGRES_PASSWORD=supersecret
 ## Commands
 
 ```bash
-luma init                    # Create luma.yml and .luma/secrets
-luma setup                   # Bootstrap servers (auto-detects fresh servers)
-luma deploy                  # Deploy all apps
-luma deploy web              # Deploy specific app
-luma deploy --services       # Deploy services only
-luma status                  # Check deployment status
+lightform init                    # Create lightform.yml and .lightform/secrets
+lightform setup                   # Bootstrap servers (auto-detects fresh servers)
+lightform deploy                  # Deploy all apps
+lightform deploy web              # Deploy specific app
+lightform deploy --services       # Deploy services only
+lightform status                  # Check deployment status
 ```
 
 ## Examples
 
 **Simple app:**
+
 ```yaml
 name: blog
 apps:
@@ -126,6 +131,7 @@ apps:
 ```
 
 **Full-stack with database:**
+
 ```yaml
 name: ecommerce
 apps:
@@ -133,10 +139,10 @@ apps:
     image: shop/frontend
     servers: [web1.com, web2.com]
     build: { context: ./frontend }
-    proxy: 
+    proxy:
       hosts: [shop.com]
       app_port: 3000
-  
+
   api:
     image: shop/backend
     servers: [api.com]
@@ -158,9 +164,10 @@ services:
 ```
 
 **Multi-environment:**
+
 ```bash
-luma deploy -c luma.staging.yml
-luma deploy -c luma.production.yml
+lightform deploy -c lightform.staging.yml
+lightform deploy -c lightform.production.yml
 ```
 
 ## How it works
@@ -176,13 +183,13 @@ luma deploy -c luma.production.yml
 - **Servers**: Ubuntu/Debian with SSH access (root for fresh servers)
 - **Ports**: 80, 443 open
 
-Fresh servers only need root SSH access - Luma handles the rest automatically.
+Fresh servers only need root SSH access - Lightform handles the rest automatically.
 
 ## Development
 
 ```bash
-git clone https://github.com/elitan/luma
-cd luma && bun install && bun run dev
+git clone https://github.com/elitan/lightform
+cd lightform && bun install && bun run dev
 ```
 
 **MIT License** - Made for developers who want simple, reliable deployments on their own infrastructure.

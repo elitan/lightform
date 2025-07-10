@@ -1,4 +1,4 @@
-import { LumaConfig, LumaSecrets } from "../config/types";
+import { LightformConfig, LightformSecrets } from "../config/types";
 import { SSHClientOptions } from "./index";
 import * as fs from "fs";
 import * as os from "os";
@@ -9,8 +9,8 @@ import * as os from "os";
  */
 export async function getSSHCredentials(
   serverHostname: string,
-  config: LumaConfig,
-  secrets: LumaSecrets,
+  config: LightformConfig,
+  secrets: LightformSecrets,
   verbose: boolean = false
 ): Promise<Partial<SSHClientOptions>> {
   const sshUser = config.ssh?.username || "root"; // Default to root, though setup warns against it
@@ -130,7 +130,7 @@ export async function getSSHCredentials(
 
   if (verbose) {
     console.log(
-      `[${serverHostname}] No specific SSH key or password found in Luma secrets. Attempting agent-based authentication or found key file.`
+      `[${serverHostname}] No specific SSH key or password found in Lightform secrets. Attempting agent-based authentication or found key file.`
     );
   }
 

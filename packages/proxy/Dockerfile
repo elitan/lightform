@@ -17,7 +17,7 @@ RUN go mod download
 COPY . .
 
 # Build the binary
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o luma-proxy ./cmd/luma-proxy
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o lightform-proxy ./cmd/lightform-proxy
 
 # Runtime stage
 FROM alpine:3.18
@@ -26,19 +26,19 @@ FROM alpine:3.18
 RUN apk --no-cache add ca-certificates curl
 
 # Create directories
-RUN mkdir -p /var/lib/luma-proxy/certs
+RUN mkdir -p /var/lib/lightform-proxy/certs
 
 # Copy binary from builder
-COPY --from=builder /build/luma-proxy /usr/local/bin/luma-proxy
+COPY --from=builder /build/lightform-proxy /usr/local/bin/lightform-proxy
 
 # Make binary executable
-RUN chmod +x /usr/local/bin/luma-proxy
+RUN chmod +x /usr/local/bin/lightform-proxy
 
 # Expose ports
 EXPOSE 80 443
 
 # Volume for persistent data
-VOLUME ["/var/lib/luma-proxy"]
+VOLUME ["/var/lib/lightform-proxy"]
 
 # Run the proxy
-ENTRYPOINT ["/usr/local/bin/luma-proxy"] 
+ENTRYPOINT ["/usr/local/bin/lightform-proxy"] 
