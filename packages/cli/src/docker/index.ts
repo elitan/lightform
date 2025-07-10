@@ -465,9 +465,12 @@ EOF`);
         );
       } catch (rmError) {
         // Ignore errors - the image might not exist locally or might be in use
-        this.log(
-          `Could not remove existing image ${image}, will try pulling anyway.`
-        );
+        // Only log this in verbose mode since it's expected
+        if (this.verbose) {
+          this.log(
+            `Could not remove existing image ${image} (expected if image doesn't exist locally), will pull fresh copy.`
+          );
+        }
       }
 
       // Now pull the image
@@ -851,8 +854,14 @@ EOF`);
         try {
           // Use project-specific DNS target directly
           const targetURL = `http://${projectSpecificTarget}:${appPort}${healthCheckPath}`;
-          const execCmd = `exec ${proxyContainerName} sh -c "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y curl); curl -s -o /dev/null -w '%{http_code}' --connect-timeout 3 --max-time 5 ${targetURL} || echo 'failed'"`;
-          statusCode = await this.execRemote(execCmd);
+
+          // Install curl if needed and run health check
+          const installCurlCmd = `exec ${proxyContainerName} sh -c "command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y curl)"`;
+          await this.execRemote(installCurlCmd);
+
+          // Separate health check command with proper quote escaping and newline separation
+          const healthCheckCmd = `exec ${proxyContainerName} sh -c "curl -s -o /dev/null -w '%{http_code}\\n' --connect-timeout 3 --max-time 5 ${targetURL}"`;
+          statusCode = await this.execRemote(healthCheckCmd);
 
           // Check if we got a successful status code
           const cleanStatusCode = statusCode.trim();
@@ -1502,7 +1511,9 @@ EOF`);
    */
   async findProjectContainers(projectName: string): Promise<string[]> {
     try {
-      return await this.findContainersByLabel(`lightform.project=${projectName}`);
+      return await this.findContainersByLabel(
+        `lightform.project=${projectName}`
+      );
     } catch (error) {
       this.logError(
         `Failed to find containers for project ${projectName}: ${error}`
