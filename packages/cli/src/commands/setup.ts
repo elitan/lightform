@@ -1,8 +1,15 @@
 import { loadConfig, loadSecrets } from "../config";
-import { LightformConfig, LightformSecrets, ServiceEntry } from "../config/types";
+import {
+  LightformConfig,
+  LightformSecrets,
+  ServiceEntry,
+} from "../config/types";
 import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh";
 import { DockerClient } from "../docker";
-import { setupLightformProxy, LIGHTFORM_PROXY_NAME } from "../setup-proxy/index";
+import {
+  setupLightformProxy,
+  LIGHTFORM_PROXY_NAME,
+} from "../setup-proxy/index";
 import { Logger } from "../utils/logger";
 
 // Module-level logger that gets configured when setupCommand runs
@@ -155,9 +162,9 @@ async function performBootstrapSteps(
       logger.verboseLog("→ Added Docker repository");
 
       await sshClient.exec(
-        "export DEBIAN_FRONTEND=noninteractive && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+        "export DEBIAN_FRONTEND=noninteractive && apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin pigz"
       );
-      logger.verboseLog("→ Installed Docker packages");
+      logger.verboseLog("→ Installed Docker packages and compression tools");
     } catch (dockerError) {
       // Don't fail bootstrap for debconf warnings
       if (String(dockerError).includes("debconf:")) {
@@ -689,7 +696,9 @@ async function connectProxyToNetwork(
   logger.verboseLog(`Connecting Lightform Proxy to the project network...`);
 
   try {
-    const proxyExists = await dockerClient.containerExists(LIGHTFORM_PROXY_NAME);
+    const proxyExists = await dockerClient.containerExists(
+      LIGHTFORM_PROXY_NAME
+    );
 
     if (!proxyExists) {
       throw new Error(

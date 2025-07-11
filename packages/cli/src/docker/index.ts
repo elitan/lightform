@@ -227,7 +227,7 @@ export class DockerClient {
 
   /**
    * Save a Docker image to a compressed tar.gz archive for faster transfer
-   * Falls back to uncompressed tar if gzip is not available
+   * Tries pigz (parallel gzip) first for faster compression, falls back to gzip, then uncompressed tar
    */
   static async saveCompressed(
     imageName: string,
@@ -235,16 +235,52 @@ export class DockerClient {
     verbose: boolean = false
   ): Promise<void> {
     try {
-      // Check if gzip is available locally
       const { exec } = await import("child_process");
       const { promisify } = await import("util");
       const execPromise = promisify(exec);
 
+      // Try pigz first (parallel gzip - much faster)
+      try {
+        await execPromise("which pigz");
+        if (verbose) {
+          console.log("pigz is available, using parallel compression");
+        }
+
+        const pigzCommand = `docker save "${imageName}" | pigz > "${outputPath}"`;
+        if (verbose) {
+          console.log(`Saving compressed image to archive: ${pigzCommand}`);
+        }
+        await DockerClient._runLocalCommand(pigzCommand, verbose);
+        if (verbose) {
+          console.log(
+            `Successfully saved compressed image "${imageName}" to "${outputPath}" using pigz.`
+          );
+        }
+        return;
+      } catch (pigzCheckError) {
+        if (verbose) {
+          console.log("pigz not available, trying gzip");
+        }
+      }
+
+      // Fall back to standard gzip
       try {
         await execPromise("which gzip");
         if (verbose) {
-          console.log("gzip is available, using compression");
+          console.log("gzip is available, using standard compression");
         }
+
+        const gzipCommand = `docker save "${imageName}" | gzip > "${outputPath}"`;
+        if (verbose) {
+          console.log(`Saving compressed image to archive: ${gzipCommand}`);
+        }
+        await DockerClient._runLocalCommand(gzipCommand, verbose);
+        if (verbose) {
+          console.log(
+            `Successfully saved compressed image "${imageName}" to "${outputPath}" using gzip.`
+          );
+        }
+        return;
       } catch (gzipCheckError) {
         if (verbose) {
           console.log("gzip not available, falling back to uncompressed tar");
@@ -253,18 +289,6 @@ export class DockerClient {
         const uncompressedPath = outputPath.replace(".tar.gz", ".tar");
         await DockerClient.save(imageName, uncompressedPath, verbose);
         return;
-      }
-
-      // Use gzip compression to significantly reduce file size
-      const command = `docker save "${imageName}" | gzip > "${outputPath}"`;
-      if (verbose) {
-        console.log(`Saving compressed image to archive: ${command}`);
-      }
-      await DockerClient._runLocalCommand(command, verbose);
-      if (verbose) {
-        console.log(
-          `Successfully saved compressed image "${imageName}" to "${outputPath}".`
-        );
       }
     } catch (error) {
       if (verbose) {
@@ -332,8 +356,8 @@ export class DockerClient {
       this.log("Running apt upgrade...");
       await this.sshClient.exec("sudo apt upgrade -y");
 
-      this.log("Installing docker.io, curl, git...");
-      await this.sshClient.exec("sudo apt install -y docker.io curl git");
+      this.log("Installing docker.io, curl, git, pigz...");
+      await this.sshClient.exec("sudo apt install -y docker.io curl git pigz");
 
       this.log("Adding user to docker group...");
       // Get current SSH username
@@ -342,7 +366,9 @@ export class DockerClient {
         `sudo usermod -a -G docker ${currentUser.trim()}`
       );
 
-      this.log("Successfully installed required packages.");
+      this.log(
+        "Successfully installed required packages and compression tools."
+      );
       return true;
     } catch (error) {
       this.logError(`Failed to install Docker and dependencies: ${error}`);
@@ -505,15 +531,41 @@ EOF`);
 
   /**
    * Load a Docker image from a compressed tar.gz archive
-   * Falls back to regular docker load if gunzip is not available
+   * Tries pigz (parallel decompression) first, then gunzip, then uncompressed fallback
    */
   async loadCompressedImage(archivePath: string): Promise<boolean> {
     this.log(`Loading compressed image from archive ${archivePath}...`);
     try {
-      // Check if gunzip is available on the remote server
+      // Try pigz first (parallel decompression - much faster)
+      try {
+        await this.sshClient?.exec("which pigz");
+        this.log(
+          "pigz is available on remote server, using parallel decompression"
+        );
+
+        const pigzCommand = `sh -c "pigz -dc '${archivePath}' | docker load"`;
+        await this.sshClient?.exec(pigzCommand);
+        this.log(
+          `Successfully loaded compressed image from ${archivePath} using pigz.`
+        );
+        return true;
+      } catch (pigzCheckError) {
+        this.log("pigz not available on remote server, trying gunzip");
+      }
+
+      // Fall back to standard gunzip
       try {
         await this.sshClient?.exec("which gunzip");
-        this.log("gunzip is available on remote server, using decompression");
+        this.log(
+          "gunzip is available on remote server, using standard decompression"
+        );
+
+        const gunzipCommand = `sh -c "gunzip -c '${archivePath}' | docker load"`;
+        await this.sshClient?.exec(gunzipCommand);
+        this.log(
+          `Successfully loaded compressed image from ${archivePath} using gunzip.`
+        );
+        return true;
       } catch (gunzipCheckError) {
         this.log(
           "gunzip not available on remote server, falling back to regular docker load"
@@ -525,12 +577,6 @@ EOF`);
         );
         return true;
       }
-
-      // Use shell command to decompress and pipe to docker load
-      const command = `sh -c "gunzip -c '${archivePath}' | docker load"`;
-      await this.sshClient?.exec(command);
-      this.log(`Successfully loaded compressed image from ${archivePath}.`);
-      return true;
     } catch (error) {
       this.logError(
         `Failed to load compressed image from ${archivePath}: ${error}`
