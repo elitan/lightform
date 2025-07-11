@@ -16,9 +16,5 @@ packages/*/dist/
 .vscode/
 .idea/
 
-# Luma specific
-.luma/
-luma.yml
-
 # Logs
 *.log

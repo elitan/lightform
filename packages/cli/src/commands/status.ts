@@ -169,7 +169,16 @@ async function loadConfigurationAndSecrets(): Promise<{
     const secrets = await loadSecrets();
     return { config, secrets };
   } catch (error) {
-    logger.error("Failed to load configuration/secrets", error);
+    if (error instanceof Error && (error.message.includes("ENOENT") || error.message.includes("lightform.yml"))) {
+      logger.error("Configuration files not found.");
+      logger.error("");
+      logger.error("To fix this:");
+      logger.error("   lightform init                    # Create configuration files");
+      logger.error("   # Edit lightform.yml with your settings");
+      logger.error("   lightform status                  # Check status again");
+    } else {
+      logger.error("Failed to load configuration/secrets", error);
+    }
     throw error;
   }
 }

@@ -416,7 +416,16 @@ async function loadConfigurationAndSecrets(): Promise<{
     const secrets = await loadSecrets();
     return { config, secrets };
   } catch (error) {
-    logger.error("Failed to load configuration/secrets", error);
+    if (error instanceof Error && (error.message.includes("ENOENT") || error.message.includes("lightform.yml"))) {
+      logger.error("Configuration files not found.");
+      logger.error("");
+      logger.error("To fix this:");
+      logger.error("   lightform init                    # Create configuration files");
+      logger.error("   # Edit lightform.yml with your server settings");
+      logger.error("   lightform setup                   # Run setup again");
+    } else {
+      logger.error("Failed to load configuration/secrets", error);
+    }
     throw error;
   }
 }
@@ -946,10 +955,20 @@ function handleSetupError(
       2. If using a password, it's correct in Lightform secrets.
       3. SSH agent (if used) is configured correctly with the right keys.
       4. The user '${sshCredentials.username}' is allowed to SSH to '${serverHostname}'.`);
+    logger.verboseLog("");
+    logger.verboseLog("Quick fixes:");
+    logger.verboseLog(`   ssh ${sshCredentials.username}@${serverHostname}    # Test SSH manually`);
+    logger.verboseLog("   # Check your SSH key: ls ~/.ssh/");
+    logger.verboseLog("   # Add key to agent: ssh-add ~/.ssh/your_key");
   } else if (error.code === "ECONNREFUSED") {
     logger.verboseLog(
-      `Connection refused. Ensure an SSH server is running on '${serverHostname}' and accessible on port ${portForError}. Check firewalls.`
+      `Connection refused. Ensure an SSH server is running on '${serverHostname}' and accessible on port ${portForError}.`
     );
+    logger.verboseLog("");
+    logger.verboseLog("Quick fixes:");
+    logger.verboseLog(`   ping ${serverHostname}                     # Test basic connectivity`);
+    logger.verboseLog(`   telnet ${serverHostname} ${portForError}           # Test SSH port`);
+    logger.verboseLog("   # Check firewall settings on the server");
   } else if (
     error.code === "ETIMEDOUT" ||
     (error.message && error.message.toLowerCase().includes("timeout"))
@@ -957,10 +976,20 @@ function handleSetupError(
     logger.verboseLog(
       `Connection timed out. Check network connectivity to '${serverHostname}', server load, and any firewalls.`
     );
+    logger.verboseLog("");
+    logger.verboseLog("Quick fixes:");
+    logger.verboseLog(`   ping ${serverHostname}                     # Test basic connectivity`);
+    logger.verboseLog("   # Check server is powered on and accessible");
+    logger.verboseLog("   # Try from a different network");
   } else if (error.message && error.message.includes("ENOTFOUND")) {
     logger.verboseLog(
       `Hostname not found. Ensure '${serverHostname}' is a valid and resolvable hostname.`
     );
+    logger.verboseLog("");
+    logger.verboseLog("Quick fixes:");
+    logger.verboseLog(`   nslookup ${serverHostname}                 # Check DNS resolution`);
+    logger.verboseLog("   # Verify hostname spelling in lightform.yml");
+    logger.verboseLog("   # Try using IP address instead of hostname");
   }
 }
 

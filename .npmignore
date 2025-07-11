@@ -23,7 +23,6 @@ todos
 
 # Example and proxy directories
 example/
-luma-proxy/
 
 # Node modules
 node_modules/
