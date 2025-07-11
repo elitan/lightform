@@ -204,9 +204,17 @@ function parseDeploymentArgs(rawEntryNamesAndFlags: string[]): ParsedArgs {
 async function checkUncommittedChanges(forceFlag: boolean): Promise<void> {
   if (!forceFlag && (await hasUncommittedChanges())) {
     logger.error(
-      "Uncommitted changes detected in working directory. Deployment aborted for safety.\n" +
-        "Please commit your changes before deploying, or use --force to deploy anyway."
+      "Uncommitted changes detected in working directory."
     );
+    logger.error("");
+    logger.error("To deploy safely:");
+    logger.error("   1. Commit your changes: git add . && git commit -m 'Your message'");
+    logger.error("   2. Then run: lightform deploy");
+    logger.error("");
+    logger.error("To deploy anyway (not recommended):");
+    logger.error("   lightform deploy --force");
+    logger.error("");
+    logger.error("Note: Lightform requires committed changes to enable easy rollbacks via git.");
     throw new Error("Uncommitted changes detected");
   }
 }
@@ -232,13 +240,28 @@ async function loadConfigurationAndSecrets(): Promise<{
       for (const error of formattedErrors) {
         logger.error(error);
       }
+      
+      logger.error("");
+      logger.error("To fix configuration errors:");
+      logger.error("   # Edit lightform.yml to fix the issues above");
+      logger.error("   lightform deploy                  # Try deploying again");
 
       throw new Error("Configuration validation failed");
     }
 
     return { config, secrets };
   } catch (error) {
-    logger.error("Failed to load configuration/secrets", error);
+    if (error instanceof Error && (error.message.includes("ENOENT") || error.message.includes("lightform.yml"))) {
+      logger.error("Configuration files not found.");
+      logger.error("");
+      logger.error("To fix this:");
+      logger.error("   lightform init                    # Create configuration files");
+      logger.error("   # Edit lightform.yml with your app settings");
+      logger.error("   lightform setup                   # Setup your servers");
+      logger.error("   lightform deploy                  # Deploy your apps");
+    } else {
+      logger.error("Failed to load configuration/secrets", error);
+    }
     throw error;
   }
 }
@@ -394,25 +417,33 @@ async function verifyInfrastructure(
     missingProxyServers.length > 0 ||
     hasPortConflicts
   ) {
+    logger.error("Infrastructure verification failed");
+    logger.error("");
+    
     if (missingNetworkServers.length > 0) {
       logger.error(
-        `Required network "${networkName}" is missing on servers: ${missingNetworkServers.join(
-          ", "
-        )}`
+        `Missing network "${networkName}" on servers: ${missingNetworkServers.join(", ")}`
       );
     }
     if (missingProxyServers.length > 0) {
       logger.error(
-        `Required lightform-proxy container is not running on servers: ${missingProxyServers.join(
-          ", "
-        )}`
+        `Missing lightform-proxy on servers: ${missingProxyServers.join(", ")}`
       );
     }
+    
     if (!hasPortConflicts) {
-      logger.error(
-        "Please run `lightform setup` to create the required infrastructure"
-      );
+      logger.error("");
+      logger.error("To fix infrastructure issues:");
+      logger.error("   lightform setup                    # Setup all servers");
+      logger.error("   lightform setup --verbose          # Setup with detailed output");
+      logger.error("");
+      logger.error("To setup specific servers:");
+      const uniqueServers = missingNetworkServers.concat(missingProxyServers).filter((v, i, a) => a.indexOf(v) === i);
+      if (uniqueServers.length > 0) {
+        logger.error(`   lightform setup ${uniqueServers.join(" ")}`);
+      }
     }
+    
     throw new Error("Infrastructure verification failed");
   }
 }

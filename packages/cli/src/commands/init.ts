@@ -100,7 +100,44 @@ async function ensureSecretsInGitignore(): Promise<void> {
   }
 }
 
-export async function initCommand(nonInteractive: boolean = false) {
+export async function initCommand(args: string[] = []) {
+  // Check for help flag
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Initialize Lightform project");
+    console.log("============================");
+    console.log("");
+    console.log("USAGE:");
+    console.log("  lightform init [flags]");
+    console.log("");
+    console.log("DESCRIPTION:");
+    console.log("  Creates lightform.yml configuration file and .lightform/secrets file.");
+    console.log("  Automatically adds secrets file to .gitignore for security.");
+    console.log("");
+    console.log("FLAGS:");
+    console.log("  --help             Show this help message");
+    console.log("  --non-interactive  Skip prompts, use defaults");
+    console.log("  --name <name>      Set project name (non-interactive mode)");
+    console.log("");
+    console.log("EXAMPLES:");
+    console.log("  lightform init                    # Interactive setup");
+    console.log("  lightform init --non-interactive  # Use defaults");
+    console.log("  lightform init --name my-app      # Set name non-interactively");
+    console.log("");
+    console.log("FILES CREATED:");
+    console.log("  lightform.yml                     # Main configuration");
+    console.log("  .lightform/secrets                # Environment secrets (gitignored)");
+    return;
+  }
+
+  const nonInteractive = args.includes("--non-interactive");
+  
+  // Parse --name flag
+  let projectName: string | undefined;
+  const nameIndex = args.findIndex(arg => arg === "--name");
+  if (nameIndex !== -1 && nameIndex + 1 < args.length) {
+    projectName = args[nameIndex + 1];
+  }
+  
   let configCreated = false;
   let secretsCreated = false;
 
@@ -127,9 +164,17 @@ export async function initCommand(nonInteractive: boolean = false) {
     console.log(`Configuration file ${ACTUAL_CONFIG_PATH} already exists.`);
   } else {
     try {
-      const configData = nonInteractive
-        ? { projectName: "test-project" }
-        : await promptForConfig();
+      let configData: ConfigPrompts;
+      
+      if (nonInteractive || projectName) {
+        // Use provided name or default for non-interactive mode
+        configData = { projectName: projectName || "my-project" };
+        console.log(`Creating project with name: ${configData.projectName}`);
+      } else {
+        // Interactive mode
+        configData = await promptForConfig();
+      }
+      
       const configContent = generateConfigContent(configData);
 
       await writeFile(ACTUAL_CONFIG_PATH, configContent, "utf8");
