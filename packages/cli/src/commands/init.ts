@@ -100,9 +100,12 @@ async function ensureSecretsInGitignore(): Promise<void> {
   }
 }
 
-export async function initCommand(args: string[] = []) {
+export async function initCommand(args: string[] | boolean = []) {
+  // Handle backward compatibility - if args is boolean, convert to array
+  const argsArray: string[] = Array.isArray(args) ? args : (args ? ["--non-interactive"] : []);
+  
   // Check for help flag
-  if (args.includes("--help") || args.includes("-h")) {
+  if (argsArray.includes("--help") || argsArray.includes("-h")) {
     console.log("Initialize Lightform project");
     console.log("============================");
     console.log("");
@@ -129,13 +132,13 @@ export async function initCommand(args: string[] = []) {
     return;
   }
 
-  const nonInteractive = args.includes("--non-interactive");
+  const nonInteractive = argsArray.includes("--non-interactive");
   
   // Parse --name flag
   let projectName: string | undefined;
-  const nameIndex = args.findIndex(arg => arg === "--name");
-  if (nameIndex !== -1 && nameIndex + 1 < args.length) {
-    projectName = args[nameIndex + 1];
+  const nameIndex = argsArray.findIndex(arg => arg === "--name");
+  if (nameIndex !== -1 && nameIndex + 1 < argsArray.length) {
+    projectName = argsArray[nameIndex + 1];
   }
   
   let configCreated = false;
