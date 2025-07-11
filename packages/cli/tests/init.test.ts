@@ -32,7 +32,7 @@ describe("init command", () => {
 
   test("should create lightform.yml and .lightform/secrets files", async () => {
     // Run the init command in non-interactive mode
-    await initCommand(true);
+    await initCommand(["--non-interactive"]);
 
     // Check that files were created
     expect(existsSync("lightform.yml")).toBe(true);
@@ -62,7 +62,7 @@ describe("init command", () => {
     await Bun.write(join(".lightform", "secrets"), customSecrets);
 
     // Run the init command in non-interactive mode
-    await initCommand(true);
+    await initCommand(["--non-interactive"]);
 
     // Verify files still have original content
     const configFile = Bun.file("lightform.yml");
@@ -76,7 +76,7 @@ describe("init command", () => {
 
   test("should create .gitignore and add secrets file when .gitignore doesn't exist", async () => {
     // Run the init command in non-interactive mode
-    await initCommand(true);
+    await initCommand(["--non-interactive"]);
 
     // Check that .gitignore was created
     expect(existsSync(".gitignore")).toBe(true);
@@ -96,7 +96,7 @@ dist/
     await Bun.write(".gitignore", existingContent);
 
     // Run the init command in non-interactive mode
-    await initCommand(true);
+    await initCommand(["--non-interactive"]);
 
     // Check that .gitignore exists and contains both old and new content
     const gitignoreFile = Bun.file(".gitignore");
@@ -118,7 +118,7 @@ dist/
     await Bun.write(".gitignore", existingContent);
 
     // Run the init command in non-interactive mode
-    await initCommand(true);
+    await initCommand(["--non-interactive"]);
 
     // Check that .gitignore doesn't have duplicate entries
     const gitignoreFile = Bun.file(".gitignore");
@@ -134,7 +134,7 @@ dist/
   test("should handle different variations of secrets path in .gitignore", async () => {
     // Test with leading slash
     await Bun.write(".gitignore", "/.lightform/secrets\n");
-    await initCommand(true);
+    await initCommand(["--non-interactive"]);
 
     let gitignoreContent = await Bun.file(".gitignore").text();
     let lines = gitignoreContent.split("\n");
@@ -146,7 +146,7 @@ dist/
 
     // Clean up and test with forward slashes on Windows
     await Bun.write(".gitignore", ".lightform/secrets\n");
-    await initCommand(true);
+    await initCommand(["--non-interactive"]);
 
     gitignoreContent = await Bun.file(".gitignore").text();
     lines = gitignoreContent.split("\n");
@@ -162,7 +162,7 @@ dist/
     await Bun.write(".gitignore", "");
 
     // Run the init command in non-interactive mode
-    await initCommand(true);
+    await initCommand(["--non-interactive"]);
 
     // Check that secrets file is added to .gitignore
     const gitignoreFile = Bun.file(".gitignore");
