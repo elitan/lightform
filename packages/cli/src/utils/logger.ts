@@ -130,6 +130,53 @@ export class Logger {
     }
   }
 
+  // Build steps that work within a phase
+  buildStep(message: string, isLast: boolean = false) {
+    // Don't clear the main spinner, just pause it and show the step
+    const wasSpinning = this.activeSpinner !== null;
+    if (wasSpinning) {
+      // Pause the main spinner
+      this.clearSpinner();
+    }
+
+    const symbol = isLast ? "└─" : "├─";
+    this.startSpinnerAtPosition(`     ${symbol} `, message, 2);
+  }
+
+  buildStepComplete(
+    message: string,
+    duration?: number,
+    isLast: boolean = false
+  ) {
+    this.clearSpinner();
+    const symbol = isLast ? "└─" : "├─";
+    const elapsed = duration || Date.now() - this.stepStartTime;
+    console.log(
+      `     ${symbol} [✓] ${message} (${this.formatDuration(elapsed)})`
+    );
+
+    // If this was the last step, don't restart the main spinner
+    // The main phase will complete and show its own checkmark
+  }
+
+  // Complete a build phase with timing (replaces the [i] with [✓])
+  buildPhaseComplete(
+    message: string,
+    duration: number,
+    subStepCount: number = 0
+  ) {
+    this.clearSpinner();
+    // Move cursor up past all sub-steps to overwrite the [i] line
+    const linesToMoveUp = subStepCount + 1; // +1 for the current position
+    process.stdout.write(`\x1b[${linesToMoveUp}A\x1b[2K`);
+    console.log(`[✓] ${message} (${this.formatDuration(duration)})`);
+
+    // Move cursor back down to the bottom
+    if (subStepCount > 0) {
+      process.stdout.write(`\x1b[${subStepCount}B`);
+    }
+  }
+
   serverStep(message: string, isLast: boolean = false) {
     this.clearSpinner();
     const symbol = isLast ? "└─" : "├─";

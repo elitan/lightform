@@ -613,12 +613,20 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
 
   // Build phase for apps that need building
   if (appsNeedingBuild.length > 0) {
-    logger.phase("Building Images");
-    for (const appEntry of appsNeedingBuild) {
-      const archivePath = await buildAndSaveApp(appEntry, context);
+    const buildStartTime = Date.now();
+
+    // Create build header
+    logger.info("Local Build");
+
+    for (let i = 0; i < appsNeedingBuild.length; i++) {
+      const appEntry = appsNeedingBuild[i];
+      const isLastApp = i === appsNeedingBuild.length - 1;
+
+      const archivePath = await buildAndSaveApp(appEntry, context, isLastApp);
       context.imageArchives.set(appEntry.name, archivePath);
     }
-    logger.phaseComplete("Building Images");
+
+    // Build complete - sub-steps already show individual timings
   }
 
   // Skip build phase for pre-built apps and show info
@@ -691,12 +699,16 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
  */
 async function buildAndSaveApp(
   appEntry: AppEntry,
-  context: DeploymentContext
+  context: DeploymentContext,
+  isLastApp: boolean = false
 ): Promise<string> {
   const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
-  const stepStart = Date.now();
 
   try {
+    // Step 1: Build the image
+    logger.buildStep(`Build ${appEntry.name} image`);
+    const buildStartTime = Date.now();
+
     const imageReady = await buildOrTagAppImage(
       appEntry,
       imageNameWithRelease,
@@ -704,17 +716,29 @@ async function buildAndSaveApp(
     );
     if (!imageReady) throw new Error("Image build failed");
 
+    const buildDuration = Date.now() - buildStartTime;
+    logger.buildStepComplete(`Build ${appEntry.name} image`, buildDuration);
+
+    // Step 2: Prepare for transfer
+    logger.buildStep(`Prepare ${appEntry.name} image for transfer`, isLastApp);
+    const saveStartTime = Date.now();
+
     const archivePath = await saveAppImage(
       appEntry,
       imageNameWithRelease,
       context.verboseFlag
     );
 
-    const duration = Date.now() - stepStart;
-    logger.stepComplete(`${appEntry.name} → ${imageNameWithRelease}`, duration);
+    const saveDuration = Date.now() - saveStartTime;
+    logger.buildStepComplete(
+      `Prepare ${appEntry.name} image for transfer`,
+      saveDuration,
+      isLastApp
+    );
+
     return archivePath;
   } catch (error) {
-    logger.stepError(`${appEntry.name} → ${imageNameWithRelease}`, error);
+    logger.error(`${appEntry.name} image preparation failed`, error);
     throw error;
   }
 }
@@ -873,8 +897,8 @@ async function deployAppToServer(
 
     const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
 
-    // Step 1: Pull image
-    logger.serverStep(`Loading ${appEntry.name} image`);
+    // Step 1: Transfer and load image
+    logger.serverStep(`Transfer & load ${appEntry.name} image`);
     await transferAndLoadImage(
       appEntry,
       sshClient,
@@ -882,7 +906,7 @@ async function deployAppToServer(
       context,
       imageNameWithRelease
     );
-    logger.serverStepComplete(`Loading ${appEntry.name} image`);
+    logger.serverStepComplete(`Transfer & load ${appEntry.name} image`);
 
     // Step 2: Zero-downtime deployment
     logger.serverStep(`Zero-downtime deployment of ${appEntry.name}`);
