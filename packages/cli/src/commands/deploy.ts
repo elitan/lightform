@@ -470,73 +470,99 @@ async function checkPortConflictsOnServer(
   projectName: string,
   verbose: boolean = false
 ): Promise<void> {
-  const portChecker = new PortChecker(
-    sshClient,
-    dockerClient,
-    serverHostname,
-    verbose
-  );
-
-  // Get all entries targeting this server, but only check port conflicts for apps
-  // Services are meant to be replaced during deployment, so conflicts are expected
-  const serverEntries = targetEntries.filter(
-    (entry) => entry.server === serverHostname
-  );
-
-  // Build list of planned port mappings (only for apps, not services)
-  const plannedPorts: Array<{
-    hostPort: number;
-    containerPort: number;
-    requestedBy: string;
-    protocol?: "tcp" | "udp";
-  }> = [];
-
-  for (const entry of serverEntries) {
-    // Skip port conflict checking for services - they get replaced during deployment
-    const isService = !!(entry as any).image && !(entry as any).build && !(entry as any).proxy;
-    if (isService) {
-      logger.verboseLog(`[${serverHostname}] Skipping port conflict check for service: ${entry.name}`);
-      continue;
-    }
-
-    if (entry.ports) {
-      const portMappings = parsePortMappings(entry.ports);
-      for (const mapping of portMappings) {
-        plannedPorts.push({
-          hostPort: mapping.hostPort,
-          containerPort: mapping.containerPort,
-          requestedBy: `${projectName}-${entry.name}`,
-          protocol: mapping.protocol,
-        });
+  // Simple solution: Get existing project container ports and exclude them
+  logger.verboseLog(`[${serverHostname}] Getting existing project containers...`);
+  
+  try {
+    const projectContainerPorts = new Set<number>();
+    
+    // Get all containers from this project
+    const containerOutput = await sshClient.exec(
+      `docker ps --filter "name=${projectName}-" --format "{{.Ports}}"`
+    );
+    
+    const portLines = containerOutput.split("\n").filter(line => line.trim());
+    for (const line of portLines) {
+      // Extract host ports from format like "0.0.0.0:9002->5432/tcp, [::]:9002->5432/tcp"
+      const hostPorts = line.match(/(?:0\.0\.0\.0:|::):(\d+)->/g);
+      if (hostPorts) {
+        for (const portMatch of hostPorts) {
+          const port = parseInt(portMatch.match(/:(\d+)->/)?.[1] || "0");
+          if (port > 0) {
+            projectContainerPorts.add(port);
+            logger.verboseLog(`[${serverHostname}] Excluding existing project port: ${port}`);
+          }
+        }
       }
     }
-  }
+    
+    // Get all entries targeting this server
+    const serverEntries = targetEntries.filter(
+      (entry) => entry.server === serverHostname
+    );
 
-  // Skip port checking if no ports are exposed
-  if (plannedPorts.length === 0) {
-    return;
-  }
+    // Build list of planned port mappings, excluding existing project ports
+    const plannedPorts: Array<{
+      hostPort: number;
+      containerPort: number;
+      requestedBy: string;
+      protocol?: "tcp" | "udp";
+    }> = [];
 
-  logger.verboseLog(
-    `[${serverHostname}] Checking ${plannedPorts.length} planned port mappings for conflicts`
-  );
-
-  // Check for conflicts (exclude own project containers)
-  const conflicts = await portChecker.checkPortConflicts(plannedPorts, projectName);
-
-  if (conflicts.length > 0) {
-    logger.error(`Port conflicts detected on server ${serverHostname}:`);
-    logger.error("");
-
-    const suggestions = portChecker.generateConflictSuggestions(conflicts);
-    for (const suggestion of suggestions) {
-      logger.error(suggestion);
+    for (const entry of serverEntries) {
+      if (entry.ports) {
+        const portMappings = parsePortMappings(entry.ports);
+        for (const mapping of portMappings) {
+          // Skip if this port is already used by our project
+          if (projectContainerPorts.has(mapping.hostPort)) {
+            logger.verboseLog(`[${serverHostname}] Skipping conflict check for port ${mapping.hostPort} - used by existing project container`);
+            continue;
+          }
+          
+          plannedPorts.push({
+            hostPort: mapping.hostPort,
+            containerPort: mapping.containerPort,
+            requestedBy: `${projectName}-${entry.name}`,
+            protocol: mapping.protocol,
+          });
+        }
+      }
     }
 
-    throw new Error("Port conflicts detected");
-  }
+    // Skip port checking if no ports need to be checked
+    if (plannedPorts.length === 0) {
+      logger.verboseLog(`[${serverHostname}] No new ports to check for conflicts`);
+      return;
+    }
 
-  logger.verboseLog(`[${serverHostname}] No port conflicts detected`);
+    logger.verboseLog(
+      `[${serverHostname}] Checking ${plannedPorts.length} new port mappings for conflicts`
+    );
+
+    // Use simple port checker (don't need the complex project filtering anymore)
+    const portChecker = new PortChecker(sshClient, dockerClient, serverHostname, verbose);
+    const conflicts = await portChecker.checkPortConflicts(plannedPorts);
+
+    if (conflicts.length > 0) {
+      logger.error(`Port conflicts detected on server ${serverHostname}:`);
+      logger.error("");
+
+      const suggestions = portChecker.generateConflictSuggestions(conflicts);
+      for (const suggestion of suggestions) {
+        logger.error(suggestion);
+      }
+
+      throw new Error("Port conflicts detected");
+    }
+
+    logger.verboseLog(`[${serverHostname}] No port conflicts detected`);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Port conflicts detected") {
+      throw error;
+    }
+    logger.verboseLog(`[${serverHostname}] Warning: Could not check existing containers: ${error}`);
+    // Continue with normal port checking if we can't get existing containers
+  }
 }
 
 /**
