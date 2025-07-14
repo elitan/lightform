@@ -94,7 +94,7 @@ export class PortChecker {
           for (const mapping of portMappings) {
             const match = mapping
               .trim()
-              .match(/(?:0\.0\.0\.0:)?(\d+)->(\d+)\/(tcp|udp)/);
+              .match(/(?:(?:0\.0\.0\.0:)|(?:\[::\]:))?(\d+)->(\d+)\/(tcp|udp)/);
             if (match) {
               const [, hostPort, containerPort, protocol] = match;
 
