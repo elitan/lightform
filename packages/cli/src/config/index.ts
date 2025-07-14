@@ -20,7 +20,7 @@ export async function loadConfig(): Promise<LightformConfig> {
     // Validate and parse using Zod schema
     const validationResult = LightformConfigSchema.safeParse(rawConfig);
     if (!validationResult.success) {
-      console.error(`Invalid configuration in ${CONFIG_FILE}:`);
+      console.error(`\nInvalid configuration in ${CONFIG_FILE}:`);
 
       // Collect all validation issues including nested union errors
       const allIssues: Array<{
