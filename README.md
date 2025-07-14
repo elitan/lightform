@@ -148,27 +148,39 @@ apps:
         - DATABASE_URL
 ```
 
-**Full-stack with database:**
+**Monorepo with multiple apps:**
 
 ```yaml
+# Repository structure:
+# /
+# ├── lightform.yml
+# ├── frontend/
+# │   └── Dockerfile
+# ├── backend/
+# │   └── Dockerfile
+# └── mobile-api/
+#     └── Dockerfile
+
 name: ecommerce
 
 ssh:
   username: lightform
 
 apps:
-  web:
+  frontend:
     build:
-      context: ./frontend
+      context: ./frontend              # Build context: ./frontend directory
+      dockerfile: ./frontend/Dockerfile # Dockerfile path from project root
     server: web-server.com
     proxy:
       hosts:
         - shop.com
       app_port: 3000
 
-  api:
+  backend:
     build:
-      context: ./backend
+      context: ./backend               # Build context: ./backend directory
+      dockerfile: ./backend/Dockerfile # Dockerfile path from project root
     server: api-server.com
     proxy:
       hosts:
@@ -178,6 +190,17 @@ apps:
       secret:
         - DATABASE_URL
         - JWT_SECRET
+
+  mobile-api:
+    build:
+      context: ./mobile-api               # Build context: ./mobile-api directory
+      dockerfile: ./mobile-api/Dockerfile # Dockerfile path from project root
+    server: api-server.com
+    proxy:
+      app_port: 5000
+    environment:
+      secret:
+        - DATABASE_URL
 
 services:
   postgres:
