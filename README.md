@@ -12,16 +12,21 @@ lightform deploy   # zero-downtime blue-green deployment
 ```yaml
 # lightform.yml
 name: my-app
+
+ssh:
+  username: lightform
+
 apps:
   web:
-    image: my-app/web
-    servers: [your-server.com]
     build:
       context: .
       dockerfile: Dockerfile
+    server: your-server.com
     proxy:
       app_port: 3000
       # hosts: [myapp.com] - optional, auto-generated if not provided
+    environment:
+      secret: [DATABASE_URL]
 ```
 
 ```
@@ -73,13 +78,15 @@ https://a1b2c3d4-web-lightform-192-168-1-100.app.lightform.dev
 ```yaml
 name: my-app
 
+ssh:
+  username: lightform
+
 apps:
   web:
-    image: my-app/web
-    servers: [server1.com, server2.com]
     build:
       context: .
       dockerfile: Dockerfile
+    server: your-server.com
     proxy:
       hosts: [myapp.com]
       app_port: 3000
@@ -89,7 +96,7 @@ apps:
 services:
   postgres:
     image: postgres:15
-    servers: [db.com]
+    server: your-server.com
     environment:
       secret: [POSTGRES_PASSWORD]
     volumes:
@@ -120,12 +127,17 @@ lightform status                  # Check deployment status
 
 ```yaml
 name: blog
+
+ssh:
+  username: lightform
+
 apps:
   web:
-    image: my-blog
-    servers: [server.com]
-    build: { context: . }
-    proxy: { app_port: 3000 }
+    build:
+      context: .
+    server: your-server.com
+    proxy:
+      app_port: 3000
     environment:
       secret: [DATABASE_URL]
 ```
@@ -134,19 +146,23 @@ apps:
 
 ```yaml
 name: ecommerce
+
+ssh:
+  username: lightform
+
 apps:
   web:
-    image: shop/frontend
-    servers: [web1.com, web2.com]
-    build: { context: ./frontend }
+    build:
+      context: ./frontend
+    server: web-server.com
     proxy:
       hosts: [shop.com]
       app_port: 3000
 
   api:
-    image: shop/backend
-    servers: [api.com]
-    build: { context: ./backend }
+    build:
+      context: ./backend
+    server: api-server.com
     proxy:
       hosts: [api.shop.com]
       app_port: 8080
@@ -156,7 +172,7 @@ apps:
 services:
   postgres:
     image: postgres:15
-    servers: [db.com]
+    server: db-server.com
     environment:
       secret: [POSTGRES_PASSWORD]
     volumes:
