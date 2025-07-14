@@ -26,7 +26,8 @@ apps:
       app_port: 3000
       # hosts: [myapp.com] - optional, auto-generated if not provided
     environment:
-      secret: [DATABASE_URL]
+      secret:
+        - DATABASE_URL
 ```
 
 ```
@@ -91,14 +92,16 @@ apps:
       hosts: [myapp.com]
       app_port: 3000
     environment:
-      secret: [DATABASE_URL]
+      secret:
+        - DATABASE_URL
 
 services:
   postgres:
     image: postgres:15
     server: your-server.com
     environment:
-      secret: [POSTGRES_PASSWORD]
+      secret:
+        - POSTGRES_PASSWORD
     volumes:
       - postgres_data:/var/lib/postgresql/data
 ```
@@ -139,7 +142,8 @@ apps:
     proxy:
       app_port: 3000
     environment:
-      secret: [DATABASE_URL]
+      secret:
+        - DATABASE_URL
 ```
 
 **Full-stack with database:**
@@ -167,14 +171,17 @@ apps:
       hosts: [api.shop.com]
       app_port: 8080
     environment:
-      secret: [DATABASE_URL, JWT_SECRET]
+      secret:
+        - DATABASE_URL
+        - JWT_SECRET
 
 services:
   postgres:
     image: postgres:15
     server: db-server.com
     environment:
-      secret: [POSTGRES_PASSWORD]
+      secret:
+        - POSTGRES_PASSWORD
     volumes:
       - postgres_data:/var/lib/postgresql/data
 ```
