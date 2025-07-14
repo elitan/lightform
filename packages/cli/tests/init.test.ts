@@ -45,10 +45,13 @@ describe("init command", () => {
     expect(configContent).toContain("apps:");
     expect(configContent).toContain("web:");
 
-    // Secrets file should be empty
+    // Secrets file should contain example content
     const secretsFile = Bun.file(join(".lightform", "secrets"));
     const secretsContent = await secretsFile.text();
-    expect(secretsContent).toBe("");
+    expect(secretsContent).toContain("# Add your secret environment variables here");
+    expect(secretsContent).toContain("# DATABASE_URL=postgres://user:password@localhost:5432/mydb");
+    expect(secretsContent).toContain("# POSTGRES_PASSWORD=supersecret");
+    expect(secretsContent).toContain("# API_KEY=your-api-key");
   });
 
   test("should not overwrite existing files", async () => {
