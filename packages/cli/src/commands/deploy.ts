@@ -569,7 +569,7 @@ function categorizeEntries(targetEntries: (AppEntry | ServiceEntry)[]): {
 /**
  * Gets the build configuration for an app, providing defaults if none specified
  */
-function getBuildConfig(appEntry: AppEntry): {
+function getBuildConfig(appEntry: AppEntry, context: DeploymentContext): {
   context: string;
   dockerfile: string;
   platform: string;
@@ -577,11 +577,35 @@ function getBuildConfig(appEntry: AppEntry): {
   target?: string;
 } {
   if (appEntry.build) {
+    const buildArgs: Record<string, string> = {};
+
+    // Handle build.args - resolve variable names from environment section
+    if (appEntry.build.args && appEntry.build.args.length > 0) {
+      const envVars = resolveEnvironmentVariables(appEntry, context.secrets);
+      
+      for (const varName of appEntry.build.args) {
+        if (envVars[varName] !== undefined) {
+          buildArgs[varName] = envVars[varName];
+          
+          // Warn about potentially sensitive variables being exposed to build context
+          const lowerCaseName = varName.toLowerCase();
+          if (lowerCaseName.includes('secret') || 
+              lowerCaseName.includes('password') || 
+              lowerCaseName.includes('key') ||
+              lowerCaseName.includes('token')) {
+            logger.warn(`Warning: Build argument "${varName}" appears to contain sensitive data and will be visible in Docker build context for app ${appEntry.name}`);
+          }
+        } else {
+          throw new Error(`Build argument '${varName}' is not defined in the 'environment' section for app '${appEntry.name}'`);
+        }
+      }
+    }
+
     return {
       context: appEntry.build.context || ".",
       dockerfile: appEntry.build.dockerfile || "Dockerfile",
       platform: appEntry.build.platform || "linux/amd64",
-      args: appEntry.build.args,
+      args: buildArgs,
       target: appEntry.build.target,
     };
   }
@@ -743,7 +767,7 @@ async function buildAndSaveApp(
     const imageReady = await buildOrTagAppImage(
       appEntry,
       imageNameWithRelease,
-      context.verboseFlag
+      context
     );
     if (!imageReady) throw new Error("Image build failed");
 
@@ -792,12 +816,12 @@ async function deployAppToServers(
 async function buildOrTagAppImage(
   appEntry: AppEntry,
   imageNameWithRelease: string,
-  verbose: boolean = false
+  context: DeploymentContext
 ): Promise<boolean> {
   if (appNeedsBuilding(appEntry)) {
     logger.verboseLog(`Building app ${appEntry.name}...`);
     try {
-      const buildConfig = getBuildConfig(appEntry);
+      const buildConfig = getBuildConfig(appEntry, context);
 
       if (!buildConfig.platform) {
         logger.verboseLog(`No platform specified, defaulting to linux/amd64`);
@@ -810,7 +834,7 @@ async function buildOrTagAppImage(
         buildArgs: buildConfig.args,
         platform: buildConfig.platform,
         target: buildConfig.target,
-        verbose: verbose,
+        verbose: context.verboseFlag,
       });
       logger.verboseLog(
         `Successfully built and tagged ${imageNameWithRelease} for platforms: ${buildConfig.platform}`
@@ -825,7 +849,7 @@ async function buildOrTagAppImage(
     const baseImageName = getAppImageName(appEntry);
     logger.verboseLog(`Tagging ${baseImageName} as ${imageNameWithRelease}...`);
     try {
-      await DockerClient.tag(baseImageName, imageNameWithRelease, verbose);
+      await DockerClient.tag(baseImageName, imageNameWithRelease, context.verboseFlag);
       logger.verboseLog(
         `Successfully tagged ${baseImageName} as ${imageNameWithRelease}`
       );

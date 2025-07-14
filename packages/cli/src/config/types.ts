@@ -59,7 +59,9 @@ export const AppEntryWithoutNameSchema = z.object({
     .object({
       context: z.string(),
       dockerfile: z.string().default("Dockerfile"),
-      args: z.record(z.string()).optional(), // Build arguments
+      args: z.array(z.string()).optional().describe(
+        "Build arguments passed to Docker build command. List of environment variable names to pass as build args. These variables must be defined in the environment section."
+      ),
       target: z.string().optional(), // For multi-stage builds
       platform: z.string().optional(), // e.g., linux/amd64
     })

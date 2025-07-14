@@ -8,6 +8,8 @@ apps:
     build:
       context: .
       dockerfile: Dockerfile
+      args:  # Build arguments from environment variables
+        - EXAMPLE_VAR
     server: 157.180.47.213
     environment:
       plain:
