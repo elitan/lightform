@@ -1054,6 +1054,7 @@ EOF`);
       name: containerName,
       image: service.image,
       network: `${projectName}-network`,
+      networkAliases: [service.name], // Add service name as network alias (e.g., "db")
       ports: service.ports,
       volumes: service.volumes,
       envVars: {},
