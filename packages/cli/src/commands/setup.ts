@@ -838,7 +838,7 @@ async function deployService(
     );
 
     if (containerExists) {
-      await handleExistingServiceContainer(containerOptions.name, dockerClient);
+      await handleExistingServiceContainer(containerOptions.name, dockerClient, containerOptions);
     } else {
       await createNewServiceContainer(containerOptions, dockerClient);
     }
@@ -849,24 +849,26 @@ async function deployService(
 }
 
 /**
- * Handles existing service containers (start if stopped, skip if running)
+ * Handles existing service containers (recreate with updated config)
  */
 async function handleExistingServiceContainer(
   containerName: string,
-  dockerClient: DockerClient
+  dockerClient: DockerClient,
+  containerOptions: any
 ): Promise<void> {
+  logger.verboseLog(
+    `Container ${containerName} already exists. Recreating with updated configuration...`
+  );
+  
+  // Stop and remove the existing container
   const containerRunning = await dockerClient.containerIsRunning(containerName);
-
   if (containerRunning) {
-    logger.verboseLog(
-      `Container ${containerName} is already running. Setup command does not restart existing containers.`
-    );
-  } else {
-    logger.verboseLog(
-      `Container ${containerName} exists but is not running. Starting it...`
-    );
-    await dockerClient.startContainer(containerName);
+    await dockerClient.stopContainer(containerName);
   }
+  await dockerClient.removeContainer(containerName);
+  
+  // Create the container with new configuration
+  await dockerClient.createContainer(containerOptions);
 }
 
 /**
