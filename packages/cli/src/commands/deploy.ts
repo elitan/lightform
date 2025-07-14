@@ -132,6 +132,7 @@ function serviceEntryToContainerOptions(
     volumes: serviceEntry.volumes,
     envVars: envVars,
     network: networkName,
+    networkAliases: [serviceEntry.name], // Allow other containers to reach this service by name (e.g. "db", "meilisearch")
     restart: "unless-stopped",
     labels: {
       "lightform.managed": "true",
@@ -165,7 +166,8 @@ function normalizeConfigEntries(
 interface DeploymentContext {
   config: LightformConfig;
   secrets: LightformSecrets;
-  targetEntries: (AppEntry | ServiceEntry)[];
+  targetApps: AppEntry[];
+  targetServices: ServiceEntry[];
   releaseId: string;
   projectName: string;
   networkName: string;
@@ -276,41 +278,40 @@ function identifyTargetEntries(
   entryNames: string[],
   deployServicesFlag: boolean,
   config: LightformConfig
-): (AppEntry | ServiceEntry)[] {
+): { apps: AppEntry[]; services: ServiceEntry[] } {
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
-  let targetEntries: (AppEntry | ServiceEntry)[] = [];
+  let targetApps: AppEntry[] = [];
+  let targetServices: ServiceEntry[] = [];
 
   if (deployServicesFlag) {
     // --services flag: deploy services only
     if (entryNames.length === 0) {
-      targetEntries = [...configuredServices];
-      if (targetEntries.length === 0) {
+      targetServices = [...configuredServices];
+      if (targetServices.length === 0) {
         logger.warn("No services found in configuration");
-        return [];
       }
     } else {
       entryNames.forEach((name) => {
         const service = configuredServices.find((s) => s.name === name);
         if (service) {
-          targetEntries.push(service);
+          targetServices.push(service);
         } else {
           logger.warn(`Service "${name}" not found in configuration`);
         }
       });
-      if (targetEntries.length === 0) {
+      if (targetServices.length === 0) {
         logger.warn("No valid services found for specified names");
-        return [];
       }
     }
   } else {
     // Default behavior: deploy both apps and services
     if (entryNames.length === 0) {
       // Deploy everything
-      targetEntries = [...configuredApps, ...configuredServices];
-      if (targetEntries.length === 0) {
+      targetApps = [...configuredApps];
+      targetServices = [...configuredServices];
+      if (targetApps.length === 0 && targetServices.length === 0) {
         logger.warn("No apps or services found in configuration");
-        return [];
       }
     } else {
       // Deploy specific entries (can be apps or services)
@@ -319,21 +320,21 @@ function identifyTargetEntries(
         const service = configuredServices.find((s) => s.name === name);
         
         if (app) {
-          targetEntries.push(app);
+          targetApps.push(app);
         } else if (service) {
-          targetEntries.push(service);
+          targetServices.push(service);
         } else {
           logger.warn(`Entry "${name}" not found in apps or services configuration`);
         }
       });
-      if (targetEntries.length === 0) {
+      if (targetApps.length === 0 && targetServices.length === 0) {
         logger.warn("No valid apps or services found for specified names");
-        return [];
       }
     }
   }
 
-  return targetEntries;
+  logger.verboseLog(`Selected: ${targetApps.length} apps [${targetApps.map(a => a.name).join(', ')}], ${targetServices.length} services [${targetServices.map(s => s.name).join(', ')}]`);
+  return { apps: targetApps, services: targetServices };
 }
 
 /**
@@ -567,59 +568,6 @@ async function checkPortConflictsOnServer(
   }
 }
 
-/**
- * Categorizes entries into apps and services based on configuration
- */
-function categorizeEntries(targetEntries: (AppEntry | ServiceEntry)[]): {
-  apps: AppEntry[];
-  services: ServiceEntry[];
-} {
-  const apps: AppEntry[] = [];
-  const services: ServiceEntry[] = [];
-
-  for (const entry of targetEntries) {
-    logger.verboseLog(`Categorizing entry: ${entry.name} - proxy: ${!!(entry as AppEntry).proxy}, build: ${!!(entry as AppEntry).build}, image: ${!!(entry as ServiceEntry).image}`);
-    
-    // If it has a proxy config, it's definitely an app
-    if ((entry as AppEntry).proxy !== undefined) {
-      logger.verboseLog(`${entry.name} categorized as APP (has proxy)`);
-      apps.push(entry as AppEntry);
-      continue;
-    }
-
-    // If it explicitly has a build config, it's an app
-    if ((entry as AppEntry).build !== undefined) {
-      logger.verboseLog(`${entry.name} categorized as APP (has build)`);
-      apps.push(entry as AppEntry);
-      continue;
-    }
-
-    // If it has an image but no build config and no proxy, it's a service
-    if (
-      (entry as ServiceEntry).image !== undefined &&
-      !(entry as AppEntry).build &&
-      !(entry as AppEntry).proxy
-    ) {
-      logger.verboseLog(`${entry.name} categorized as SERVICE (has image, no build/proxy)`);
-      services.push(entry as ServiceEntry);
-      continue;
-    }
-
-    // If it doesn't have an image field at all, it's an app that needs building
-    if (!(entry as ServiceEntry).image) {
-      logger.verboseLog(`${entry.name} categorized as APP (no image field)`);
-      apps.push(entry as AppEntry);
-      continue;
-    }
-
-    // Default to service for anything else
-    logger.verboseLog(`${entry.name} categorized as SERVICE (default fallback)`);
-    services.push(entry as ServiceEntry);
-  }
-
-  logger.verboseLog(`Categorization complete: ${apps.length} apps [${apps.map(a => a.name).join(', ')}], ${services.length} services [${services.map(s => s.name).join(', ')}]`);
-  return { apps, services };
-}
 
 /**
  * Detects the platform architecture of a server by establishing SSH connection
@@ -744,8 +692,9 @@ function getAppImageName(appEntry: AppEntry): string {
  * Main deployment loop that processes all target entries
  */
 async function deployEntries(context: DeploymentContext): Promise<void> {
-  // Categorize entries by type using new logic
-  const { apps, services } = categorizeEntries(context.targetEntries);
+  // Use apps and services directly from context
+  const apps = context.targetApps;
+  const services = context.targetServices;
 
   const appsNeedingBuild = apps.filter((app) => appNeedsBuilding(app));
 
@@ -783,9 +732,8 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   // Clean up removed apps with reconciliation
   logger.phase("App State Reconciliation");
   const allAppServers = new Set<string>();
-  context.targetEntries.forEach((entry) => {
-    const appEntry = entry as AppEntry;
-    allAppServers.add(appEntry.server);
+  context.targetApps.forEach((entry) => {
+    allAppServers.add(entry.server);
   });
 
   // Also check servers that might have orphaned apps
@@ -1169,9 +1117,8 @@ async function deployServicesWithReconciliation(
     );
 
     // Step 3: Deploy/update desired services
-    const servicesToDeploy = context.targetEntries.filter((entry) => {
-      const serviceEntry = entry as ServiceEntry;
-      return serviceEntry.server === serverHostname;
+    const servicesToDeploy = context.targetServices.filter((entry) => {
+      return entry.server === serverHostname;
     });
 
     for (const entry of servicesToDeploy) {
@@ -1225,7 +1172,7 @@ async function deployServiceDirectly(
     await dockerClient.prune();
 
     logger.verboseLog(
-      `Service ${serviceEntry.name} deployed successfully to ${serverHostname}`
+      `✓ Service ${serviceEntry.name} deployed successfully to ${serverHostname}`
     );
   } catch (serverError) {
     logger.error(
@@ -1430,6 +1377,145 @@ async function configureProxyForApp(
 /**
  * Replaces a service container by stopping the old one and creating a new one
  */
+/**
+ * Pure function to check if service configuration has changed
+ */
+export function checkServiceConfigChanges(
+  currentConfig: any,
+  desiredConfig: any,
+  containerName: string
+): { hasChanges: boolean; reason?: string } {
+  // Compare image
+  if (currentConfig.Config?.Image !== desiredConfig.image) {
+    return { 
+      hasChanges: true, 
+      reason: `Image changed: ${currentConfig.Config?.Image} → ${desiredConfig.image}` 
+    };
+  }
+
+  // Compare environment variables
+  const currentEnv = currentConfig.Config?.Env || [];
+  const desiredEnv = Object.entries(desiredConfig.envVars || {}).map(([key, value]) => `${key}=${value}`);
+  
+  // Create sets for comparison (Docker adds some system env vars)
+  const currentEnvSet = new Set(currentEnv.filter((env: string) => 
+    !env.startsWith('PATH=') && 
+    !env.startsWith('HOSTNAME=') && 
+    !env.startsWith('HOME=') &&
+    !env.startsWith('TERM=') &&
+    !env.startsWith('DEBIAN_FRONTEND=') &&
+    !env.startsWith('LC_ALL=') &&
+    !env.startsWith('LANG=')
+  ));
+  const desiredEnvSet = new Set(desiredEnv);
+  
+  if (currentEnvSet.size !== desiredEnvSet.size || ![...desiredEnvSet].every(env => currentEnvSet.has(env))) {
+    return { 
+      hasChanges: true, 
+      reason: `Environment variables changed. Current: ${[...currentEnvSet].join(', ')} | Desired: ${[...desiredEnvSet].join(', ')}` 
+    };
+  }
+
+  // Compare port mappings
+  const currentPorts = currentConfig.NetworkSettings?.Ports || {};
+  const desiredPorts = desiredConfig.ports || [];
+  
+  if (desiredPorts.length > 0) {
+    for (const portMapping of desiredPorts) {
+      const [hostPort, containerPort] = portMapping.includes(':') 
+        ? portMapping.split(':') 
+        : [portMapping, portMapping];
+      
+      const portKey = `${containerPort}/tcp`;
+      const currentPortMapping = currentPorts[portKey];
+      
+      if (!currentPortMapping || !currentPortMapping.some((p: any) => p.HostPort === hostPort)) {
+        return { 
+          hasChanges: true, 
+          reason: `Port mapping changed: ${portMapping}` 
+        };
+      }
+    }
+  }
+
+  // Compare volumes
+  const currentMounts = currentConfig.Mounts || [];
+  const desiredVolumes = desiredConfig.volumes || [];
+  
+  if (currentMounts.length !== desiredVolumes.length) {
+    return { 
+      hasChanges: true, 
+      reason: `Volume count changed: ${currentMounts.length} → ${desiredVolumes.length}` 
+    };
+  }
+  
+  for (const desiredVolume of desiredVolumes) {
+    const [source, target] = desiredVolume.split(':');
+    const mountExists = currentMounts.some((mount: any) => 
+      mount.Source === source && mount.Destination === target
+    );
+    
+    if (!mountExists) {
+      return { 
+        hasChanges: true, 
+        reason: `Volume mapping changed: ${desiredVolume}` 
+      };
+    }
+  }
+
+  return { hasChanges: false };
+}
+
+/**
+ * Checks if a service container needs to be updated based on configuration changes
+ */
+export async function serviceNeedsUpdate(
+  serviceEntry: ServiceEntry,
+  dockerClient: DockerClient,
+  context: DeploymentContext
+): Promise<boolean> {
+  const containerName = `${context.projectName}-${serviceEntry.name}`;
+  
+  try {
+    // Check if container exists
+    const containerExists = await dockerClient.containerExists(containerName);
+    if (!containerExists) {
+      logger.verboseLog(`Container ${containerName} does not exist, needs creation`);
+      return true;
+    }
+
+    // Get current container configuration
+    const currentConfig = await dockerClient.inspectContainer(containerName);
+    
+    if (!currentConfig) {
+      logger.verboseLog(`Could not inspect ${containerName}, assuming needs update`);
+      return true;
+    }
+
+    // Build desired configuration
+    const desiredConfig = serviceEntryToContainerOptions(
+      serviceEntry,
+      context.secrets,
+      context.projectName
+    );
+
+    // Check for changes
+    const result = checkServiceConfigChanges(currentConfig, desiredConfig, containerName);
+    
+    if (result.hasChanges) {
+      logger.verboseLog(`↻ Service ${containerName} needs update: ${result.reason}`);
+      return true;
+    }
+
+    logger.verboseLog(`✓ No changes detected for service ${containerName}, skipping recreation`);
+    return false;
+
+  } catch (error) {
+    logger.verboseLog(`Error checking if ${containerName} needs update: ${error}, assuming needs update`);
+    return true;
+  }
+}
+
 async function replaceServiceContainer(
   serviceEntry: ServiceEntry,
   dockerClient: DockerClient,
@@ -1437,7 +1523,17 @@ async function replaceServiceContainer(
   context: DeploymentContext
 ): Promise<void> {
   const containerName = `${context.projectName}-${serviceEntry.name}`;
+  
+  // Check if service actually needs updating
+  const needsUpdate = await serviceNeedsUpdate(serviceEntry, dockerClient, context);
+  
+  if (!needsUpdate) {
+    logger.verboseLog(`✓ Service ${serviceEntry.name} is up-to-date, skipping recreation (Docker Compose-like behavior)`);
+    return;
+  }
 
+  logger.verboseLog(`↻ Service ${serviceEntry.name} needs update, recreating container`);
+  
   try {
     await dockerClient.stopContainer(containerName);
     await dockerClient.removeContainer(containerName);
@@ -1824,12 +1920,12 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     const { config, secrets } = await loadConfigurationAndSecrets();
     logger.phaseComplete("Git status verified");
 
-    const targetEntries = identifyTargetEntries(
+    const { apps: targetApps, services: targetServices } = identifyTargetEntries(
       entryNames,
       deployServicesFlag,
       config
     );
-    if (targetEntries.length === 0) {
+    if (targetApps.length === 0 && targetServices.length === 0) {
       logger.error("No entries selected for deployment");
       return;
     }
@@ -1840,7 +1936,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     // Verify infrastructure
     logger.phase("Checking infrastructure");
     await verifyInfrastructure(
-      targetEntries,
+      [...targetApps, ...targetServices],
       config,
       secrets,
       networkName,
@@ -1851,7 +1947,8 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     const context: DeploymentContext = {
       config,
       secrets,
-      targetEntries,
+      targetApps,
+      targetServices,
       releaseId,
       projectName,
       networkName,
@@ -1865,8 +1962,8 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     // Collect URLs for final output
     const urls: string[] = [];
     if (!deployServicesFlag) {
-      for (const entry of targetEntries) {
-        const appEntry = entry as AppEntry;
+      for (const entry of targetApps) {
+        const appEntry = entry;
         if (appEntry.proxy) {
           // Use configured hosts or generate app.lightform.dev domain
           let hosts: string[];

@@ -1042,6 +1042,25 @@ EOF`);
   }
 
   /**
+   * Inspect a container and return its configuration
+   */
+  async inspectContainer(containerName: string): Promise<any> {
+    try {
+      const inspectOutput = await this.execRemote(`inspect ${containerName}`);
+      const inspectData = JSON.parse(inspectOutput);
+      
+      if (!inspectData || inspectData.length === 0) {
+        return null;
+      }
+      
+      return inspectData[0];
+    } catch (error) {
+      this.logError(`Failed to inspect container ${containerName}: ${error}`);
+      return null;
+    }
+  }
+
+  /**
    * Convert a Lightform service definition to Docker container options
    */
   static serviceToContainerOptions(
