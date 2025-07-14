@@ -578,14 +578,18 @@ function categorizeEntries(targetEntries: (AppEntry | ServiceEntry)[]): {
   const services: ServiceEntry[] = [];
 
   for (const entry of targetEntries) {
+    logger.verboseLog(`Categorizing entry: ${entry.name} - proxy: ${!!(entry as AppEntry).proxy}, build: ${!!(entry as AppEntry).build}, image: ${!!(entry as ServiceEntry).image}`);
+    
     // If it has a proxy config, it's definitely an app
     if ((entry as AppEntry).proxy !== undefined) {
+      logger.verboseLog(`${entry.name} categorized as APP (has proxy)`);
       apps.push(entry as AppEntry);
       continue;
     }
 
     // If it explicitly has a build config, it's an app
     if ((entry as AppEntry).build !== undefined) {
+      logger.verboseLog(`${entry.name} categorized as APP (has build)`);
       apps.push(entry as AppEntry);
       continue;
     }
@@ -596,20 +600,24 @@ function categorizeEntries(targetEntries: (AppEntry | ServiceEntry)[]): {
       !(entry as AppEntry).build &&
       !(entry as AppEntry).proxy
     ) {
+      logger.verboseLog(`${entry.name} categorized as SERVICE (has image, no build/proxy)`);
       services.push(entry as ServiceEntry);
       continue;
     }
 
     // If it doesn't have an image field at all, it's an app that needs building
     if (!(entry as ServiceEntry).image) {
+      logger.verboseLog(`${entry.name} categorized as APP (no image field)`);
       apps.push(entry as AppEntry);
       continue;
     }
 
     // Default to service for anything else
+    logger.verboseLog(`${entry.name} categorized as SERVICE (default fallback)`);
     services.push(entry as ServiceEntry);
   }
 
+  logger.verboseLog(`Categorization complete: ${apps.length} apps [${apps.map(a => a.name).join(', ')}], ${services.length} services [${services.map(s => s.name).join(', ')}]`);
   return { apps, services };
 }
 
