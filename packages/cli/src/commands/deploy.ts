@@ -567,15 +567,37 @@ function categorizeEntries(targetEntries: (AppEntry | ServiceEntry)[]): {
 }
 
 /**
+ * Detects the platform architecture of a server by establishing SSH connection
+ */
+async function detectServerPlatform(serverHostname: string, context: DeploymentContext): Promise<string> {
+  try {
+    const sshClient = await establishSSHConnection(
+      serverHostname,
+      context.config,
+      context.secrets,
+      context.verboseFlag
+    );
+    
+    const platform = await sshClient.detectServerPlatform();
+    await sshClient.close();
+    
+    return platform;
+  } catch (error) {
+    logger.verboseLog(`Failed to detect platform for server ${serverHostname}, defaulting to linux/amd64: ${error}`);
+    return "linux/amd64";
+  }
+}
+
+/**
  * Gets the build configuration for an app, providing defaults if none specified
  */
-function getBuildConfig(appEntry: AppEntry, context: DeploymentContext): {
+async function getBuildConfig(appEntry: AppEntry, context: DeploymentContext): Promise<{
   context: string;
   dockerfile: string;
   platform: string;
   args?: Record<string, string>;
   target?: string;
-} {
+}> {
   if (appEntry.build) {
     const buildArgs: Record<string, string> = {};
 
@@ -601,20 +623,29 @@ function getBuildConfig(appEntry: AppEntry, context: DeploymentContext): {
       }
     }
 
+    // Detect platform if not explicitly set
+    let platform = appEntry.build.platform;
+    if (!platform) {
+      platform = await detectServerPlatform(appEntry.server, context);
+    }
+
     return {
       context: appEntry.build.context || ".",
       dockerfile: appEntry.build.dockerfile || "Dockerfile",
-      platform: appEntry.build.platform || "linux/amd64",
+      platform,
       args: buildArgs,
       target: appEntry.build.target,
     };
   }
 
   // Default build configuration for apps without explicit build config
+  // Detect platform for the target server
+  const platform = await detectServerPlatform(appEntry.server, context);
+  
   return {
     context: ".",
     dockerfile: "Dockerfile",
-    platform: "linux/amd64", // Single platform for broader compatibility
+    platform,
   };
 }
 
@@ -821,11 +852,7 @@ async function buildOrTagAppImage(
   if (appNeedsBuilding(appEntry)) {
     logger.verboseLog(`Building app ${appEntry.name}...`);
     try {
-      const buildConfig = getBuildConfig(appEntry, context);
-
-      if (!buildConfig.platform) {
-        logger.verboseLog(`No platform specified, defaulting to linux/amd64`);
-      }
+      const buildConfig = await getBuildConfig(appEntry, context);
 
       await DockerClient.build({
         context: buildConfig.context,
