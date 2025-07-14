@@ -8,10 +8,14 @@ apps:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - NODE_ENV
+        - NEXT_PUBLIC_API_URL
     server: 157.180.25.101
     environment:
       plain:
         - NODE_ENV=production
+        - NEXT_PUBLIC_API_URL=https://api.example.com
     proxy:
       #hosts:
       #  - nextjs.example.mylightform.cloud
