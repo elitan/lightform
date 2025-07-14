@@ -484,10 +484,12 @@ async function checkPortConflictsOnServer(
     const portLines = containerOutput.split("\n").filter(line => line.trim());
     for (const line of portLines) {
       // Extract host ports from format like "0.0.0.0:9002->5432/tcp, [::]:9002->5432/tcp"
-      const hostPorts = line.match(/(?:0\.0\.0\.0:|::):(\d+)->/g);
-      if (hostPorts) {
-        for (const portMatch of hostPorts) {
-          const port = parseInt(portMatch.match(/:(\d+)->/)?.[1] || "0");
+      // Simple approach: find all ":PORT->" patterns
+      const hostPortMatches = line.match(/:(\d+)->/g);
+      if (hostPortMatches) {
+        for (const portMatch of hostPortMatches) {
+          // Extract just the port number from ":9002->"
+          const port = parseInt(portMatch.replace(/[:->]/g, ""));
           if (port > 0) {
             projectContainerPorts.add(port);
             logger.verboseLog(`[${serverHostname}] Excluding existing project port: ${port}`);
