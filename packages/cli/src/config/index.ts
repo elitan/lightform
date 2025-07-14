@@ -22,120 +22,165 @@ export async function loadConfig(): Promise<LightformConfig> {
     if (!validationResult.success) {
       console.error(`Invalid configuration in ${CONFIG_FILE}:`);
 
-      // Enhanced error messages with more helpful guidance
-      validationResult.error.errors.forEach((err) => {
-        const path = err.path.join(".");
-        let message = err.message;
+      // Collect all validation issues including nested union errors
+      const allIssues: Array<{
+        path: string;
+        code: string;
+        message: string;
+        expected?: string;
+        received?: string;
+      }> = [];
 
-        // Enhanced error handling with self-contained actionable fixes
-        if (path === "name" && message.includes("Required")) {
-          console.error(`  ERROR: Missing required 'name' field`);
-          console.error(`  FIX: Add this to the top of lightform.yml:`);
-          console.error(`     name: my-project-name`);
-        } else if (path === "name" && message.includes("String must contain at least 1")) {
-          console.error(`  ERROR: Project name cannot be empty`);
-          console.error(`  FIX: Set a valid project name:`);
-          console.error(`     name: my-project-name`);
-        } else if (path === "project_name") {
-          console.error(`  ERROR: 'project_name' field is not recognized`);
-          console.error(`  FIX: Change 'project_name' to 'name':`);
-          console.error(`     name: your-project-name`);
-        } else if (path.includes("server") && message.includes("Required")) {
-          const appName = path.split('.')[1] || 'app';
-          console.error(`  ERROR: Missing required 'server' field for ${appName}`);
-          console.error(`  FIX: Add server IP or hostname:`);
-          console.error(`     apps:`);
-          console.error(`       ${appName}:`);
-          console.error(`         server: 192.168.1.100    # Your server IP`);
-          console.error(`         # or server: myserver.com  # Your domain`);
-        } else if (path.includes("build.context") && message.includes("Required")) {
-          console.error(`  ERROR: Missing 'context' in build configuration`);
-          console.error(`  FIX: Add build context (directory containing Dockerfile):`);
-          console.error(`     build:`);
-          console.error(`       context: .                 # Current directory`);
-          console.error(`       dockerfile: Dockerfile     # Optional, defaults to Dockerfile`);
-        } else if (path.includes("proxy.app_port")) {
-          console.error(`  ERROR: 'app_port' must be a number, not a string`);
-          console.error(`  FIX: Remove quotes around the port number:`);
-          console.error(`     proxy:`);
-          console.error(`       app_port: 3000             # Number without quotes`);
-        } else if (path.includes("app_port") && message.includes("Expected number")) {
-          console.error(`  ERROR: 'app_port' must be a valid port number`);
-          console.error(`  FIX: Use a port between 1-65535:`);
-          console.error(`     proxy:`);
-          console.error(`       app_port: 3000             # Port your app listens on`);
-        } else if (path === "apps" && message.includes("Expected")) {
-          console.error(`  ERROR: Invalid 'apps' section format`);
-          console.error(`  FIX: Use this structure:`);
-          console.error(`     apps:`);
-          console.error(`       web:                       # Your app name`);
-          console.error(`         build:`);
-          console.error(`           context: .`);
-          console.error(`         server: your-server-ip`);
-          console.error(`         proxy:`);
-          console.error(`           app_port: 3000`);
-        } else if (path === "services" && message.includes("Expected")) {
-          console.error(`  ERROR: Invalid 'services' section format`);
-          console.error(`  FIX: Use this structure:`);
-          console.error(`     services:`);
-          console.error(`       db:                        # Your service name`);
-          console.error(`         image: postgres:15`);
-          console.error(`         server: your-server-ip`);
-          console.error(`         environment:`);
-          console.error(`           secret:`);
-          console.error(`             - POSTGRES_PASSWORD`);
-        } else if (path.includes("image") && message.includes("Required")) {
-          const serviceName = path.split('.')[1] || 'service';
-          console.error(`  ERROR: Missing required 'image' field for service '${serviceName}'`);
-          console.error(`  FIX: Add a Docker image with tag:`);
-          console.error(`     services:`);
-          console.error(`       ${serviceName}:`);
-          console.error(`         image: postgres:15       # Image name with version`);
-        } else if (path.includes("environment") && message.includes("Expected")) {
-          console.error(`  ERROR: Invalid environment variables format`);
-          console.error(`  FIX: Use array format with KEY=VALUE:`);
-          console.error(`     environment:`);
-          console.error(`       plain:`);
-          console.error(`         - NODE_ENV=production    # Plain text variables`);
-          console.error(`         - PORT=3000`);
-          console.error(`       secret:`);
-          console.error(`         - DATABASE_URL           # Secret variables (stored in .lightform/secrets)`);
-        } else if (path.includes("ssh.username") && message.includes("Expected string")) {
-          console.error(`  ERROR: SSH username must be a string`);
-          console.error(`  FIX: Set your SSH username:`);
-          console.error(`     ssh:`);
-          console.error(`       username: lightform        # Your SSH user`);
-        } else if (path.includes("ports") && message.includes("Expected")) {
-          console.error(`  ERROR: Invalid ports format`);
-          console.error(`  FIX: Use array of port mappings:`);
-          console.error(`     ports:`);
-          console.error(`       - "3000:3000"              # host:container format`);
-          console.error(`       - "80:8080"`);
-        } else if (path.includes("volumes") && message.includes("Expected")) {
-          console.error(`  ERROR: Invalid volumes format`);
-          console.error(`  FIX: Use array of volume mappings:`);
-          console.error(`     volumes:`);
-          console.error(`       - "./data:/app/data"       # host:container format`);
-          console.error(`       - "myvolume:/var/lib/data"`);
-        } else if (path.includes("health_check.path") && message.includes("Expected string")) {
-          console.error(`  ERROR: Health check path must be a string`);
-          console.error(`  FIX: Set a valid health check endpoint:`);
-          console.error(`     health_check:`);
-          console.error(`       path: /api/health          # Your health endpoint`);
-        } else {
-          console.error(`  ERROR: Configuration error at: ${path}`);
-          console.error(`  ISSUE: ${message}`);
-          
-          // Provide context-specific guidance based on path
-          if (path.includes("apps.")) {
-            console.error(`  FIX: Check your app configuration structure`);
-          } else if (path.includes("services.")) {
-            console.error(`  FIX: Check your service configuration structure`);
-          } else if (path.includes("ssh.")) {
-            console.error(`  FIX: Check your SSH configuration`);
+      function collectIssues(issues: any[]) {
+        issues.forEach((issue) => {
+          if (issue.code === 'invalid_union' && issue.unionErrors) {
+            // For union errors, find the most specific error (longest path) to avoid generic messages
+            let bestError: any = null;
+            let maxPathLength = 0;
+            
+            issue.unionErrors.forEach((unionError: any) => {
+              if (unionError.issues) {
+                unionError.issues.forEach((subIssue: any) => {
+                  const pathLength = subIssue.path?.length || 0;
+                  if (pathLength > maxPathLength) {
+                    maxPathLength = pathLength;
+                    bestError = subIssue;
+                  }
+                });
+              }
+            });
+            
+            // Only add the most specific error, ignore generic union failures
+            if (bestError && maxPathLength > 0) {
+              allIssues.push({
+                path: bestError.path.join('.'),
+                code: bestError.code,
+                message: bestError.message,
+                expected: bestError.expected,
+                received: bestError.received
+              });
+            }
           } else {
-            console.error(`  FIX: Run 'lightform init' to create a valid configuration template`);
+            allIssues.push({
+              path: issue.path.join('.'),
+              code: issue.code,
+              message: issue.message,
+              expected: issue.expected,
+              received: issue.received
+            });
           }
+        });
+      }
+
+      collectIssues(validationResult.error.errors);
+
+      // Display world-class error messages
+      allIssues.forEach((issue) => {
+        const { path, code, message, expected, received } = issue;
+        // World-class error messages with precise identification and actionable fixes
+        console.error(`\n  Configuration Error:`);
+        
+        if (path === "name" && code === "invalid_type") {
+          console.error(`    Missing project name`);
+          console.error(`    Add this at the top of lightform.yml:`);
+          console.error(`    name: my-project`);
+        } else if (path.includes("app_port") && code === "invalid_type" && expected === "number") {
+          const appPath = path.split('.').slice(0, 2).join('.');
+          console.error(`    Invalid app_port: must be a number`);
+          console.error(`    Change this in lightform.yml:`);
+          console.error(`    ${appPath}:`);
+          console.error(`      proxy:`);
+          console.error(`        app_port: 3000    # Common ports: 3000, 8000, 8080`);
+        } else if (path.includes("server") && code === "invalid_type") {
+          const appName = path.split('.')[1];
+          console.error(`    Missing server for app "${appName}"`);
+          console.error(`    Add your server IP or hostname:`);
+          console.error(`    apps:`);
+          console.error(`      ${appName}:`);
+          console.error(`        server: 192.168.1.100    # Your server IP`);
+        } else if (path.includes("build.context") && code === "invalid_type") {
+          const appName = path.split('.')[1];
+          console.error(`    Missing build context for app "${appName}"`);
+          console.error(`    Specify where your Dockerfile is located:`);
+          console.error(`    apps:`);
+          console.error(`      ${appName}:`);
+          console.error(`        build:`);
+          console.error(`          context: .              # Current directory`);
+        } else if (path.includes("image") && code === "invalid_type") {
+          const serviceName = path.split('.')[1];
+          console.error(`    Missing Docker image for service "${serviceName}"`);
+          console.error(`    Specify a Docker image with tag:`);
+          console.error(`    services:`);
+          console.error(`      ${serviceName}:`);
+          console.error(`        image: postgres:15        # Image name:tag`);
+        } else if (path.includes("proxy.hosts") && code === "invalid_type") {
+          const appName = path.split('.')[1];
+          console.error(`    Invalid hosts configuration for app "${appName}"`);
+          console.error(`    Use an array of domain names:`);
+          console.error(`    apps:`);
+          console.error(`      ${appName}:`);
+          console.error(`        proxy:`);
+          console.error(`          hosts:`);
+          console.error(`            - myapp.com`);
+          console.error(`            - www.myapp.com`);
+        } else if (path.includes("environment.plain") && code === "invalid_type") {
+          const entityName = path.split('.')[1];
+          console.error(`    Invalid environment variables format for "${entityName}"`);
+          console.error(`    Use array format with KEY=VALUE:`);
+          console.error(`    environment:`);
+          console.error(`      plain:`);
+          console.error(`        - NODE_ENV=production`);
+          console.error(`        - PORT=3000`);
+        } else if (path.includes("environment.secret") && code === "invalid_type") {
+          const entityName = path.split('.')[1];
+          console.error(`    Invalid secret environment variables for "${entityName}"`);
+          console.error(`    Use array format with variable names:`);
+          console.error(`    environment:`);
+          console.error(`      secret:`);
+          console.error(`        - DATABASE_URL           # References .lightform/secrets`);
+          console.error(`        - API_KEY`);
+        } else if (path.includes("ports") && code === "invalid_type") {
+          const entityName = path.split('.')[1];
+          console.error(`    Invalid ports configuration for "${entityName}"`);
+          console.error(`    Use array of "host:container" port mappings:`);
+          console.error(`    ports:`);
+          console.error(`      - "3000:3000"`);
+          console.error(`      - "80:8080"`);
+        } else if (path.includes("volumes") && code === "invalid_type") {
+          const entityName = path.split('.')[1];
+          console.error(`    Invalid volumes configuration for "${entityName}"`);
+          console.error(`    Use array of "host:container" volume mappings:`);
+          console.error(`    volumes:`);
+          console.error(`      - "./data:/app/data"`);
+          console.error(`      - "myvolume:/var/lib/data"`);
+        } else if (path.includes("ssh.username") && code === "invalid_type") {
+          console.error(`    Invalid SSH username type`);
+          console.error(`    Must be a string:`);
+          console.error(`    ssh:`);
+          console.error(`      username: lightform         # Your SSH user`);
+        } else if (path.includes("ssh.port") && code === "invalid_type" && expected === "number") {
+          console.error(`    Invalid SSH port: must be a number`);
+          console.error(`    Change this in lightform.yml:`);
+          console.error(`    ssh:`);
+          console.error(`      port: 22                    # Standard SSH port`);
+        } else if (path.includes("health_check.path") && code === "invalid_type") {
+          const appName = path.split('.')[1];
+          console.error(`    Invalid health check path for app "${appName}"`);
+          console.error(`    Must be a string:`);
+          console.error(`    apps:`);
+          console.error(`      ${appName}:`);
+          console.error(`        health_check:`);
+          console.error(`          path: /api/health       # Your health endpoint`);
+        } else if (code === "unrecognized_keys") {
+          console.error(`    Unknown configuration field: ${path}`);
+          console.error(`    This field is not supported. Check the documentation for valid options.`);
+        } else {
+          // Fallback for any unhandled cases
+          console.error(`    ${message} at: ${path}`);
+          if (expected && received) {
+            console.error(`    Expected: ${expected}, received: ${received}`);
+          }
+          console.error(`    Run 'lightform init' for a valid configuration template`);
         }
       });
 
