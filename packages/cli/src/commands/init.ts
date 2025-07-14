@@ -46,15 +46,39 @@ function generateConfigContent(config: ConfigPrompts): string {
   return `name: ${config.projectName}
 
 ssh:
-  username: your-ssh-username
+  username: lightform
 
 apps:
   web:
+    build:
+      context: .
+      dockerfile: Dockerfile
     server: your-server-ip
+    environment:
+      plain:
+        - NODE_ENV=production
+      secret:
+        - DATABASE_URL
     proxy:
-      hosts:
-        - your-domain.com
       app_port: 3000
+    health_check:
+      path: /api/health
+
+# Example service (uncomment and configure as needed)
+# services:
+#   db:
+#     image: postgres:15
+#     server: your-server-ip
+#     ports:
+#       - "5432:5432"
+#     environment:
+#       plain:
+#         - POSTGRES_USER=postgres
+#         - POSTGRES_DB=${config.projectName}
+#       secret:
+#         - POSTGRES_PASSWORD
+#     volumes:
+#       - ./pgdata:/var/lib/postgresql/data
 `;
 }
 
@@ -199,8 +223,14 @@ export async function initCommand(args: string[] = []) {
     console.log(`Secrets file ${ACTUAL_SECRETS_PATH} already exists.`);
   } else {
     try {
-      await writeFile(ACTUAL_SECRETS_PATH, "", "utf8");
-      console.log(`Created empty secrets file: ${ACTUAL_SECRETS_PATH}`);
+      const secretsContent = `# Add your secret environment variables here
+# Example:
+# DATABASE_URL=postgres://user:password@localhost:5432/mydb
+# POSTGRES_PASSWORD=supersecret
+# API_KEY=your-api-key
+`;
+      await writeFile(ACTUAL_SECRETS_PATH, secretsContent, "utf8");
+      console.log(`Created secrets file with examples: ${ACTUAL_SECRETS_PATH}`);
       secretsCreated = true;
     } catch (e) {
       const error = e as Error;
