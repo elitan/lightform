@@ -8,6 +8,8 @@ apps:
     build:
       context: .
       dockerfile: Dockerfile
+      env:  # Make environment variables available during build
+        - EXAMPLE_VAR
     server: 157.180.47.213
     environment:
       plain:
