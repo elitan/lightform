@@ -477,12 +477,13 @@ async function checkPortConflictsOnServer(
     verbose
   );
 
-  // Get all entries targeting this server
+  // Get all entries targeting this server, but only check port conflicts for apps
+  // Services are meant to be replaced during deployment, so conflicts are expected
   const serverEntries = targetEntries.filter(
     (entry) => entry.server === serverHostname
   );
 
-  // Build list of planned port mappings
+  // Build list of planned port mappings (only for apps, not services)
   const plannedPorts: Array<{
     hostPort: number;
     containerPort: number;
@@ -491,6 +492,13 @@ async function checkPortConflictsOnServer(
   }> = [];
 
   for (const entry of serverEntries) {
+    // Skip port conflict checking for services - they get replaced during deployment
+    const isService = !!(entry as any).image && !(entry as any).build && !(entry as any).proxy;
+    if (isService) {
+      logger.verboseLog(`[${serverHostname}] Skipping port conflict check for service: ${entry.name}`);
+      continue;
+    }
+
     if (entry.ports) {
       const portMappings = parsePortMappings(entry.ports);
       for (const mapping of portMappings) {
