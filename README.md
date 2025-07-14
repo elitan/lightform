@@ -24,7 +24,8 @@ apps:
     server: your-server.com
     proxy:
       app_port: 3000
-      # hosts: [myapp.com] - optional, auto-generated if not provided
+      # hosts:
+      #   - myapp.com #- optional, auto-generated if not provided
     environment:
       secret:
         - DATABASE_URL
@@ -89,7 +90,8 @@ apps:
       dockerfile: Dockerfile
     server: your-server.com
     proxy:
-      hosts: [myapp.com]
+      hosts:
+        - myapp.com #- optional, auto-generated if not provided
       app_port: 3000
     environment:
       secret:
@@ -160,7 +162,8 @@ apps:
       context: ./frontend
     server: web-server.com
     proxy:
-      hosts: [shop.com]
+      hosts:
+        - shop.com
       app_port: 3000
 
   api:
@@ -168,7 +171,8 @@ apps:
       context: ./backend
     server: api-server.com
     proxy:
-      hosts: [api.shop.com]
+      hosts:
+        - api.shop.com
       app_port: 8080
     environment:
       secret:
