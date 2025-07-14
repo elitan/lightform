@@ -28,6 +28,7 @@ export class SSHClient {
   public readonly host: string;
   private verbose: boolean = false;
   private suppressConnectionErrors: boolean = false;
+  private platformCache?: string;
 
   private constructor(connectOptions: ConnectConfig) {
     this.connectOptions = connectOptions;
@@ -206,6 +207,90 @@ export class SSHClient {
       if (this.verbose) {
         console.error(`Error closing SSH connection to ${this.host}:`, err);
       }
+    }
+  }
+
+  /**
+   * Detects the platform architecture of the remote server
+   * @returns Promise<string> Platform string (e.g., "linux/amd64", "linux/arm64")
+   */
+  async detectServerPlatform(): Promise<string> {
+    if (this.platformCache) {
+      return this.platformCache;
+    }
+
+    try {
+      if (this.verbose) {
+        console.log(`[${this.host}] Detecting server platform...`);
+      }
+
+      // Get architecture and OS information
+      const arch = await this.exec("uname -m");
+      const os = await this.exec("uname -s");
+
+      // Map common architectures to Docker platform format
+      const cleanArch = arch.trim().toLowerCase();
+      const cleanOs = os.trim().toLowerCase();
+
+      let dockerArch: string;
+      switch (cleanArch) {
+        case "x86_64":
+        case "amd64":
+          dockerArch = "amd64";
+          break;
+        case "aarch64":
+        case "arm64":
+          dockerArch = "arm64";
+          break;
+        case "armv7l":
+        case "armv7":
+          dockerArch = "arm/v7";
+          break;
+        case "armv6l":
+        case "armv6":
+          dockerArch = "arm/v6";
+          break;
+        case "i386":
+        case "i686":
+          dockerArch = "386";
+          break;
+        default:
+          // Default to amd64 for unknown architectures
+          if (this.verbose) {
+            console.warn(`[${this.host}] Unknown architecture '${cleanArch}', defaulting to amd64`);
+          }
+          dockerArch = "amd64";
+      }
+
+      // Construct platform string (typically linux/amd64, linux/arm64, etc.)
+      let platform: string;
+      if (cleanOs === "linux") {
+        platform = `linux/${dockerArch}`;
+      } else if (cleanOs === "darwin") {
+        platform = `darwin/${dockerArch}`;
+      } else {
+        // Default to linux for unknown OS
+        if (this.verbose) {
+          console.warn(`[${this.host}] Unknown OS '${cleanOs}', defaulting to linux`);
+        }
+        platform = `linux/${dockerArch}`;
+      }
+
+      // Cache the result
+      this.platformCache = platform;
+
+      if (this.verbose) {
+        console.log(`[${this.host}] Detected platform: ${platform} (arch: ${cleanArch}, os: ${cleanOs})`);
+      }
+
+      return platform;
+    } catch (error) {
+      if (this.verbose) {
+        console.warn(`[${this.host}] Failed to detect server platform, defaulting to linux/amd64:`, error);
+      }
+      // Default fallback
+      this.platformCache = "linux/amd64";
+      return this.platformCache;
     }
   }
 
