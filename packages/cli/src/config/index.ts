@@ -101,124 +101,151 @@ export async function loadConfig(): Promise<LightformConfig> {
           return String(value);
         };
 
-        // World-class error messages with current values and precise fixes
-        console.error(`\n  Configuration Error in ${path}:`);
+        // Helper function to show unified error format
+        const showError = (description: string, yamlFix: string[]) => {
+          console.error(`\n  Configuration Error in ${path}:`);
+          console.error(`    ${description}`);
+          console.error(`    Fix in lightform.yml:`);
+          yamlFix.forEach(line => console.error(`    ${line}`));
+        };
+
+        // Helper function to get entity info from path
+        const getEntityInfo = (path: string) => {
+          const parts = path.split('.');
+          return {
+            section: parts[0], // apps, services, ssh, etc.
+            entity: parts[1],  // web, db, etc.
+            field: parts.slice(-1)[0] // app_port, server, etc.
+          };
+        };
         
+        const { section, entity, field } = getEntityInfo(path);
+
         if (path === "name" && code === "invalid_type") {
-          console.error(`    Missing project name`);
-          console.error(`    Add this at the top of lightform.yml:`);
-          console.error(`    name: my-project`);
+          showError(`Missing project name`, [
+            `name: my-project`
+          ]);
         } else if (path.includes("app_port") && code === "invalid_type" && expected === "number") {
-          const [section, appName] = path.split('.');
-          console.error(`    Found ${formatValue(currentValue)}, expected a number`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    ${section}:`);
-          console.error(`      ${appName}:`);
-          console.error(`        proxy:`);
-          console.error(`          app_port: 3000    # Common ports: 3000, 8000, 8080`);
+          showError(`Found ${formatValue(currentValue)}, expected a number`, [
+            `${section}:`,
+            `  ${entity}:`,
+            `    proxy:`,
+            `      app_port: 3000    # Common ports: 3000, 8000, 8080`
+          ]);
         } else if (path.includes("server") && code === "invalid_type") {
-          const appName = path.split('.')[1];
-          console.error(`    Missing server for app "${appName}"`);
-          console.error(`    Add your server IP or hostname:`);
-          console.error(`    apps:`);
-          console.error(`      ${appName}:`);
-          console.error(`        server: 192.168.1.100    # Your server IP or domain`);
+          showError(`Missing server for app "${entity}"`, [
+            `${section}:`,
+            `  ${entity}:`,
+            `    server: 192.168.1.100    # Your server IP or domain`
+          ]);
         } else if (path.includes("build.context") && code === "invalid_type") {
-          const appName = path.split('.')[1];
-          console.error(`    Missing build context for app "${appName}"`);
-          console.error(`    Specify directory containing your Dockerfile:`);
-          console.error(`    apps:`);
-          console.error(`      ${appName}:`);
-          console.error(`        build:`);
-          console.error(`          context: .              # Usually current directory`);
-        } else if (path.includes("image") && code === "invalid_type") {
-          const serviceName = path.split('.')[1];
-          console.error(`    Missing Docker image for service "${serviceName}"`);
-          console.error(`    Specify a Docker image with tag:`);
-          console.error(`    services:`);
-          console.error(`      ${serviceName}:`);
-          console.error(`        image: postgres:15        # image:tag format`);
-        } else if (path.includes("proxy.hosts") && code === "invalid_type") {
-          const appName = path.split('.')[1];
-          console.error(`    Found ${formatValue(currentValue)}, expected array of domains`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    apps:`);
-          console.error(`      ${appName}:`);
-          console.error(`        proxy:`);
-          console.error(`          hosts:`);
-          console.error(`            - myapp.com`);
-          console.error(`            - www.myapp.com`);
-        } else if (path.includes("environment.plain") && code === "invalid_type") {
-          const entityName = path.split('.')[1];
-          console.error(`    Found ${formatValue(currentValue)}, expected array of KEY=VALUE strings`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    environment:`);
-          console.error(`      plain:`);
-          console.error(`        - NODE_ENV=production`);
-          console.error(`        - PORT=3000`);
-        } else if (path.includes("environment.secret") && code === "invalid_type") {
-          const entityName = path.split('.')[1];
-          console.error(`    Found ${formatValue(currentValue)}, expected array of variable names`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    environment:`);
-          console.error(`      secret:`);
-          console.error(`        - DATABASE_URL           # References .lightform/secrets`);
-          console.error(`        - API_KEY`);
-        } else if (path.includes("ports") && code === "invalid_type") {
-          const entityName = path.split('.')[1];
-          console.error(`    Found ${formatValue(currentValue)}, expected array of port mappings`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    ports:`);
-          console.error(`      - "3000:3000"             # "host:container" format`);
-          console.error(`      - "80:8080"`);
-        } else if (path.includes("volumes") && code === "invalid_type") {
-          const entityName = path.split('.')[1];
-          console.error(`    Found ${formatValue(currentValue)}, expected array of volume mappings`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    volumes:`);
-          console.error(`      - "./data:/app/data"      # "host:container" format`);
-          console.error(`      - "myvolume:/var/lib/data"`);
-        } else if (path.includes("ssh.username") && code === "invalid_type") {
-          console.error(`    Found ${formatValue(currentValue)}, expected string`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    ssh:`);
-          console.error(`      username: lightform        # Your SSH username`);
-        } else if (path.includes("ssh.port") && code === "invalid_type" && expected === "number") {
-          console.error(`    Found ${formatValue(currentValue)}, expected number`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    ssh:`);
-          console.error(`      port: 22                   # Port number without quotes`);
-        } else if (path.includes("health_check.path") && code === "invalid_type") {
-          const appName = path.split('.')[1];
-          console.error(`    Found ${formatValue(currentValue)}, expected string`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    apps:`);
-          console.error(`      ${appName}:`);
-          console.error(`        health_check:`);
-          console.error(`          path: /api/health      # Your health endpoint path`);
-        } else if (path.includes("ssl") && code === "invalid_type" && expected === "boolean") {
-          const appName = path.split('.')[1];
-          console.error(`    Found ${formatValue(currentValue)}, expected true or false`);
-          console.error(`    Fix in lightform.yml:`);
-          console.error(`    apps:`);
-          console.error(`      ${appName}:`);
-          console.error(`        proxy:`);
-          console.error(`          ssl: true              # Enable HTTPS`);
+          showError(`Missing build context for app "${entity}"`, [
+            `${section}:`,
+            `  ${entity}:`,
+            `    build:`,
+            `      context: .              # Usually current directory`
+          ]);
+        // Pattern-based error handling with unified format
+        } else if (path.includes("proxy.hosts")) {
+          showError(`Found ${formatValue(currentValue)}, expected array of domains`, [
+            `${section}:`, `  ${entity}:`, `    proxy:`, `      hosts:`, `        - myapp.com`, `        - www.myapp.com`
+          ]);
+        } else if (path.includes("environment.plain")) {
+          showError(`Found ${formatValue(currentValue)}, expected array of KEY=VALUE strings`, [
+            `environment:`, `  plain:`, `    - NODE_ENV=production`, `    - PORT=3000`
+          ]);
+        } else if (path.includes("environment.secret")) {
+          showError(`Found ${formatValue(currentValue)}, expected array of variable names`, [
+            `environment:`, `  secret:`, `    - DATABASE_URL           # References .lightform/secrets`, `    - API_KEY`
+          ]);
+        } else if (path.includes("ports")) {
+          showError(`Found ${formatValue(currentValue)}, expected array of port mappings`, [
+            `ports:`, `  - "3000:3000"             # "host:container" format`, `  - "80:8080"`
+          ]);
+        } else if (path.includes("volumes")) {
+          showError(`Found ${formatValue(currentValue)}, expected array of volume mappings`, [
+            `volumes:`, `  - "./data:/app/data"      # "host:container" format`, `  - "myvolume:/var/lib/data"`
+          ]);
+        } else if (path.includes("ssh.username")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `ssh:`, `  username: lightform        # Your SSH username`
+          ]);
+        } else if (path.includes("ssh.port")) {
+          showError(`Found ${formatValue(currentValue)}, expected number`, [
+            `ssh:`, `  port: 22                   # Port number without quotes`
+          ]);
+        } else if (path.includes("ssh.key_file")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `ssh:`, `  key_file: ~/.ssh/id_rsa   # Path to SSH private key`
+          ]);
+        } else if (path.includes("health_check.path")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `${section}:`, `  ${entity}:`, `    health_check:`, `      path: /api/health      # Your health endpoint path`
+          ]);
+        } else if (path.includes("ssl")) {
+          showError(`Found ${formatValue(currentValue)}, expected true or false`, [
+            `${section}:`, `  ${entity}:`, `    proxy:`, `      ssl: true              # Enable HTTPS`
+          ]);
+        } else if (path.includes("replicas")) {
+          showError(`Found ${formatValue(currentValue)}, expected positive number`, [
+            `${section}:`, `  ${entity}:`, `    replicas: 1              # Number of instances`
+          ]);
+        } else if (path.includes("build.dockerfile")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `${section}:`, `  ${entity}:`, `    build:`, `      dockerfile: Dockerfile  # Path to Dockerfile`
+          ]);
+        } else if (path.includes("build.args")) {
+          showError(`Found ${formatValue(currentValue)}, expected array of strings`, [
+            `${section}:`, `  ${entity}:`, `    build:`, `      args:`, `        - NODE_ENV            # Environment variable names`, `        - API_URL`
+          ]);
+        } else if (path.includes("build.target")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `${section}:`, `  ${entity}:`, `    build:`, `      target: production      # Multi-stage build target`
+          ]);
+        } else if (path.includes("build.platform")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `${section}:`, `  ${entity}:`, `    build:`, `      platform: linux/amd64  # Target platform`
+          ]);
+        } else if (path.includes("docker.registry")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `docker:`, `  registry: registry.example.com  # Docker registry URL`
+          ]);
+        } else if (path.includes("docker.username")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `docker:`, `  username: myuser          # Registry username`
+          ]);
+        } else if (path.includes("proxy.image")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `proxy:`, `  image: lightform-proxy:latest  # Custom proxy image`
+          ]);
+        } else if (path.includes("registry.url")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `${section}:`, `  ${entity}:`, `    registry:`, `      url: registry.example.com  # Registry URL`
+          ]);
+        } else if (path.includes("registry.username")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `${section}:`, `  ${entity}:`, `    registry:`, `      username: myuser        # Registry username`
+          ]);
+        } else if (path.includes("registry.password_secret")) {
+          showError(`Found ${formatValue(currentValue)}, expected string`, [
+            `${section}:`, `  ${entity}:`, `    registry:`, `      password_secret: REGISTRY_PASSWORD  # References .lightform/secrets`
+          ]);
         } else if (code === "unrecognized_keys") {
-          console.error(`    Unknown field: ${path}`);
-          console.error(`    This field is not supported. Remove it or check documentation.`);
+          showError(`Unknown field: ${path}`, [
+            `# Remove this field - it's not supported`
+          ]);
         } else if (code === "too_small" || code === "too_big") {
-          console.error(`    Invalid value ${formatValue(currentValue)}: ${message}`);
-          console.error(`    Check the valid range for this field.`);
+          showError(`Invalid value ${formatValue(currentValue)}: ${message}`, [
+            `# Check the valid range for this field`
+          ]);
         } else {
-          // Enhanced fallback with current value
-          console.error(`    Found ${formatValue(currentValue)}`);
-          if (expected && received) {
-            console.error(`    Expected ${expected}, but received ${received}`);
-          } else {
-            console.error(`    ${message}`);
-          }
-          console.error(`    Run 'lightform init' for a valid configuration template`);
+          // Enhanced fallback
+          const description = expected && received 
+            ? `Found ${formatValue(currentValue)}, expected ${expected}` 
+            : `${message}`;
+          showError(description, [
+            `# Run 'lightform init' for a valid configuration template`
+          ]);
         }
       });
 
