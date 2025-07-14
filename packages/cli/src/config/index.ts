@@ -109,12 +109,13 @@ export async function loadConfig(): Promise<LightformConfig> {
           console.error(`    Add this at the top of lightform.yml:`);
           console.error(`    name: my-project`);
         } else if (path.includes("app_port") && code === "invalid_type" && expected === "number") {
-          const appPath = path.split('.').slice(0, 2).join('.');
+          const [section, appName] = path.split('.');
           console.error(`    Found ${formatValue(currentValue)}, expected a number`);
           console.error(`    Fix in lightform.yml:`);
-          console.error(`    ${appPath}:`);
-          console.error(`      proxy:`);
-          console.error(`        app_port: 3000    # Common ports: 3000, 8000, 8080`);
+          console.error(`    ${section}:`);
+          console.error(`      ${appName}:`);
+          console.error(`        proxy:`);
+          console.error(`          app_port: 3000    # Common ports: 3000, 8000, 8080`);
         } else if (path.includes("server") && code === "invalid_type") {
           const appName = path.split('.')[1];
           console.error(`    Missing server for app "${appName}"`);
