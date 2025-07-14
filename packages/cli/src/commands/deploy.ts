@@ -513,8 +513,8 @@ async function checkPortConflictsOnServer(
     `[${serverHostname}] Checking ${plannedPorts.length} planned port mappings for conflicts`
   );
 
-  // Check for conflicts
-  const conflicts = await portChecker.checkPortConflicts(plannedPorts);
+  // Check for conflicts (exclude own project containers)
+  const conflicts = await portChecker.checkPortConflicts(plannedPorts, projectName);
 
   if (conflicts.length > 0) {
     logger.error(`Port conflicts detected on server ${serverHostname}:`);

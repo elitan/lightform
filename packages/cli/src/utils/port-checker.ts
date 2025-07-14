@@ -198,7 +198,8 @@ export class PortChecker {
       containerPort: number;
       requestedBy: string;
       protocol?: "tcp" | "udp";
-    }>
+    }>,
+    projectName?: string
   ): Promise<PortConflict[]> {
     const currentUsage = await this.getPortUsage();
     const conflicts: PortConflict[] = [];
@@ -211,6 +212,20 @@ export class PortChecker {
       );
 
       if (conflict) {
+        // If this is a Docker container from the same project, it's not a conflict
+        // since we'll replace it during deployment
+        if (conflict.isDockerContainer && projectName && conflict.containerName) {
+          const isOwnProjectContainer = conflict.containerName.startsWith(`${projectName}-`);
+          if (isOwnProjectContainer) {
+            if (this.verbose) {
+              console.log(
+                `[${this.serverHostname}] Port ${planned.hostPort} used by own project container ${conflict.containerName}, will be replaced`
+              );
+            }
+            continue; // Skip this conflict since we'll replace the container
+          }
+        }
+
         conflicts.push({
           port: planned.hostPort,
           hostPort: planned.hostPort,
