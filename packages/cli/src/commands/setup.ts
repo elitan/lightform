@@ -1074,7 +1074,7 @@ async function setupServer(
       serverHostname,
       context
     );
-    await setupServicesOnServer(dockerClient, serverHostname, context);
+    // Services are now deployed via 'lightform deploy' instead of setup
 
     await sshClient.close();
   } catch (error: any) {
@@ -1109,13 +1109,14 @@ function logSetupSummary(
       logger.verboseLog(`  - ${appsCount} app(s) ready for deployment`);
     }
     if (servicesCount > 0) {
-      logger.verboseLog(`  - ${servicesCount} service(s) to be started`);
+      logger.verboseLog(`  - ${servicesCount} service(s) ready for deployment`);
     }
     if (appsCount === 0 && servicesCount === 0) {
       logger.verboseLog(
         `  - Server infrastructure only (no apps or services configured for these servers)`
       );
     }
+    logger.verboseLog(`Note: Use 'lightform deploy' to deploy apps and services after setup.`);
   }
 }
 
@@ -1166,13 +1167,13 @@ export async function setupCommand(
       targetServers.has(service.server)
     );
 
-    let phaseMessage = `Setting up ${targetServers.size} server(s)`;
+    let phaseMessage = `Setting up ${targetServers.size} server(s) infrastructure`;
     if (hasApps && hasServices) {
-      phaseMessage += ` for apps and services`;
+      phaseMessage += ` (apps and services ready for deployment)`;
     } else if (hasApps) {
-      phaseMessage += ` for app deployments`;
+      phaseMessage += ` (apps ready for deployment)`;
     } else if (hasServices) {
-      phaseMessage += ` for services`;
+      phaseMessage += ` (services ready for deployment)`;
     }
 
     logger.phase(phaseMessage);

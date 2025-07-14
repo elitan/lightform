@@ -282,6 +282,7 @@ function identifyTargetEntries(
   let targetEntries: (AppEntry | ServiceEntry)[] = [];
 
   if (deployServicesFlag) {
+    // --services flag: deploy services only
     if (entryNames.length === 0) {
       targetEntries = [...configuredServices];
       if (targetEntries.length === 0) {
@@ -303,23 +304,30 @@ function identifyTargetEntries(
       }
     }
   } else {
+    // Default behavior: deploy both apps and services
     if (entryNames.length === 0) {
-      targetEntries = [...configuredApps];
+      // Deploy everything
+      targetEntries = [...configuredApps, ...configuredServices];
       if (targetEntries.length === 0) {
-        logger.warn("No apps found in configuration");
+        logger.warn("No apps or services found in configuration");
         return [];
       }
     } else {
+      // Deploy specific entries (can be apps or services)
       entryNames.forEach((name) => {
         const app = configuredApps.find((a) => a.name === name);
+        const service = configuredServices.find((s) => s.name === name);
+        
         if (app) {
           targetEntries.push(app);
+        } else if (service) {
+          targetEntries.push(service);
         } else {
-          logger.warn(`App "${name}" not found in configuration`);
+          logger.warn(`Entry "${name}" not found in apps or services configuration`);
         }
       });
       if (targetEntries.length === 0) {
-        logger.warn("No valid apps found for specified names");
+        logger.warn("No valid apps or services found for specified names");
         return [];
       }
     }
@@ -764,7 +772,7 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   }
 
   // Deploy phase for services with reconciliation
-  if (services.length > 0 || context.deployServicesFlag) {
+  if (services.length > 0) {
     logger.phase("Deploying Services");
 
     // Get all unique servers that need service deployment
