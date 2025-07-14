@@ -251,7 +251,7 @@ async function loadConfigurationAndSecrets(): Promise<{
 
     return { config, secrets };
   } catch (error) {
-    if (error instanceof Error && (error.message.includes("ENOENT") || error.message.includes("lightform.yml"))) {
+    if (error instanceof Error && error.message.includes("ENOENT")) {
       logger.error("Configuration files not found.");
       logger.error("");
       logger.error("To fix this:");
@@ -259,6 +259,9 @@ async function loadConfigurationAndSecrets(): Promise<{
       logger.error("   # Edit lightform.yml with your app settings");
       logger.error("   lightform setup                   # Setup your servers");
       logger.error("   lightform deploy                  # Deploy your apps");
+    } else if (error instanceof Error && error.message.includes("Invalid configuration")) {
+      // Validation errors are already displayed by loadConfig, just exit
+      throw error;
     } else {
       logger.error("Failed to load configuration/secrets", error);
     }
