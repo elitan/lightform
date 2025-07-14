@@ -49,8 +49,9 @@ export class PortChecker {
       const dockerPorts = await this.getDockerPortUsage();
       portUsage.push(...dockerPorts);
 
-      // Get system process port usage
-      const systemPorts = await this.getSystemPortUsage();
+      // Get system process port usage (excluding ports already used by Docker)
+      const dockerPortNumbers = new Set(dockerPorts.map(dp => dp.port));
+      const systemPorts = await this.getSystemPortUsage(dockerPortNumbers);
       portUsage.push(...systemPorts);
 
       return portUsage;
@@ -122,7 +123,7 @@ export class PortChecker {
   /**
    * Get port usage from system processes (non-Docker)
    */
-  private async getSystemPortUsage(): Promise<PortUsage[]> {
+  private async getSystemPortUsage(excludeDockerPorts: Set<number> = new Set()): Promise<PortUsage[]> {
     const portUsage: PortUsage[] = [];
 
     try {
@@ -148,6 +149,14 @@ export class PortChecker {
 
         if (portMatch) {
           const port = parseInt(portMatch[1]);
+
+          // Skip ports that are already handled by Docker containers
+          if (excludeDockerPorts.has(port)) {
+            if (this.verbose) {
+              console.log(`[${this.serverHostname}] Skipping port ${port} - already handled by Docker`);
+            }
+            continue;
+          }
 
           // Try to extract process info (last part usually contains PID/process)
           const lastPart = parts[parts.length - 1];
