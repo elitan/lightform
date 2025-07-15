@@ -49,8 +49,9 @@ export class PortChecker {
       const dockerPorts = await this.getDockerPortUsage();
       portUsage.push(...dockerPorts);
 
-      // Get system process port usage
-      const systemPorts = await this.getSystemPortUsage();
+      // Get system process port usage (excluding ports already used by Docker)
+      const dockerPortNumbers = new Set(dockerPorts.map(dp => dp.port));
+      const systemPorts = await this.getSystemPortUsage(dockerPortNumbers);
       portUsage.push(...systemPorts);
 
       return portUsage;
@@ -93,7 +94,7 @@ export class PortChecker {
           for (const mapping of portMappings) {
             const match = mapping
               .trim()
-              .match(/(?:0\.0\.0\.0:)?(\d+)->(\d+)\/(tcp|udp)/);
+              .match(/(?:(?:0\.0\.0\.0:)|(?:\[::\]:))?(\d+)->(\d+)\/(tcp|udp)/);
             if (match) {
               const [, hostPort, containerPort, protocol] = match;
 
@@ -122,7 +123,7 @@ export class PortChecker {
   /**
    * Get port usage from system processes (non-Docker)
    */
-  private async getSystemPortUsage(): Promise<PortUsage[]> {
+  private async getSystemPortUsage(excludeDockerPorts: Set<number> = new Set()): Promise<PortUsage[]> {
     const portUsage: PortUsage[] = [];
 
     try {
@@ -148,6 +149,14 @@ export class PortChecker {
 
         if (portMatch) {
           const port = parseInt(portMatch[1]);
+
+          // Skip ports that are already handled by Docker containers
+          if (excludeDockerPorts.has(port)) {
+            if (this.verbose) {
+              console.log(`[${this.serverHostname}] Skipping port ${port} - already handled by Docker`);
+            }
+            continue;
+          }
 
           // Try to extract process info (last part usually contains PID/process)
           const lastPart = parts[parts.length - 1];
@@ -198,7 +207,8 @@ export class PortChecker {
       containerPort: number;
       requestedBy: string;
       protocol?: "tcp" | "udp";
-    }>
+    }>,
+    projectName?: string
   ): Promise<PortConflict[]> {
     const currentUsage = await this.getPortUsage();
     const conflicts: PortConflict[] = [];
@@ -211,6 +221,20 @@ export class PortChecker {
       );
 
       if (conflict) {
+        // If this is a Docker container from the same project, it's not a conflict
+        // since we'll replace it during deployment
+        if (conflict.isDockerContainer && projectName && conflict.containerName) {
+          const isOwnProjectContainer = conflict.containerName.startsWith(`${projectName}-`);
+          if (isOwnProjectContainer) {
+            if (this.verbose) {
+              console.log(
+                `[${this.serverHostname}] Port ${planned.hostPort} used by own project container ${conflict.containerName}, will be replaced`
+              );
+            }
+            continue; // Skip this conflict since we'll replace the container
+          }
+        }
+
         conflicts.push({
           port: planned.hostPort,
           hostPort: planned.hostPort,

@@ -27,6 +27,7 @@ export interface DockerContainerOptions {
   envVars?: Record<string, string>;
   restart?: string;
   labels?: Record<string, string>;
+  configHash?: string; // For Docker Compose-style change detection
 }
 
 export interface DockerBuildOptions {
@@ -1038,6 +1039,25 @@ EOF`);
     } catch (error) {
       this.logError(`Failed to prune Docker resources: ${error}`);
       return false;
+    }
+  }
+
+  /**
+   * Inspect a container and return its configuration
+   */
+  async inspectContainer(containerName: string): Promise<any> {
+    try {
+      const inspectOutput = await this.execRemote(`inspect ${containerName}`);
+      const inspectData = JSON.parse(inspectOutput);
+      
+      if (!inspectData || inspectData.length === 0) {
+        return null;
+      }
+      
+      return inspectData[0];
+    } catch (error) {
+      this.logError(`Failed to inspect container ${containerName}: ${error}`);
+      return null;
     }
   }
 

@@ -18,7 +18,7 @@ function showMainHelp(): void {
   console.log("");
   console.log("COMMANDS:");
   console.log("  init      Initialize lightform.yml config and secrets file");
-  console.log("  setup     Bootstrap and configure servers with Docker and proxy");
+  console.log("  setup     Bootstrap servers with Docker and infrastructure");
   console.log("  deploy    Deploy apps and services to configured servers");
   console.log("  status    Check deployment status across all servers");
   console.log("  proxy     Manage Lightform proxy (status, update)");
@@ -30,8 +30,8 @@ function showMainHelp(): void {
   console.log("EXAMPLES:");
   console.log("  lightform init                    # Initialize new project");
   console.log("  lightform setup --verbose         # Setup servers with detailed output");
-  console.log("  lightform deploy                  # Deploy all apps");
-  console.log("  lightform deploy web --force      # Force deploy specific app");
+  console.log("  lightform deploy                  # Deploy all apps and services");
+  console.log("  lightform deploy web --force      # Force deploy specific app/service");
   console.log("  lightform status                  # Check all deployments");
   console.log("  lightform proxy status            # Check proxy status");
   console.log("");
@@ -39,7 +39,7 @@ function showMainHelp(): void {
   console.log("  1. lightform init                 # Create config files");
   console.log("  2. Edit lightform.yml             # Configure your apps and servers");
   console.log("  3. lightform setup                # Bootstrap your servers");
-  console.log("  4. lightform deploy               # Deploy your apps");
+  console.log("  4. lightform deploy               # Deploy your apps and services");
   console.log("");
   console.log("For command-specific help: lightform <command> --help");
 }
@@ -68,16 +68,17 @@ function showCommandHelp(command: string): void {
       break;
 
     case "setup":
-      console.log("Setup and configure servers");
-      console.log("============================");
+      console.log("Setup servers and infrastructure");
+      console.log("=================================");
       console.log("");
       console.log("USAGE:");
       console.log("  lightform setup [entry-names...] [flags]");
       console.log("");
       console.log("DESCRIPTION:");
-      console.log("  Bootstraps fresh servers and configures infrastructure.");
+      console.log("  Bootstraps fresh servers and configures infrastructure only.");
       console.log("  Installs Docker, creates networks, sets up proxy, and starts services.");
       console.log("  For fresh servers (root access), automatically creates lightform user.");
+      console.log("  Use 'lightform deploy' to deploy your apps after setup.");
       console.log("");
       console.log("FLAGS:");
       console.log("  --verbose  Show detailed setup progress");
@@ -99,23 +100,24 @@ function showCommandHelp(command: string): void {
       console.log("========================");
       console.log("");
       console.log("USAGE:");
-      console.log("  lightform deploy [app-names...] [flags]");
+      console.log("  lightform deploy [entry-names...] [flags]");
       console.log("");
       console.log("DESCRIPTION:");
-      console.log("  Performs zero-downtime deployment of apps using blue-green strategy.");
-      console.log("  Builds images locally, transfers to servers, and switches traffic.");
-      console.log("  Services are deployed directly (no blue-green).");
+      console.log("  Deploys both apps and services to configured servers.");
+      console.log("  Apps use zero-downtime blue-green deployment strategy.");
+      console.log("  Services are deployed directly (brief downtime during restart).");
+      console.log("  Builds images locally, transfers to servers, and configures routing.");
       console.log("");
       console.log("FLAGS:");
       console.log("  --force      Deploy even with uncommitted git changes");
-      console.log("  --services   Deploy services instead of apps");
+      console.log("  --services   Deploy services only (skip apps)");
       console.log("  --verbose    Show detailed deployment progress");
       console.log("  --help       Show this help message");
       console.log("");
       console.log("EXAMPLES:");
-      console.log("  lightform deploy                  # Deploy all apps");
-      console.log("  lightform deploy web api          # Deploy specific apps");
-      console.log("  lightform deploy --services       # Deploy all services");
+      console.log("  lightform deploy                  # Deploy all apps and services");
+      console.log("  lightform deploy web api          # Deploy specific apps/services");
+      console.log("  lightform deploy --services       # Deploy only services");
       console.log("  lightform deploy web --force      # Force deploy ignoring git status");
       console.log("");
       console.log("REQUIREMENTS:");
@@ -220,11 +222,9 @@ function handleCliError(error: Error): void {
 async function main() {
   const args = process.argv.slice(2); // Remove 'node' and script path from args
 
-  // Handle global help flags
-  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
-    if (args.length === 0) {
-      showMainHelp();
-    } else if (args[0] && !args[0].startsWith("-")) {
+  // Handle help flags and no arguments
+  if (args.includes("--help") || args.includes("-h")) {
+    if (args[0] && !args[0].startsWith("-")) {
       // Command-specific help: lightform deploy --help
       showCommandHelp(args[0]);
     } else {
@@ -234,8 +234,15 @@ async function main() {
     return;
   }
 
-  const command = args[0];
-  const commandArgs = args.slice(1);
+  // If no command provided (only flags or nothing), default to deploy
+  let command = args[0];
+  let commandArgs = args.slice(1);
+  
+  if (args.length === 0 || (args[0] && args[0].startsWith("--"))) {
+    // No command provided, or first arg is a flag - default to deploy
+    command = "deploy";
+    commandArgs = args; // All args become command args for deploy
+  }
   const { flags, nonFlagArgs } = parseArgs(commandArgs);
   const verboseFlag = flags.includes("--verbose");
   const helpFlag = flags.includes("--help") || flags.includes("-h");
