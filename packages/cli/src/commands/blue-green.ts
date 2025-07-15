@@ -117,6 +117,7 @@ function createBlueGreenContainerOptions(
       projectSpecificAlias, // "gmail-web" - for proxy routing
     ],
     restart: "unless-stopped",
+    command: appEntry.command,
     labels: {
       "lightform.managed": "true",
       "lightform.project": projectName,

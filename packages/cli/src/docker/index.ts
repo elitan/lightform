@@ -28,6 +28,7 @@ export interface DockerContainerOptions {
   restart?: string;
   labels?: Record<string, string>;
   configHash?: string; // For Docker Compose-style change detection
+  command?: string; // Override container command
 }
 
 export interface DockerBuildOptions {
@@ -768,6 +769,11 @@ EOF`);
       // Add the image
       cmd += ` ${options.image}`;
 
+      // Add custom command if specified
+      if (options.command) {
+        cmd += ` ${options.command}`;
+      }
+
       // Execute the command
       await this.execRemote(cmd);
       this.log(`Created and started container ${options.name}.`);
@@ -1078,6 +1084,7 @@ EOF`);
       ports: service.ports,
       volumes: service.volumes,
       envVars: {},
+      command: service.command,
       labels: {
         "lightform.managed": "true",
         "lightform.project": projectName,
