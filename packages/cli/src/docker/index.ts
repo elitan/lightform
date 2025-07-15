@@ -27,6 +27,7 @@ export interface DockerContainerOptions {
   envVars?: Record<string, string>;
   restart?: string;
   labels?: Record<string, string>;
+  configHash?: string; // For Docker Compose-style change detection
 }
 
 export interface DockerBuildOptions {

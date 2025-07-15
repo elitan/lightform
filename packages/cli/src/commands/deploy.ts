@@ -35,6 +35,22 @@ import { stat } from "fs/promises";
 let logger: Logger;
 
 /**
+ * Creates a config hash for a service entry (Docker Compose style)
+ */
+function createServiceConfigHash(serviceEntry: ServiceEntry): string {
+  const configForHash = {
+    image: serviceEntry.image,
+    environment: {
+      plain: serviceEntry.environment?.plain?.sort() || [],
+      secret: serviceEntry.environment?.secret?.sort() || []
+    },
+    ports: serviceEntry.ports?.sort() || [],
+    volumes: serviceEntry.volumes?.sort() || []
+  };
+  return require('crypto').createHash('sha256').update(JSON.stringify(configForHash)).digest('hex').substring(0, 12);
+}
+
+/**
  * Resolves environment variables for a container from plain and secret sources
  */
 function resolveEnvironmentVariables(
@@ -124,6 +140,7 @@ function serviceEntryToContainerOptions(
   const containerName = `${projectName}-${serviceEntry.name}`; // Project-prefixed names
   const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
+  const configHash = createServiceConfigHash(serviceEntry);
 
   return {
     name: containerName,
@@ -134,11 +151,13 @@ function serviceEntryToContainerOptions(
     network: networkName,
     networkAliases: [serviceEntry.name], // Allow other containers to reach this service by name (e.g. "db", "meilisearch")
     restart: "unless-stopped",
+    configHash, // Add for comparison
     labels: {
       "lightform.managed": "true",
       "lightform.project": projectName,
       "lightform.type": "service",
       "lightform.service": serviceEntry.name,
+      "lightform.config-hash": configHash, // Docker Compose style config tracking
     },
   };
 }
@@ -1385,85 +1404,31 @@ export function checkServiceConfigChanges(
   desiredConfig: any,
   containerName: string
 ): { hasChanges: boolean; reason?: string } {
-  // Compare image
-  if (currentConfig.Config?.Image !== desiredConfig.image) {
-    return { 
-      hasChanges: true, 
-      reason: `Image changed: ${currentConfig.Config?.Image} → ${desiredConfig.image}` 
-    };
-  }
-
-  // Compare environment variables
-  const currentEnv = currentConfig.Config?.Env || [];
-  const desiredEnv = Object.entries(desiredConfig.envVars || {}).map(([key, value]) => `${key}=${value}`);
+  // Docker Compose approach: Compare config hashes (primary method)
+  const currentConfigHash = currentConfig.Config?.Labels?.['lightform.config-hash'];
+  const desiredConfigHash = desiredConfig.configHash;
   
-  // Create sets for comparison (Docker adds some system env vars)
-  const currentEnvSet = new Set(currentEnv.filter((env: string) => 
-    !env.startsWith('PATH=') && 
-    !env.startsWith('HOSTNAME=') && 
-    !env.startsWith('HOME=') &&
-    !env.startsWith('TERM=') &&
-    !env.startsWith('DEBIAN_FRONTEND=') &&
-    !env.startsWith('LC_ALL=') &&
-    !env.startsWith('LANG=')
-  ));
-  const desiredEnvSet = new Set(desiredEnv);
-  
-  if (currentEnvSet.size !== desiredEnvSet.size || ![...desiredEnvSet].every(env => currentEnvSet.has(env))) {
-    return { 
-      hasChanges: true, 
-      reason: `Environment variables changed. Current: ${[...currentEnvSet].join(', ')} | Desired: ${[...desiredEnvSet].join(', ')}` 
-    };
-  }
-
-  // Compare port mappings
-  const currentPorts = currentConfig.NetworkSettings?.Ports || {};
-  const desiredPorts = desiredConfig.ports || [];
-  
-  if (desiredPorts.length > 0) {
-    for (const portMapping of desiredPorts) {
-      const [hostPort, containerPort] = portMapping.includes(':') 
-        ? portMapping.split(':') 
-        : [portMapping, portMapping];
-      
-      const portKey = `${containerPort}/tcp`;
-      const currentPortMapping = currentPorts[portKey];
-      
-      if (!currentPortMapping || !currentPortMapping.some((p: any) => p.HostPort === hostPort)) {
-        return { 
-          hasChanges: true, 
-          reason: `Port mapping changed: ${portMapping}` 
-        };
-      }
-    }
-  }
-
-  // Compare volumes
-  const currentMounts = currentConfig.Mounts || [];
-  const desiredVolumes = desiredConfig.volumes || [];
-  
-  if (currentMounts.length !== desiredVolumes.length) {
-    return { 
-      hasChanges: true, 
-      reason: `Volume count changed: ${currentMounts.length} → ${desiredVolumes.length}` 
-    };
-  }
-  
-  for (const desiredVolume of desiredVolumes) {
-    const [source, target] = desiredVolume.split(':');
-    const mountExists = currentMounts.some((mount: any) => 
-      mount.Source === source && mount.Destination === target
-    );
-    
-    if (!mountExists) {
+  if (currentConfigHash && desiredConfigHash) {
+    // Both have hashes - this is the reliable comparison
+    if (currentConfigHash !== desiredConfigHash) {
       return { 
         hasChanges: true, 
-        reason: `Volume mapping changed: ${desiredVolume}` 
+        reason: `Configuration changed (hash: ${currentConfigHash} → ${desiredConfigHash})` 
       };
     }
+    // Hashes match - no changes needed
+    return { hasChanges: false };
+  } else {
+    // Fallback for existing containers without config hash: upgrade them to hash-based tracking
+    if (logger) {
+      logger.verboseLog(`Service ${containerName} missing config hash, upgrading to hash-based tracking`);
+    }
+    return { 
+      hasChanges: true, 
+      reason: `Upgrading to hash-based configuration tracking` 
+    };
   }
 
-  return { hasChanges: false };
 }
 
 /**

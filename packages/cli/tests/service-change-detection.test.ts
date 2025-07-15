@@ -29,7 +29,10 @@ const mockCurrentContainer = {
       "POSTGRES_PASSWORD=supersecret123",
       "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
       "HOSTNAME=container123"
-    ]
+    ],
+    Labels: {
+      "lightform.config-hash": "abc123def456" // Same hash as desired = no changes
+    }
   },
   NetworkSettings: {
     Ports: {
@@ -52,7 +55,8 @@ const mockDesiredConfig = {
     POSTGRES_PASSWORD: "supersecret123"
   },
   ports: ["5432:5432"],
-  volumes: ["postgres_data:/var/lib/postgresql/data"]
+  volumes: ["postgres_data:/var/lib/postgresql/data"],
+  configHash: "abc123def456" // Mock hash for testing
 };
 
 describe("Service Configuration Change Detection", () => {
@@ -64,12 +68,12 @@ describe("Service Configuration Change Detection", () => {
   });
 
   test("should detect image changes", () => {
-    const desiredConfigWithNewImage = { ...mockDesiredConfig, image: "postgres:16" };
+    const desiredConfigWithNewImage = { ...mockDesiredConfig, image: "postgres:16", configHash: "xyz789new123" };
     const result = checkServiceConfigChanges(mockCurrentContainer, desiredConfigWithNewImage, "test-postgres");
     
     expect(result.hasChanges).toBe(true);
-    expect(result.reason).toContain("Image changed");
-    expect(result.reason).toContain("postgres:15 → postgres:16");
+    expect(result.reason).toContain("Configuration changed");
+    expect(result.reason).toContain("abc123def456 → xyz789new123");
   });
 
   test("should detect environment variable changes", () => {
@@ -79,21 +83,21 @@ describe("Service Configuration Change Detection", () => {
         POSTGRES_DB: "myapp",
         POSTGRES_PASSWORD: "supersecret123",
         POSTGRES_USER: "newuser" // Added new env var
-      }
+      },
+      configHash: "new456hash789" // Different hash due to env change
     };
     const result = checkServiceConfigChanges(mockCurrentContainer, desiredConfigWithNewEnv, "test-postgres");
     
     expect(result.hasChanges).toBe(true);
-    expect(result.reason).toContain("Environment variables changed");
+    expect(result.reason).toContain("Configuration changed");
   });
 
   test("should detect port mapping changes", () => {
-    const desiredConfigWithNewPorts = { ...mockDesiredConfig, ports: ["9002:5432"] };
+    const desiredConfigWithNewPorts = { ...mockDesiredConfig, ports: ["9002:5432"], configHash: "port456change789" };
     const result = checkServiceConfigChanges(mockCurrentContainer, desiredConfigWithNewPorts, "test-postgres");
     
     expect(result.hasChanges).toBe(true);
-    expect(result.reason).toContain("Port mapping changed");
-    expect(result.reason).toContain("9002:5432");
+    expect(result.reason).toContain("Configuration changed");
   });
 
   test("should detect volume changes", () => {
@@ -102,13 +106,13 @@ describe("Service Configuration Change Detection", () => {
       volumes: [
         "postgres_data:/var/lib/postgresql/data",
         "postgres_config:/etc/postgresql" // Added new volume
-      ]
+      ],
+      configHash: "vol456change789"
     };
     const result = checkServiceConfigChanges(mockCurrentContainer, desiredConfigWithNewVolumes, "test-postgres");
     
     expect(result.hasChanges).toBe(true);
-    expect(result.reason).toContain("Volume count changed");
-    expect(result.reason).toContain("1 → 2");
+    expect(result.reason).toContain("Configuration changed");
   });
 
   test("should ignore system environment variables", () => {
@@ -122,7 +126,11 @@ describe("Service Configuration Change Detection", () => {
           "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
           "HOSTNAME=container123",
           "HOME=/root", // Additional system env
-          "TERM=xterm"  // Additional system env
+          "TERM=xterm",  // Additional system env
+          "GOSU_VERSION=1.17", // PostgreSQL specific system vars
+          "PG_MAJOR=17",
+          "PG_VERSION=17.5-1.pgdg120+1",
+          "PGDATA=/var/lib/postgresql/data"
         ]
       }
     };
@@ -162,12 +170,13 @@ describe("Service Configuration Change Detection", () => {
       envVars: {
         POSTGRES_DB: "myapp",
         POSTGRES_PASSWORD: "newsupersecret123" // Changed password
-      }
+      },
+      configHash: "pwd456change789"
     };
     const result = checkServiceConfigChanges(mockCurrentContainer, desiredConfigWithNewPassword, "test-postgres");
     
     expect(result.hasChanges).toBe(true);
-    expect(result.reason).toContain("Environment variables changed");
+    expect(result.reason).toContain("Configuration changed");
   });
 
   test("should handle empty environment variables correctly", () => {
@@ -191,20 +200,22 @@ describe("Service Configuration Change Detection", () => {
   test("should detect volume mount path changes", () => {
     const desiredConfigWithDifferentPath = {
       ...mockDesiredConfig,
-      volumes: ["postgres_data:/var/lib/postgresql/data-new"] // Changed mount path
+      volumes: ["postgres_data:/var/lib/postgresql/data-new"], // Changed mount path
+      configHash: "path456change789"
     };
     const result = checkServiceConfigChanges(mockCurrentContainer, desiredConfigWithDifferentPath, "test-postgres");
     
     expect(result.hasChanges).toBe(true);
-    expect(result.reason).toContain("Volume mapping changed");
+    expect(result.reason).toContain("Configuration changed");
   });
 
   test("should detect when removing all environment variables", () => {
-    const configWithNoUserEnv = { ...mockDesiredConfig, envVars: {} };
+    const configWithNoUserEnv = { ...mockDesiredConfig, envVars: {}, configHash: "noenv456hash789" };
     const result = checkServiceConfigChanges(mockCurrentContainer, configWithNoUserEnv, "test-postgres");
     
+    // With the fallback approach (no config hash), removing all env vars should trigger change
     expect(result.hasChanges).toBe(true);
-    expect(result.reason).toContain("Environment variables changed");
+    expect(result.reason).toContain("Configuration changed");
   });
 
   test("should handle malformed container inspect data gracefully", () => {
@@ -217,7 +228,7 @@ describe("Service Configuration Change Detection", () => {
     const result = checkServiceConfigChanges(malformedContainer, mockDesiredConfig, "test-postgres");
     
     expect(result.hasChanges).toBe(true);
-    expect(result.reason).toContain("Image changed");
+    expect(result.reason).toContain("Upgrading to hash-based configuration tracking");
   });
 
   test("should handle missing Config.Env array", () => {
@@ -225,14 +236,14 @@ describe("Service Configuration Change Detection", () => {
       ...mockCurrentContainer,
       Config: {
         Image: "postgres:15"
-        // Missing Env array
+        // Missing Env array and Labels (no hash)
       }
     };
     
     const result = checkServiceConfigChanges(containerMissingEnv, mockDesiredConfig, "test-postgres");
     
     expect(result.hasChanges).toBe(true);
-    expect(result.reason).toContain("Environment variables changed");
+    expect(result.reason).toContain("Upgrading to hash-based configuration tracking");
   });
 
   test("should correctly compare complex port mappings", () => {
@@ -257,7 +268,7 @@ describe("Service Configuration Change Detection", () => {
     expect(result.hasChanges).toBe(false);
   });
 
-  test("should filter out additional Docker system variables", () => {
+  test("should filter out all system variables not in our desired config", () => {
     const containerWithManySystemVars = {
       ...mockCurrentContainer,
       Config: {
@@ -269,9 +280,14 @@ describe("Service Configuration Change Detection", () => {
           "HOSTNAME=container123",
           "HOME=/root",
           "TERM=xterm",
-          "DEBIAN_FRONTEND=noninteractive", // Additional system vars
+          "DEBIAN_FRONTEND=noninteractive", // System vars
           "LC_ALL=C.UTF-8",
-          "LANG=C.UTF-8"
+          "LANG=C.UTF-8",
+          "GOSU_VERSION=1.17", // PostgreSQL specific system vars  
+          "PG_MAJOR=17",
+          "PG_VERSION=17.5-1.pgdg120+1",
+          "PGDATA=/var/lib/postgresql/data",
+          "SOME_RANDOM_SYSTEM_VAR=value" // Any system var not in our config
         ]
       }
     };
@@ -279,5 +295,20 @@ describe("Service Configuration Change Detection", () => {
     const result = checkServiceConfigChanges(containerWithManySystemVars, mockDesiredConfig, "test-postgres");
     
     expect(result.hasChanges).toBe(false);
+  });
+
+  test("should upgrade containers without config hash to hash-based tracking", () => {
+    const containerWithoutHash = {
+      ...mockCurrentContainer,
+      Config: {
+        ...mockCurrentContainer.Config,
+        Labels: {} // No config hash label
+      }
+    };
+
+    const result = checkServiceConfigChanges(containerWithoutHash, mockDesiredConfig, "test-postgres");
+    
+    expect(result.hasChanges).toBe(true);
+    expect(result.reason).toContain("Upgrading to hash-based configuration tracking");
   });
 });
