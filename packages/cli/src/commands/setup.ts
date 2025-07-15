@@ -125,6 +125,15 @@ async function performBootstrapSteps(
     logger.verboseLog(`Warning: ${String(error).slice(0, 50)}...`);
   }
 
+  // Configure passwordless sudo for lightform user
+  try {
+    await sshClient.exec(`echo "${targetUsername} ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/${targetUsername}`);
+    await sshClient.exec(`chmod 440 /etc/sudoers.d/${targetUsername}`);
+    logger.verboseLog("→ Configured passwordless sudo access");
+  } catch (error) {
+    logger.verboseLog(`Warning configuring sudo: ${String(error).slice(0, 50)}...`);
+  }
+
   logger.serverStep("Installing Docker");
 
   // Check if Docker already installed
