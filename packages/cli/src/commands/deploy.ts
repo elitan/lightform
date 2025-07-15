@@ -7,6 +7,7 @@ import {
   HealthCheckConfig,
   LightformSecrets,
 } from "../config/types";
+import { appNeedsBuilding, getAppImageName, buildImageName } from '../utils/image-utils';
 import {
   DockerClient,
   DockerBuildOptions,
@@ -671,41 +672,6 @@ async function getBuildConfig(appEntry: AppEntry, context: DeploymentContext): P
   };
 }
 
-/**
- * Checks if an app needs to be built (vs using an existing image)
- */
-function appNeedsBuilding(appEntry: AppEntry): boolean {
-  // If it has a build config, it needs building
-  if (appEntry.build) {
-    return true;
-  }
-
-  // If it doesn't have an image field, it needs building
-  if (!appEntry.image) {
-    return true;
-  }
-
-  // If it has an image field but also proxy config, it needs building
-  // (the image field is used as the base name for tagging)
-  if (appEntry.proxy) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Gets the base image name for an app (used for tagging built images)
- */
-function getAppImageName(appEntry: AppEntry): string {
-  // If image is specified, use it as the base name
-  if (appEntry.image) {
-    return appEntry.image;
-  }
-
-  // Otherwise, generate a name based on the app name
-  return `${appEntry.name}`;
-}
 
 /**
  * Main deployment loop that processes all target entries
@@ -960,19 +926,6 @@ async function saveAppImage(
   }
 }
 
-/**
- * Builds the full image name with release ID for built apps, or returns original name for pre-built apps
- */
-function buildImageName(appEntry: AppEntry, releaseId: string): string {
-  const baseImageName = getAppImageName(appEntry);
-
-  // For apps that need building, use release ID
-  if (appNeedsBuilding(appEntry)) {
-    return `${baseImageName}:${releaseId}`;
-  }
-  // For pre-built apps, use the image as-is (if it exists)
-  return appEntry.image || baseImageName;
-}
 
 /**
  * Deploys an app to a specific server using zero-downtime deployment
@@ -1001,16 +954,29 @@ async function deployAppToServer(
 
     const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
 
-    // Step 1: Transfer and load image
-    logger.serverStep(`Transfer & load ${appEntry.name} image`);
-    await transferAndLoadImage(
-      appEntry,
-      sshClient,
-      dockerClient,
-      context,
-      imageNameWithRelease
-    );
-    logger.serverStepComplete(`Transfer & load ${appEntry.name} image`);
+    // Step 1: Ensure image is available
+    if (appNeedsBuilding(appEntry)) {
+      // For built apps, transfer and load the image
+      logger.serverStep(`Transfer & load ${appEntry.name} image`);
+      await transferAndLoadImage(
+        appEntry,
+        sshClient,
+        dockerClient,
+        context,
+        imageNameWithRelease
+      );
+      logger.serverStepComplete(`Transfer & load ${appEntry.name} image`);
+    } else {
+      // For pre-built apps, pull the image from registry
+      logger.serverStep(`Pull ${appEntry.name} image`);
+      await authenticateAndPullImage(
+        appEntry,
+        dockerClient,
+        context,
+        imageNameWithRelease
+      );
+      logger.serverStepComplete(`Pull ${appEntry.name} image`);
+    }
 
     // Step 2: Zero-downtime deployment
     logger.serverStep(`Zero-downtime deployment of ${appEntry.name}`);
