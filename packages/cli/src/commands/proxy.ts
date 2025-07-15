@@ -23,6 +23,8 @@ interface ProxyContext {
 interface ParsedProxyArgs {
   subcommand: string;
   verboseFlag: boolean;
+  host?: string;
+  lines?: number;
 }
 
 /**
@@ -50,16 +52,33 @@ function normalizeConfigEntries(
  */
 function parseProxyArgs(args: string[]): ParsedProxyArgs {
   const verboseFlag = args.includes("--verbose");
-
-  const cleanArgs = args.filter(
-    (arg) => arg !== "--verbose"
-  );
+  
+  let host: string | undefined;
+  let lines: number | undefined;
+  
+  const cleanArgs: string[] = [];
+  
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--verbose") {
+      continue;
+    } else if (args[i] === "--host" && i + 1 < args.length) {
+      host = args[i + 1];
+      i++; // Skip the next argument since it's the host value
+    } else if (args[i] === "--lines" && i + 1 < args.length) {
+      lines = parseInt(args[i + 1], 10);
+      i++; // Skip the next argument since it's the lines value
+    } else {
+      cleanArgs.push(args[i]);
+    }
+  }
 
   const subcommand = cleanArgs[0] || "";
 
   return {
     subcommand,
     verboseFlag,
+    host,
+    lines,
   };
 }
 
@@ -419,6 +438,145 @@ async function proxyUpdateSubcommand(
 }
 
 /**
+ * Delete-host subcommand - removes a host from proxy configuration
+ */
+async function proxyDeleteHostSubcommand(
+  context: ProxyContext,
+  host: string
+): Promise<void> {
+  if (!host) {
+    logger.error("Host is required for delete-host command. Use --host <hostname>");
+    return;
+  }
+
+  logger.phase(`Deleting host: ${host}`);
+
+  const targetServers = collectAllServers(context.config);
+
+  if (targetServers.size === 0) {
+    logger.info("No servers found in configuration.");
+    return;
+  }
+
+  let deletedCount = 0;
+  let notFoundCount = 0;
+
+  for (const serverHostname of targetServers) {
+    let sshClient: SSHClient | undefined;
+
+    try {
+      logger.server(serverHostname);
+      sshClient = await establishSSHConnection(serverHostname, context);
+
+      // Check if proxy is running
+      const proxyStatus = await checkProxyStatus(
+        serverHostname,
+        sshClient,
+        context.verboseFlag
+      );
+
+      if (!proxyStatus.running) {
+        logger.verboseLog(`Proxy not running on ${serverHostname}, skipping`);
+        continue;
+      }
+
+      logger.serverStep(`Deleting host: ${host}`);
+
+      // Use the proxy CLI to delete the host
+      const deleteCmd = `docker exec ${LIGHTFORM_PROXY_NAME} /usr/local/bin/lightform-proxy delete-host ${host}`;
+      const result = await sshClient.exec(deleteCmd);
+
+      if (result.includes("Host deleted successfully") || result.includes("deleted")) {
+        logger.serverStepComplete(`Host ${host} deleted successfully`);
+        deletedCount++;
+      } else if (result.includes("not found") || result.includes("does not exist")) {
+        logger.verboseLog(`Host ${host} not found on ${serverHostname}`);
+        notFoundCount++;
+      } else {
+        logger.serverStepError(`Unexpected response: ${result}`, undefined);
+      }
+    } catch (error) {
+      logger.serverStepError(`Failed to delete host ${host}`, error);
+    } finally {
+      if (sshClient) {
+        await sshClient.close();
+      }
+    }
+  }
+
+  logger.phaseComplete("Host deletion complete");
+  console.log(`\nDeletion Summary:`);
+  console.log(`   Deleted: ${deletedCount} server(s)`);
+  console.log(`   Not found: ${notFoundCount} server(s)`);
+
+  if (deletedCount > 0) {
+    console.log(`\nHost ${host} successfully deleted from ${deletedCount} server(s)!`);
+  }
+}
+
+/**
+ * Logs subcommand - shows proxy logs from all servers
+ */
+async function proxyLogsSubcommand(
+  context: ProxyContext,
+  lines: number = 50
+): Promise<void> {
+  logger.phase(`Showing proxy logs (${lines} lines)`);
+
+  const targetServers = collectAllServers(context.config);
+
+  if (targetServers.size === 0) {
+    logger.info("No servers found in configuration.");
+    return;
+  }
+
+  for (const serverHostname of targetServers) {
+    let sshClient: SSHClient | undefined;
+
+    try {
+      logger.server(serverHostname);
+      sshClient = await establishSSHConnection(serverHostname, context);
+
+      // Check if proxy is running
+      const proxyStatus = await checkProxyStatus(
+        serverHostname,
+        sshClient,
+        context.verboseFlag
+      );
+
+      if (!proxyStatus.running) {
+        logger.info(`Proxy not running on ${serverHostname}`);
+        continue;
+      }
+
+      logger.serverStep(`Fetching logs (${lines} lines)`);
+
+      // Get proxy logs
+      const logsCmd = `docker logs --tail ${lines} ${LIGHTFORM_PROXY_NAME}`;
+      const logs = await sshClient.exec(logsCmd);
+
+      console.log(`\n=== Proxy Logs from ${serverHostname} ===`);
+      if (logs.trim()) {
+        console.log(logs);
+      } else {
+        console.log("No logs available");
+      }
+      console.log(`=== End logs from ${serverHostname} ===\n`);
+
+      logger.serverStepComplete("Logs fetched successfully");
+    } catch (error) {
+      logger.serverStepError(`Failed to fetch logs`, error);
+    } finally {
+      if (sshClient) {
+        await sshClient.close();
+      }
+    }
+  }
+
+  logger.phaseComplete("Log retrieval complete");
+}
+
+/**
  * Shows help for proxy command
  */
 function showProxyHelp(): void {
@@ -429,23 +587,21 @@ function showProxyHelp(): void {
   console.log("  lightform proxy <subcommand> [flags]");
   console.log("");
   console.log("SUBCOMMANDS:");
-  console.log("  status     Show proxy status on all servers (default)");
-  console.log("  update     Update proxy to latest version on all servers");
+  console.log("  status          Show proxy status on all servers (default)");
+  console.log("  update          Update proxy to latest version on all servers");
+  console.log("  delete-host     Remove a host from proxy configuration");
+  console.log("  logs            Show proxy logs from all servers");
   console.log("");
   console.log("FLAGS:");
-  console.log("  --verbose  Show detailed output");
-  console.log(
-  );
+  console.log("  --verbose       Show detailed output");
+  console.log("  --host <host>   Target specific host (for delete-host)");
+  console.log("  --lines <n>     Number of log lines to show (for logs, default: 50)");
   console.log("");
   console.log("EXAMPLES:");
-  console.log(
-    "  lightform proxy status                 # Check status on all servers"
-  );
-  console.log(
-    "  lightform proxy update --verbose       # Update proxy on all servers with details"
-  );
-  console.log(
-  );
+  console.log("  lightform proxy status                      # Check status on all servers");
+  console.log("  lightform proxy update --verbose            # Update proxy on all servers with details");
+  console.log("  lightform proxy delete-host --host api.example.com  # Remove a specific host");
+  console.log("  lightform proxy logs --lines 100            # Show last 100 log lines from all servers");
 }
 
 /**
@@ -459,7 +615,12 @@ export async function proxyCommand(args: string[]): Promise<void> {
     if (
       parsedArgs.subcommand === "help" ||
       parsedArgs.subcommand === "" ||
-      (parsedArgs.subcommand !== "status" && parsedArgs.subcommand !== "update")
+      ![
+        "status",
+        "update",
+        "delete-host",
+        "logs"
+      ].includes(parsedArgs.subcommand)
     ) {
       showProxyHelp();
       return;
@@ -484,6 +645,16 @@ export async function proxyCommand(args: string[]): Promise<void> {
         break;
       case "update":
         await proxyUpdateSubcommand(context);
+        break;
+      case "delete-host":
+        if (!parsedArgs.host) {
+          logger.error("Host is required for delete-host command. Use --host <hostname>");
+          return;
+        }
+        await proxyDeleteHostSubcommand(context, parsedArgs.host);
+        break;
+      case "logs":
+        await proxyLogsSubcommand(context, parsedArgs.lines || 50);
         break;
     }
   } catch (error) {
