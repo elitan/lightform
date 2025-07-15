@@ -16,11 +16,6 @@ func helloHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Hello World 1")
 }
 
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, "OK")
-}
-
 func upHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "UP")
@@ -28,7 +23,7 @@ func upHandler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/", helloHandler)
-	http.HandleFunc("/api/health", healthHandler)
+	http.HandleFunc("/up", upHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {

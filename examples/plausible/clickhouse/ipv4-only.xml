@@ -1,5 +1,0 @@
-<?xml version="1.0"?>
-<clickhouse>
-    <listen_host>127.0.0.1</listen_host>
-    <listen_host>0.0.0.0</listen_host>
-</clickhouse>

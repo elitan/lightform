@@ -11,19 +11,23 @@ describe("Docker service network aliases", () => {
       server: "server.example.com",
       environment: {
         plain: ["POSTGRES_DB=testdb"],
-        secret: ["POSTGRES_PASSWORD"]
+        secret: ["POSTGRES_PASSWORD"],
       },
       ports: ["5432:5432"],
-      volumes: ["postgres_data:/var/lib/postgresql/data"]
+      volumes: ["postgres_data:/var/lib/postgresql/data"],
     };
 
     const projectName = "test-project";
     const secrets: LightformSecrets = {
-      POSTGRES_PASSWORD: "secret123"
+      POSTGRES_PASSWORD: "secret123",
     };
 
     // Act
-    const options = DockerClient.serviceToContainerOptions(service, projectName, secrets);
+    const options = DockerClient.serviceToContainerOptions(
+      service,
+      projectName,
+      secrets
+    );
 
     // Assert
     expect(options.name).toBe("test-project-db");
@@ -33,12 +37,14 @@ describe("Docker service network aliases", () => {
     expect(options.networkAliases).toContain("db");
     expect(options.networkAliases?.length).toBe(1);
     expect(options.ports).toContain("5432:5432");
-    expect(options.volumes).toContain("postgres_data:/var/lib/postgresql/data");
+    expect(options.volumes).toContain(
+      "~/.lightform/projects/test-project/postgres_data:/var/lib/postgresql/data"
+    );
     expect(options.labels).toMatchObject({
       "lightform.managed": "true",
       "lightform.project": "test-project",
       "lightform.type": "service",
-      "lightform.service": "db"
+      "lightform.service": "db",
     });
   });
 
@@ -47,14 +53,18 @@ describe("Docker service network aliases", () => {
     const service: ServiceEntry = {
       name: "redis-cache",
       image: "redis:7",
-      server: "server.example.com"
+      server: "server.example.com",
     };
 
     const projectName = "my-app";
     const secrets: LightformSecrets = {};
 
     // Act
-    const options = DockerClient.serviceToContainerOptions(service, projectName, secrets);
+    const options = DockerClient.serviceToContainerOptions(
+      service,
+      projectName,
+      secrets
+    );
 
     // Assert
     expect(options.name).toBe("my-app-redis-cache");
@@ -67,14 +77,18 @@ describe("Docker service network aliases", () => {
       name: "nginx",
       image: "nginx:latest",
       server: "server.example.com",
-      ports: ["80:80"]
+      ports: ["80:80"],
     };
 
     const projectName = "web-project";
     const secrets: LightformSecrets = {};
 
     // Act
-    const options = DockerClient.serviceToContainerOptions(service, projectName, secrets);
+    const options = DockerClient.serviceToContainerOptions(
+      service,
+      projectName,
+      secrets
+    );
 
     // Assert
     expect(options.name).toBe("web-project-nginx");
@@ -91,23 +105,29 @@ describe("Docker service network aliases", () => {
       server: "server.example.com",
       environment: {
         plain: ["NODE_ENV=production"],
-        secret: ["DATABASE_URL", "API_SECRET"]
-      }
+        secret: ["DATABASE_URL", "API_SECRET"],
+      },
     };
 
     const projectName = "production-app";
     const secrets: LightformSecrets = {
       DATABASE_URL: "postgres://user:pass@db:5432/myapp",
-      API_SECRET: "super-secret-key"
+      API_SECRET: "super-secret-key",
     };
 
     // Act
-    const options = DockerClient.serviceToContainerOptions(service, projectName, secrets);
+    const options = DockerClient.serviceToContainerOptions(
+      service,
+      projectName,
+      secrets
+    );
 
     // Assert
     expect(options.networkAliases).toContain("app-service");
     expect(options.envVars!["NODE_ENV"]).toBe("production");
-    expect(options.envVars!["DATABASE_URL"]).toBe("postgres://user:pass@db:5432/myapp");
+    expect(options.envVars!["DATABASE_URL"]).toBe(
+      "postgres://user:pass@db:5432/myapp"
+    );
     expect(options.envVars!["API_SECRET"]).toBe("super-secret-key");
   });
 });

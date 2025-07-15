@@ -228,6 +228,15 @@ ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightfo
 curl -k -I https://test.eliasson.me
 ```
 
+**Local Development Setup**:
+```bash
+# Build the CLI and set up for local development
+bun run build            # Build everything from repo root
+cd packages/cli
+bun link                 # Make lightform command available globally
+# Now you can use `lightform` anywhere (e.g. in examples/)
+```
+
 ## V1 Completion Status
 
 The project is feature-complete for V1 with:

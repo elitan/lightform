@@ -1,6 +1,11 @@
 import { AppEntry, LightformSecrets } from "../config/types";
 import { DockerClient, DockerContainerOptions } from "../docker";
-import { appNeedsBuilding, getAppImageName, buildImageName } from '../utils/image-utils';
+import {
+  appNeedsBuilding,
+  getAppImageName,
+  buildImageName,
+} from "../utils/image-utils";
+import { processVolumes } from "../utils";
 
 export interface BlueGreenDeploymentOptions {
   appEntry: AppEntry;
@@ -40,7 +45,6 @@ function generateContainerNames(
   return names;
 }
 
-
 /**
  * Creates container options for blue-green deployment
  */
@@ -61,7 +65,7 @@ function createBlueGreenContainerOptions(
     name: containerName,
     image: imageNameWithRelease,
     ports: appEntry.ports,
-    volumes: appEntry.volumes,
+    volumes: processVolumes(appEntry.volumes, projectName),
     envVars: envVars,
     network: `${projectName}-network`,
     networkAliases: [
@@ -133,14 +137,15 @@ async function performBlueGreenHealthChecks(
   const healthCheckPath = appEntry.health_check?.path || "/up";
   const healthPromises = containerNames.map(async (containerName) => {
     try {
-      const healthCheckPassed = await dockerClient.checkHealthWithLightformProxy(
-        "lightform-proxy",
-        appEntry.name,
-        containerName,
-        projectName,
-        appPort,
-        healthCheckPath
-      );
+      const healthCheckPassed =
+        await dockerClient.checkHealthWithLightformProxy(
+          "lightform-proxy",
+          appEntry.name,
+          containerName,
+          projectName,
+          appPort,
+          healthCheckPath
+        );
 
       if (healthCheckPassed) {
         if (verbose) {

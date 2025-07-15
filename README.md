@@ -5,8 +5,7 @@ Zero-downtime Docker deployments with automatic HTTPS. Build locally, deploy to 
 ```bash
 npm install -g lightform-cli
 lightform init
-lightform setup    # bootstraps fresh server automatically
-lightform deploy   # zero-downtime blue-green deployment
+lightform       # Deploys with automatic setup - that's it!
 ```
 
 ```yaml
@@ -32,7 +31,8 @@ apps:
 ```
 
 ```
-❯ lightform deploy
+❯ lightform
+[✓] Ensuring infrastructure is ready (1.2s)
 [✓] Building Images (1.8s)
 [✓] Zero-downtime deployment of web (3.5s)
 [✓] Deployment completed successfully in 9.8s
@@ -119,12 +119,15 @@ POSTGRES_PASSWORD=supersecret
 
 ```bash
 lightform init                    # Create lightform.yml and .lightform/secrets
-lightform setup                   # Bootstrap servers (auto-detects fresh servers)
-lightform deploy                  # Deploy all apps
-lightform deploy web              # Deploy specific app
-lightform deploy --services       # Deploy services only
+lightform                         # Deploy all apps (auto-setup included)
+lightform web                     # Deploy specific app
+lightform --services              # Deploy services only
+lightform --verbose               # Deploy with detailed output
 lightform status                  # Check deployment status
+lightform proxy status            # Manage proxy
 ```
+
+**Note**: Infrastructure setup is automatic. Fresh servers are detected and configured automatically during deployment.
 
 ## Examples
 
@@ -169,7 +172,7 @@ ssh:
 apps:
   frontend:
     build:
-      context: ./frontend              # Build context: ./frontend directory
+      context: ./frontend # Build context: ./frontend directory
       dockerfile: ./frontend/Dockerfile # Dockerfile path from project root
     server: web-server.com
     proxy:
@@ -179,7 +182,7 @@ apps:
 
   backend:
     build:
-      context: ./backend               # Build context: ./backend directory
+      context: ./backend # Build context: ./backend directory
       dockerfile: ./backend/Dockerfile # Dockerfile path from project root
     server: api-server.com
     proxy:
@@ -193,7 +196,7 @@ apps:
 
   mobile-api:
     build:
-      context: ./mobile-api               # Build context: ./mobile-api directory
+      context: ./mobile-api # Build context: ./mobile-api directory
       dockerfile: ./mobile-api/Dockerfile # Dockerfile path from project root
     server: api-server.com
     proxy:
@@ -226,6 +229,7 @@ lightform deploy -c lightform.production.yml
 - **Smart server setup**: Detects fresh servers and automatically installs Docker, hardens SSH, sets up users
 - **Blue-green deployment**: New version deployed alongside current, health checked, then traffic switched atomically
 - **Automatic HTTPS**: Provisions SSL certificates and domains automatically (or use your own)
+- **Intelligent infrastructure**: Setup happens automatically during deployment - no separate commands needed
 
 ## Requirements
 

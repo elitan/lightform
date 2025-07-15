@@ -1,4 +1,4 @@
-name: lightform-example-basic
+name: basic
 
 ssh:
   username: lightform
@@ -8,7 +8,7 @@ apps:
     build:
       context: .
       dockerfile: Dockerfile
-      args:  # Build arguments from environment variables
+      args: # Build arguments from environment variables
         - EXAMPLE_VAR
     server: 157.180.47.213
     environment:
@@ -20,7 +20,7 @@ apps:
     proxy:
       app_port: 3000
     health_check:
-      path: /api/health
+      path: /up
 
 services:
   db:
