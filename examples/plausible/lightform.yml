@@ -1,0 +1,56 @@
+name: plausible
+
+ssh:
+  username: lightform
+
+apps:
+  plausible:
+    image: ghcr.io/plausible/community-edition:v3.0.1
+    server: 65.21.181.70
+    command: sh -c "/entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh run"
+    environment:
+      plain:
+        - TZ=UTC
+        - TMPDIR=/var/lib/plausible/tmp
+        - HTTP_PORT=3000
+        - CLICKHOUSE_DATABASE_URL=http://plausible_events_db:8123/plausible_events_db
+        - DATABASE_URL=postgres://postgres:postgres@plausible_db:5432/plausible_db
+        - DISABLE_REGISTRATION=true
+        - ENABLE_EMAIL_VERIFICATION=false
+      secret:
+        - BASE_URL
+        - SECRET_KEY_BASE
+        - TOTP_VAULT_KEY
+        - DATABASE_URL
+    proxy:
+      hosts:
+        - analytics.elitasson.me
+      app_port: 3000
+    health_check:
+      path: /api/health
+
+services:
+  plausible_db:
+    image: postgres:16-alpine
+    server: 65.21.181.70
+    environment:
+      secret:
+        - POSTGRES_PASSWORD
+      plain:
+        - POSTGRES_USER=postgres
+        - POSTGRES_DB=plausible_db
+    volumes:
+      - plausible-db-data:/var/lib/postgresql/data
+
+  plausible_events_db:
+    image: clickhouse/clickhouse-server:24.12-alpine
+    server: 65.21.181.70
+    environment:
+      plain:
+        - CLICKHOUSE_SKIP_USER_SETUP=1
+    volumes:
+      - ./event-data:/var/lib/clickhouse
+      - ./event-logs:/var/log/clickhouse-server
+      - ./clickhouse/logs.xml:/etc/clickhouse-server/config.d/logs.xml:ro
+      - ./clickhouse/ipv4-only.xml:/etc/clickhouse-server/config.d/ipv4-only.xml:ro
+      - ./clickhouse/low-resources.xml:/etc/clickhouse-server/config.d/low-resources.xml:ro

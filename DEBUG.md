@@ -14,10 +14,10 @@
 ```bash
 cd examples/basic  # or examples/nextjs
 
-# Deploy with force flag
-bun ../../packages/cli/src/index.ts deploy --force
+# Deploy with force flag (setup is automatic)
+bun ../../packages/cli/src/index.ts --force
 
-# Enable staging mode immediately after setup
+# Enable staging mode immediately after first deployment
 ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
 ```
 
@@ -34,8 +34,8 @@ ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightfo
 cd packages/proxy
 ./publish.sh
 
-# Setup will automatically pull latest proxy if available and start it
-bun ../../packages/cli/src/index.ts setup --verbose
+# Infrastructure setup is automatic during deployment - proxy will be updated
+bun ../../packages/cli/src/index.ts --verbose
 
 # Manual approach if needed (usually not required):
 # Stop and remove proxy container
@@ -137,11 +137,10 @@ ssh lightform@157.180.47.213 "docker ps -a --filter 'label=lightform.project' --
 ssh lightform@157.180.47.213 "docker stop \$(docker ps -aq) 2>/dev/null || true && docker rm \$(docker ps -aq) 2>/dev/null || true && docker system prune -af --volumes"
 ssh lightform@157.180.47.213 "rm -rf ./.lightform"
 
-# 2. Setup and deploy
+# 2. Deploy (setup is automatic)
 cd examples/basic
-bun ../../packages/cli/src/index.ts setup --verbose
+bun ../../packages/cli/src/index.ts --verbose
 ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
-bun ../../packages/cli/src/index.ts deploy --force
 
 # 3. Test
 curl -k -I https://test.eliasson.me
@@ -163,9 +162,9 @@ When troubleshooting Lightform issues, follow this systematic feedback loop:
 ### Example Workflow
 
 ```bash
-# 1. Test deploy
+# 1. Test deploy (setup is automatic)
 cd examples/basic
-bun ../../packages/cli/src/index.ts deploy --force --verbose
+bun ../../packages/cli/src/index.ts --force --verbose
 
 # 2. Check the logs
 ssh lightform@157.180.47.213 "docker logs --tail 50 lightform-proxy"
@@ -183,8 +182,7 @@ ssh lightform@157.180.47.213 "docker logs --tail 30 gmail-web"
 
 # 5. Redeploy
 cd packages/proxy && ./publish.sh && cd ../../examples/basic  # If proxy changes
-bun ../../packages/cli/src/index.ts setup --verbose            # Automatically pulls updated proxy and starts it
-bun ../../packages/cli/src/index.ts deploy --force --verbose   # Deploy again
+bun ../../packages/cli/src/index.ts --force --verbose         # Deploy (auto-setup included)
 
 # 6. Start over
 # Go back to step 2 and check logs again

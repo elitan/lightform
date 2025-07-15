@@ -8,6 +8,11 @@ import {
   LightformSecrets,
 } from "../config/types";
 import {
+  appNeedsBuilding,
+  getAppImageName,
+  buildImageName,
+} from "../utils/image-utils";
+import {
   DockerClient,
   DockerBuildOptions,
   DockerContainerOptions,
@@ -20,8 +25,12 @@ import {
   parsePortMappings,
   validateConfig,
   formatValidationErrors,
+  processVolumes,
+  ensureProjectDirectories,
+  sanitizeFolderName,
 } from "../utils";
 import { shouldUseSslip, generateAppSslipDomain } from "../utils/sslip";
+import { setupLightformProxy } from "../setup-proxy/index";
 import { execSync } from "child_process";
 import { LightformProxyClient } from "../proxy";
 import { performBlueGreenDeployment } from "./blue-green";
@@ -42,12 +51,16 @@ function createServiceConfigHash(serviceEntry: ServiceEntry): string {
     image: serviceEntry.image,
     environment: {
       plain: serviceEntry.environment?.plain?.sort() || [],
-      secret: serviceEntry.environment?.secret?.sort() || []
+      secret: serviceEntry.environment?.secret?.sort() || [],
     },
     ports: serviceEntry.ports?.sort() || [],
-    volumes: serviceEntry.volumes?.sort() || []
+    volumes: serviceEntry.volumes?.sort() || [],
   };
-  return require('crypto').createHash('sha256').update(JSON.stringify(configForHash)).digest('hex').substring(0, 12);
+  return require("crypto")
+    .createHash("sha256")
+    .update(JSON.stringify(configForHash))
+    .digest("hex")
+    .substring(0, 12);
 }
 
 /**
@@ -118,7 +131,7 @@ function appEntryToContainerOptions(
     name: containerName,
     image: imageNameWithRelease,
     ports: appEntry.ports,
-    volumes: appEntry.volumes,
+    volumes: processVolumes(appEntry.volumes, projectName),
     envVars: envVars,
     network: networkName,
     networkAliases: [
@@ -146,7 +159,7 @@ function serviceEntryToContainerOptions(
     name: containerName,
     image: serviceEntry.image,
     ports: serviceEntry.ports,
-    volumes: serviceEntry.volumes,
+    volumes: processVolumes(serviceEntry.volumes, projectName),
     envVars: envVars,
     network: networkName,
     networkAliases: [serviceEntry.name], // Allow other containers to reach this service by name (e.g. "db", "meilisearch")
@@ -224,18 +237,20 @@ function parseDeploymentArgs(rawEntryNamesAndFlags: string[]): ParsedArgs {
  */
 async function checkUncommittedChanges(forceFlag: boolean): Promise<void> {
   if (!forceFlag && (await hasUncommittedChanges())) {
-    logger.error(
-      "Uncommitted changes detected in working directory."
-    );
+    logger.error("Uncommitted changes detected in working directory.");
     logger.error("");
     logger.error("To deploy safely:");
-    logger.error("   1. Commit your changes: git add . && git commit -m 'Your message'");
+    logger.error(
+      "   1. Commit your changes: git add . && git commit -m 'Your message'"
+    );
     logger.error("   2. Then run: lightform deploy");
     logger.error("");
     logger.error("To deploy anyway (not recommended):");
     logger.error("   lightform deploy --force");
     logger.error("");
-    logger.error("Note: Lightform requires committed changes to enable easy rollbacks via git.");
+    logger.error(
+      "Note: Lightform requires committed changes to enable easy rollbacks via git."
+    );
     throw new Error("Uncommitted changes detected");
   }
 }
@@ -261,11 +276,13 @@ async function loadConfigurationAndSecrets(): Promise<{
       for (const error of formattedErrors) {
         logger.error(error);
       }
-      
+
       logger.error("");
       logger.error("To fix configuration errors:");
       logger.error("   # Edit lightform.yml to fix the issues above");
-      logger.error("   lightform deploy                  # Try deploying again");
+      logger.error(
+        "   lightform deploy                  # Try deploying again"
+      );
 
       throw new Error("Configuration validation failed");
     }
@@ -276,11 +293,16 @@ async function loadConfigurationAndSecrets(): Promise<{
       logger.error("Configuration files not found.");
       logger.error("");
       logger.error("To fix this:");
-      logger.error("   lightform init                    # Create configuration files");
+      logger.error(
+        "   lightform init                    # Create configuration files"
+      );
       logger.error("   # Edit lightform.yml with your app settings");
       logger.error("   lightform setup                   # Setup your servers");
       logger.error("   lightform deploy                  # Deploy your apps");
-    } else if (error instanceof Error && error.message.includes("Invalid configuration")) {
+    } else if (
+      error instanceof Error &&
+      error.message.includes("Invalid configuration")
+    ) {
       // Validation errors are already displayed by loadConfig, just exit
       throw error;
     } else {
@@ -337,13 +359,15 @@ function identifyTargetEntries(
       entryNames.forEach((name) => {
         const app = configuredApps.find((a) => a.name === name);
         const service = configuredServices.find((s) => s.name === name);
-        
+
         if (app) {
           targetApps.push(app);
         } else if (service) {
           targetServices.push(service);
         } else {
-          logger.warn(`Entry "${name}" not found in apps or services configuration`);
+          logger.warn(
+            `Entry "${name}" not found in apps or services configuration`
+          );
         }
       });
       if (targetApps.length === 0 && targetServices.length === 0) {
@@ -352,7 +376,13 @@ function identifyTargetEntries(
     }
   }
 
-  logger.verboseLog(`Selected: ${targetApps.length} apps [${targetApps.map(a => a.name).join(', ')}], ${targetServices.length} services [${targetServices.map(s => s.name).join(', ')}]`);
+  logger.verboseLog(
+    `Selected: ${targetApps.length} apps [${targetApps
+      .map((a) => a.name)
+      .join(", ")}], ${targetServices.length} services [${targetServices
+      .map((s) => s.name)
+      .join(", ")}]`
+  );
   return { apps: targetApps, services: targetServices };
 }
 
@@ -450,10 +480,12 @@ async function verifyInfrastructure(
   ) {
     logger.error("Infrastructure verification failed");
     logger.error("");
-    
+
     if (missingNetworkServers.length > 0) {
       logger.error(
-        `Missing network "${networkName}" on servers: ${missingNetworkServers.join(", ")}`
+        `Missing network "${networkName}" on servers: ${missingNetworkServers.join(
+          ", "
+        )}`
       );
     }
     if (missingProxyServers.length > 0) {
@@ -461,20 +493,24 @@ async function verifyInfrastructure(
         `Missing lightform-proxy on servers: ${missingProxyServers.join(", ")}`
       );
     }
-    
+
     if (!hasPortConflicts) {
       logger.error("");
       logger.error("To fix infrastructure issues:");
       logger.error("   lightform setup                    # Setup all servers");
-      logger.error("   lightform setup --verbose          # Setup with detailed output");
+      logger.error(
+        "   lightform setup --verbose          # Setup with detailed output"
+      );
       logger.error("");
       logger.error("To setup specific servers:");
-      const uniqueServers = missingNetworkServers.concat(missingProxyServers).filter((v, i, a) => a.indexOf(v) === i);
+      const uniqueServers = missingNetworkServers
+        .concat(missingProxyServers)
+        .filter((v, i, a) => a.indexOf(v) === i);
       if (uniqueServers.length > 0) {
         logger.error(`   lightform setup ${uniqueServers.join(" ")}`);
       }
     }
-    
+
     throw new Error("Infrastructure verification failed");
   }
 }
@@ -491,17 +527,19 @@ async function checkPortConflictsOnServer(
   verbose: boolean = false
 ): Promise<void> {
   // Simple solution: Get existing project container ports and exclude them
-  logger.verboseLog(`[${serverHostname}] Getting existing project containers...`);
-  
+  logger.verboseLog(
+    `[${serverHostname}] Getting existing project containers...`
+  );
+
   try {
     const projectContainerPorts = new Set<number>();
-    
+
     // Get all containers from this project
     const containerOutput = await sshClient.exec(
       `docker ps --filter "name=${projectName}-" --format "{{.Ports}}"`
     );
-    
-    const portLines = containerOutput.split("\n").filter(line => line.trim());
+
+    const portLines = containerOutput.split("\n").filter((line) => line.trim());
     for (const line of portLines) {
       // Extract host ports from format like "0.0.0.0:9002->5432/tcp, [::]:9002->5432/tcp"
       // Simple approach: find all ":PORT->" patterns
@@ -512,12 +550,14 @@ async function checkPortConflictsOnServer(
           const port = parseInt(portMatch.replace(/[:->]/g, ""));
           if (port > 0) {
             projectContainerPorts.add(port);
-            logger.verboseLog(`[${serverHostname}] Excluding existing project port: ${port}`);
+            logger.verboseLog(
+              `[${serverHostname}] Excluding existing project port: ${port}`
+            );
           }
         }
       }
     }
-    
+
     // Get all entries targeting this server
     const serverEntries = targetEntries.filter(
       (entry) => entry.server === serverHostname
@@ -537,10 +577,12 @@ async function checkPortConflictsOnServer(
         for (const mapping of portMappings) {
           // Skip if this port is already used by our project
           if (projectContainerPorts.has(mapping.hostPort)) {
-            logger.verboseLog(`[${serverHostname}] Skipping conflict check for port ${mapping.hostPort} - used by existing project container`);
+            logger.verboseLog(
+              `[${serverHostname}] Skipping conflict check for port ${mapping.hostPort} - used by existing project container`
+            );
             continue;
           }
-          
+
           plannedPorts.push({
             hostPort: mapping.hostPort,
             containerPort: mapping.containerPort,
@@ -553,7 +595,9 @@ async function checkPortConflictsOnServer(
 
     // Skip port checking if no ports need to be checked
     if (plannedPorts.length === 0) {
-      logger.verboseLog(`[${serverHostname}] No new ports to check for conflicts`);
+      logger.verboseLog(
+        `[${serverHostname}] No new ports to check for conflicts`
+      );
       return;
     }
 
@@ -562,7 +606,12 @@ async function checkPortConflictsOnServer(
     );
 
     // Use simple port checker (don't need the complex project filtering anymore)
-    const portChecker = new PortChecker(sshClient, dockerClient, serverHostname, verbose);
+    const portChecker = new PortChecker(
+      sshClient,
+      dockerClient,
+      serverHostname,
+      verbose
+    );
     const conflicts = await portChecker.checkPortConflicts(plannedPorts);
 
     if (conflicts.length > 0) {
@@ -582,16 +631,20 @@ async function checkPortConflictsOnServer(
     if (error instanceof Error && error.message === "Port conflicts detected") {
       throw error;
     }
-    logger.verboseLog(`[${serverHostname}] Warning: Could not check existing containers: ${error}`);
+    logger.verboseLog(
+      `[${serverHostname}] Warning: Could not check existing containers: ${error}`
+    );
     // Continue with normal port checking if we can't get existing containers
   }
 }
 
-
 /**
  * Detects the platform architecture of a server by establishing SSH connection
  */
-async function detectServerPlatform(serverHostname: string, context: DeploymentContext): Promise<string> {
+async function detectServerPlatform(
+  serverHostname: string,
+  context: DeploymentContext
+): Promise<string> {
   try {
     const sshClient = await establishSSHConnection(
       serverHostname,
@@ -599,13 +652,15 @@ async function detectServerPlatform(serverHostname: string, context: DeploymentC
       context.secrets,
       context.verboseFlag
     );
-    
+
     const platform = await sshClient.detectServerPlatform();
     await sshClient.close();
-    
+
     return platform;
   } catch (error) {
-    logger.verboseLog(`Failed to detect platform for server ${serverHostname}, defaulting to linux/amd64: ${error}`);
+    logger.verboseLog(
+      `Failed to detect platform for server ${serverHostname}, defaulting to linux/amd64: ${error}`
+    );
     return "linux/amd64";
   }
 }
@@ -613,7 +668,10 @@ async function detectServerPlatform(serverHostname: string, context: DeploymentC
 /**
  * Gets the build configuration for an app, providing defaults if none specified
  */
-async function getBuildConfig(appEntry: AppEntry, context: DeploymentContext): Promise<{
+async function getBuildConfig(
+  appEntry: AppEntry,
+  context: DeploymentContext
+): Promise<{
   context: string;
   dockerfile: string;
   platform: string;
@@ -626,21 +684,27 @@ async function getBuildConfig(appEntry: AppEntry, context: DeploymentContext): P
     // Handle build.args - resolve variable names from environment section
     if (appEntry.build.args && appEntry.build.args.length > 0) {
       const envVars = resolveEnvironmentVariables(appEntry, context.secrets);
-      
+
       for (const varName of appEntry.build.args) {
         if (envVars[varName] !== undefined) {
           buildArgs[varName] = envVars[varName];
-          
+
           // Warn about potentially sensitive variables being exposed to build context
           const lowerCaseName = varName.toLowerCase();
-          if (lowerCaseName.includes('secret') || 
-              lowerCaseName.includes('password') || 
-              lowerCaseName.includes('key') ||
-              lowerCaseName.includes('token')) {
-            logger.warn(`Warning: Build argument "${varName}" appears to contain sensitive data and will be visible in Docker build context for app ${appEntry.name}`);
+          if (
+            lowerCaseName.includes("secret") ||
+            lowerCaseName.includes("password") ||
+            lowerCaseName.includes("key") ||
+            lowerCaseName.includes("token")
+          ) {
+            logger.warn(
+              `Warning: Build argument "${varName}" appears to contain sensitive data and will be visible in Docker build context for app ${appEntry.name}`
+            );
           }
         } else {
-          throw new Error(`Build argument '${varName}' is not defined in the 'environment' section for app '${appEntry.name}'`);
+          throw new Error(
+            `Build argument '${varName}' is not defined in the 'environment' section for app '${appEntry.name}'`
+          );
         }
       }
     }
@@ -663,48 +727,12 @@ async function getBuildConfig(appEntry: AppEntry, context: DeploymentContext): P
   // Default build configuration for apps without explicit build config
   // Detect platform for the target server
   const platform = await detectServerPlatform(appEntry.server, context);
-  
+
   return {
     context: ".",
     dockerfile: "Dockerfile",
     platform,
   };
-}
-
-/**
- * Checks if an app needs to be built (vs using an existing image)
- */
-function appNeedsBuilding(appEntry: AppEntry): boolean {
-  // If it has a build config, it needs building
-  if (appEntry.build) {
-    return true;
-  }
-
-  // If it doesn't have an image field, it needs building
-  if (!appEntry.image) {
-    return true;
-  }
-
-  // If it has an image field but also proxy config, it needs building
-  // (the image field is used as the base name for tagging)
-  if (appEntry.proxy) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Gets the base image name for an app (used for tagging built images)
- */
-function getAppImageName(appEntry: AppEntry): string {
-  // If image is specified, use it as the base name
-  if (appEntry.image) {
-    return appEntry.image;
-  }
-
-  // Otherwise, generate a name based on the app name
-  return `${appEntry.name}`;
 }
 
 /**
@@ -768,20 +796,6 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   }
   logger.phaseComplete("App State Reconciliation");
 
-  // Deploy phase for apps
-  if (apps.length > 0) {
-    logger.phase("Deploying Apps");
-    const deploymentStartTime = Date.now();
-
-    // Deployment phase: Deploy each app to their servers
-    for (const appEntry of apps) {
-      await deployAppToServers(appEntry, context);
-    }
-
-    const deploymentDuration = Date.now() - deploymentStartTime;
-    logger.phaseComplete("Deploying Apps", deploymentDuration);
-  }
-
   // Deploy phase for services with reconciliation
   if (services.length > 0) {
     logger.phase("Deploying Services");
@@ -799,6 +813,20 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
     }
 
     logger.phaseComplete("Service deployment complete");
+  }
+
+  // Deploy phase for apps
+  if (apps.length > 0) {
+    logger.phase("Deploying Apps");
+    const deploymentStartTime = Date.now();
+
+    // Deployment phase: Deploy each app to their servers
+    for (const appEntry of apps) {
+      await deployAppToServers(appEntry, context);
+    }
+
+    const deploymentDuration = Date.now() - deploymentStartTime;
+    logger.phaseComplete("Deploying Apps", deploymentDuration);
   }
 }
 
@@ -898,7 +926,11 @@ async function buildOrTagAppImage(
     const baseImageName = getAppImageName(appEntry);
     logger.verboseLog(`Tagging ${baseImageName} as ${imageNameWithRelease}...`);
     try {
-      await DockerClient.tag(baseImageName, imageNameWithRelease, context.verboseFlag);
+      await DockerClient.tag(
+        baseImageName,
+        imageNameWithRelease,
+        context.verboseFlag
+      );
       logger.verboseLog(
         `Successfully tagged ${baseImageName} as ${imageNameWithRelease}`
       );
@@ -961,20 +993,6 @@ async function saveAppImage(
 }
 
 /**
- * Builds the full image name with release ID for built apps, or returns original name for pre-built apps
- */
-function buildImageName(appEntry: AppEntry, releaseId: string): string {
-  const baseImageName = getAppImageName(appEntry);
-
-  // For apps that need building, use release ID
-  if (appNeedsBuilding(appEntry)) {
-    return `${baseImageName}:${releaseId}`;
-  }
-  // For pre-built apps, use the image as-is (if it exists)
-  return appEntry.image || baseImageName;
-}
-
-/**
  * Deploys an app to a specific server using zero-downtime deployment
  */
 async function deployAppToServer(
@@ -1001,16 +1019,29 @@ async function deployAppToServer(
 
     const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
 
-    // Step 1: Transfer and load image
-    logger.serverStep(`Transfer & load ${appEntry.name} image`);
-    await transferAndLoadImage(
-      appEntry,
-      sshClient,
-      dockerClient,
-      context,
-      imageNameWithRelease
-    );
-    logger.serverStepComplete(`Transfer & load ${appEntry.name} image`);
+    // Step 1: Ensure image is available
+    if (appNeedsBuilding(appEntry)) {
+      // For built apps, transfer and load the image
+      logger.serverStep(`Transfer & load ${appEntry.name} image`);
+      await transferAndLoadImage(
+        appEntry,
+        sshClient,
+        dockerClient,
+        context,
+        imageNameWithRelease
+      );
+      logger.serverStepComplete(`Transfer & load ${appEntry.name} image`);
+    } else {
+      // For pre-built apps, pull the image from registry
+      logger.serverStep(`Pull ${appEntry.name} image`);
+      await authenticateAndPullImage(
+        appEntry,
+        dockerClient,
+        context,
+        imageNameWithRelease
+      );
+      logger.serverStepComplete(`Pull ${appEntry.name} image`);
+    }
 
     // Step 2: Zero-downtime deployment
     logger.serverStep(`Zero-downtime deployment of ${appEntry.name}`);
@@ -1175,15 +1206,23 @@ async function deployServiceDirectly(
 
   try {
     // Check if service needs updating before pulling image
-    const needsUpdate = await serviceNeedsUpdate(serviceEntry, dockerClient, context);
-    
+    const needsUpdate = await serviceNeedsUpdate(
+      serviceEntry,
+      dockerClient,
+      context
+    );
+
     if (!needsUpdate) {
-      logger.verboseLog(`✓ Service ${serviceEntry.name} is up-to-date, skipping recreation`);
+      logger.verboseLog(
+        `✓ Service ${serviceEntry.name} is up-to-date, skipping recreation`
+      );
       return;
     }
-    
+
     // Only pull image if service needs updating
-    logger.verboseLog(`↻ Service ${serviceEntry.name} needs update, pulling image...`);
+    logger.verboseLog(
+      `↻ Service ${serviceEntry.name} needs update, pulling image...`
+    );
     await authenticateAndPullImage(
       serviceEntry,
       dockerClient,
@@ -1416,15 +1455,16 @@ export function checkServiceConfigChanges(
   containerName: string
 ): { hasChanges: boolean; reason?: string } {
   // Docker Compose approach: Compare config hashes (primary method)
-  const currentConfigHash = currentConfig.Config?.Labels?.['lightform.config-hash'];
+  const currentConfigHash =
+    currentConfig.Config?.Labels?.["lightform.config-hash"];
   const desiredConfigHash = desiredConfig.configHash;
-  
+
   if (currentConfigHash && desiredConfigHash) {
     // Both have hashes - this is the reliable comparison
     if (currentConfigHash !== desiredConfigHash) {
-      return { 
-        hasChanges: true, 
-        reason: `Configuration changed (hash: ${currentConfigHash} → ${desiredConfigHash})` 
+      return {
+        hasChanges: true,
+        reason: `Configuration changed (hash: ${currentConfigHash} → ${desiredConfigHash})`,
       };
     }
     // Hashes match - no changes needed
@@ -1432,14 +1472,15 @@ export function checkServiceConfigChanges(
   } else {
     // Fallback for existing containers without config hash: upgrade them to hash-based tracking
     if (logger) {
-      logger.verboseLog(`Service ${containerName} missing config hash, upgrading to hash-based tracking`);
+      logger.verboseLog(
+        `Service ${containerName} missing config hash, upgrading to hash-based tracking`
+      );
     }
-    return { 
-      hasChanges: true, 
-      reason: `Upgrading to hash-based configuration tracking` 
+    return {
+      hasChanges: true,
+      reason: `Upgrading to hash-based configuration tracking`,
     };
   }
-
 }
 
 /**
@@ -1451,20 +1492,24 @@ export async function serviceNeedsUpdate(
   context: DeploymentContext
 ): Promise<boolean> {
   const containerName = `${context.projectName}-${serviceEntry.name}`;
-  
+
   try {
     // Check if container exists
     const containerExists = await dockerClient.containerExists(containerName);
     if (!containerExists) {
-      logger.verboseLog(`Container ${containerName} does not exist, needs creation`);
+      logger.verboseLog(
+        `Container ${containerName} does not exist, needs creation`
+      );
       return true;
     }
 
     // Get current container configuration
     const currentConfig = await dockerClient.inspectContainer(containerName);
-    
+
     if (!currentConfig) {
-      logger.verboseLog(`Could not inspect ${containerName}, assuming needs update`);
+      logger.verboseLog(
+        `Could not inspect ${containerName}, assuming needs update`
+      );
       return true;
     }
 
@@ -1476,17 +1521,24 @@ export async function serviceNeedsUpdate(
     );
 
     // Check for changes
-    const result = checkServiceConfigChanges(currentConfig, desiredConfig, containerName);
-    
+    const result = checkServiceConfigChanges(
+      currentConfig,
+      desiredConfig,
+      containerName
+    );
+
     if (result.hasChanges) {
-      logger.verboseLog(`↻ Service ${containerName} needs update: ${result.reason}`);
+      logger.verboseLog(
+        `↻ Service ${containerName} needs update: ${result.reason}`
+      );
       return true;
     }
 
     return false;
-
   } catch (error) {
-    logger.verboseLog(`Error checking if ${containerName} needs update: ${error}, assuming needs update`);
+    logger.verboseLog(
+      `Error checking if ${containerName} needs update: ${error}, assuming needs update`
+    );
     return true;
   }
 }
@@ -1498,10 +1550,12 @@ async function replaceServiceContainer(
   context: DeploymentContext
 ): Promise<void> {
   const containerName = `${context.projectName}-${serviceEntry.name}`;
-  
+
   // Note: needsUpdate check is now done before calling this function
-  logger.verboseLog(`↻ Service ${serviceEntry.name} needs update, recreating container`);
-  
+  logger.verboseLog(
+    `↻ Service ${serviceEntry.name} needs update, recreating container`
+  );
+
   try {
     await dockerClient.stopContainer(containerName);
     await dockerClient.removeContainer(containerName);
@@ -1865,6 +1919,246 @@ async function transferAndLoadImage(
 }
 
 /**
+ * Bootstrap a fresh server by connecting as root and setting up the lightform user
+ */
+async function bootstrapFreshServer(
+  serverHostname: string,
+  config: LightformConfig,
+  secrets: LightformSecrets,
+  verbose: boolean = false
+): Promise<void> {
+  logger.verboseLog(`Attempting to bootstrap fresh server: ${serverHostname}`);
+
+  // Try to connect as root
+  const rootConfig = {
+    ...config,
+    ssh: { ...config.ssh, username: "root" },
+  };
+
+  const rootSshClient = await establishSSHConnection(
+    serverHostname,
+    rootConfig,
+    secrets,
+    verbose
+  );
+
+  try {
+    await rootSshClient.connect();
+    logger.verboseLog(`Connected to ${serverHostname} as root for bootstrap`);
+
+    const dockerClient = new DockerClient(
+      rootSshClient,
+      serverHostname,
+      verbose
+    );
+
+    // Install Docker and dependencies
+    logger.verboseLog("Installing Docker and dependencies...");
+    const installSuccess = await dockerClient.install();
+    if (!installSuccess) {
+      throw new Error("Failed to install Docker");
+    }
+
+    // Create lightform user
+    const username = config.ssh?.username || "lightform";
+    logger.verboseLog(`Creating user: ${username}`);
+
+    try {
+      await rootSshClient.exec(`useradd -m -s /bin/bash ${username}`);
+    } catch (error) {
+      // User might already exist, check if it does
+      try {
+        await rootSshClient.exec(`id ${username}`);
+        logger.verboseLog(`User ${username} already exists`);
+      } catch {
+        throw new Error(`Failed to create user ${username}: ${error}`);
+      }
+    }
+
+    // Add user to docker group
+    await rootSshClient.exec(`usermod -aG docker ${username}`);
+
+    // Set up SSH directory and authorized_keys
+    await rootSshClient.exec(`mkdir -p /home/${username}/.ssh`);
+    await rootSshClient.exec(
+      `chown ${username}:${username} /home/${username}/.ssh`
+    );
+    await rootSshClient.exec(`chmod 700 /home/${username}/.ssh`);
+
+    // Copy root's authorized_keys to the new user (if it exists)
+    try {
+      await rootSshClient.exec(
+        `cp /root/.ssh/authorized_keys /home/${username}/.ssh/authorized_keys`
+      );
+      await rootSshClient.exec(
+        `chown ${username}:${username} /home/${username}/.ssh/authorized_keys`
+      );
+      await rootSshClient.exec(
+        `chmod 600 /home/${username}/.ssh/authorized_keys`
+      );
+      logger.verboseLog(`SSH keys copied to ${username}`);
+    } catch (error) {
+      logger.verboseLog(`No root SSH keys to copy: ${error}`);
+    }
+
+    // Add user to sudoers
+    await rootSshClient.exec(
+      `echo "${username} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${username}`
+    );
+
+    logger.verboseLog(`Fresh server ${serverHostname} bootstrap completed`);
+  } finally {
+    await rootSshClient.close();
+  }
+}
+
+/**
+ * Performs intelligent setup checks and auto-setup if needed
+ * This replaces the need for a separate 'lightform setup' command
+ */
+async function ensureInfrastructureReady(
+  config: LightformConfig,
+  secrets: LightformSecrets,
+  servers: string[],
+  verbose: boolean = false
+): Promise<void> {
+  logger.step("Ensuring infrastructure is ready");
+
+  const startTime = Date.now();
+
+  for (const server of servers) {
+    let sshClient: SSHClient;
+    let dockerClient: DockerClient;
+    let isConnected = false;
+
+    // Step 1: Try connecting as configured user
+    try {
+      sshClient = await establishSSHConnection(
+        server,
+        config,
+        secrets,
+        verbose
+      );
+      await sshClient.connect();
+      isConnected = true;
+      logger.verboseLog(`Connected to ${server} as configured user`);
+    } catch (error) {
+      logger.verboseLog(
+        `Failed to connect as configured user to ${server}, attempting fresh server bootstrap`
+      );
+
+      // Step 2: Try bootstrap as root for fresh server
+      try {
+        await bootstrapFreshServer(server, config, secrets, verbose);
+        logger.verboseLog(`Fresh server ${server} bootstrapped successfully`);
+
+        // Step 3: Try connecting as configured user again after bootstrap
+        sshClient = await establishSSHConnection(
+          server,
+          config,
+          secrets,
+          verbose
+        );
+        await sshClient.connect();
+        isConnected = true;
+        logger.verboseLog(
+          `Connected to ${server} as configured user after bootstrap`
+        );
+      } catch (bootstrapError) {
+        throw new Error(
+          `Failed to bootstrap server ${server}: ${bootstrapError}`
+        );
+      }
+    }
+
+    if (!isConnected) {
+      throw new Error(`Could not establish connection to ${server}`);
+    }
+
+    dockerClient = new DockerClient(sshClient);
+
+    try {
+      // Fast checks first (parallel where possible)
+      const [networkExists, proxyRunning, directoriesExist] = await Promise.all(
+        [
+          dockerClient.networkExists(getProjectNetworkName(config.name!)),
+          dockerClient.containerExists("lightform-proxy"),
+          checkProjectDirectoriesExist(sshClient, config.name!),
+        ]
+      );
+
+      // Only do work that's actually needed
+      const tasks = [];
+
+      if (!networkExists) {
+        tasks.push(() =>
+          dockerClient.createNetwork({
+            name: getProjectNetworkName(config.name!),
+          })
+        );
+      }
+
+      if (!directoriesExist) {
+        tasks.push(() => ensureProjectDirectories(sshClient, config.name!));
+      }
+
+      if (!proxyRunning) {
+        tasks.push(() => setupLightformProxy(server, sshClient, false));
+      }
+
+      // Always ensure proxy is connected to project network (needed for health checks)
+      const projectNetworkName = getProjectNetworkName(config.name!);
+      tasks.push(async () => {
+        const isProxyConnected =
+          await dockerClient.isContainerConnectedToNetwork(
+            "lightform-proxy",
+            projectNetworkName
+          );
+        if (!isProxyConnected) {
+          logger.verboseLog(
+            `Connecting lightform-proxy to ${projectNetworkName}`
+          );
+          await dockerClient.connectContainerToNetwork(
+            "lightform-proxy",
+            projectNetworkName
+          );
+        }
+      });
+
+      // Execute only needed tasks
+      if (tasks.length > 0) {
+        logger.verboseLog(
+          `Infrastructure needs ${tasks.length} updates for ${server}`
+        );
+        for (const task of tasks) {
+          await task();
+        }
+      } else {
+        logger.verboseLog(`Infrastructure already ready for ${server}`);
+      }
+    } finally {
+      await sshClient.close();
+    }
+  }
+
+  const elapsed = Date.now() - startTime;
+  logger.stepComplete(`Infrastructure ready (${elapsed}ms)`);
+}
+
+async function checkProjectDirectoriesExist(
+  sshClient: SSHClient,
+  projectName: string
+): Promise<boolean> {
+  try {
+    const sanitizedName = sanitizeFolderName(projectName);
+    await sshClient.exec(`test -d ~/.lightform/projects/${sanitizedName}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Main deployment command that orchestrates the entire deployment process
  */
 export async function deployCommand(rawEntryNamesAndFlags: string[]) {
@@ -1888,11 +2182,8 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     const { config, secrets } = await loadConfigurationAndSecrets();
     logger.phaseComplete("Git status verified");
 
-    const { apps: targetApps, services: targetServices } = identifyTargetEntries(
-      entryNames,
-      deployServicesFlag,
-      config
-    );
+    const { apps: targetApps, services: targetServices } =
+      identifyTargetEntries(entryNames, deployServicesFlag, config);
     if (targetApps.length === 0 && targetServices.length === 0) {
       logger.error("No entries selected for deployment");
       return;
@@ -1901,16 +2192,18 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     const projectName = config.name;
     const networkName = getProjectNetworkName(projectName);
 
-    // Verify infrastructure
-    logger.phase("Checking infrastructure");
-    await verifyInfrastructure(
-      [...targetApps, ...targetServices],
+    // Ensure infrastructure is ready (auto-setup if needed)
+    const allTargetServers = new Set<string>();
+    [...targetApps, ...targetServices].forEach((entry) => {
+      allTargetServers.add(entry.server);
+    });
+
+    await ensureInfrastructureReady(
       config,
       secrets,
-      networkName,
+      Array.from(allTargetServers),
       verboseFlag
     );
-    logger.phaseComplete("Infrastructure ready");
 
     const context: DeploymentContext = {
       config,

@@ -87,6 +87,7 @@ export const AppEntryWithoutNameSchema = z.object({
     .describe(
       "Registry configuration for pre-built images. Not used for apps with 'build' configuration."
     ),
+  command: z.string().optional().describe("Override the default command for the container"),
   health_check: HealthCheckSchema.optional(),
   proxy: AppProxyConfigSchema.optional(),
   // Potentially add other app-specific fields like 'replicas', 'domains', etc.
@@ -121,6 +122,7 @@ export const ServiceEntryWithoutNameSchema = z.object({
     .describe(
       "Registry configuration for services using private registries. Public images like 'postgres:15' don't require registry configuration."
     ),
+  command: z.string().optional().describe("Override the default command for the container"),
 });
 export type ServiceEntryWithoutName = z.infer<
   typeof ServiceEntryWithoutNameSchema

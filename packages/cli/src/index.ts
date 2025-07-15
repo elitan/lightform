@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { initCommand } from "./commands/init";
-import { setupCommand } from "./commands/setup";
 import { deployCommand } from "./commands/deploy";
 import { statusCommand } from "./commands/status";
 import { proxyCommand } from "./commands/proxy";
@@ -14,32 +13,41 @@ function showMainHelp(): void {
   console.log("================================================");
   console.log("");
   console.log("USAGE:");
-  console.log("  lightform <command> [flags]");
+  console.log("  lightform [flags]                 # Deploy (default action)");
+  console.log("  lightform <command> [flags]       # Run specific command");
   console.log("");
   console.log("COMMANDS:");
   console.log("  init      Initialize lightform.yml config and secrets file");
-  console.log("  setup     Bootstrap servers with Docker and infrastructure");
-  console.log("  deploy    Deploy apps and services to configured servers");
   console.log("  status    Check deployment status across all servers");
   console.log("  proxy     Manage Lightform proxy (status, update)");
   console.log("");
   console.log("GLOBAL FLAGS:");
   console.log("  --help     Show command help");
   console.log("  --verbose  Show detailed output");
+  console.log("  --force    Force deployment (ignore git status)");
   console.log("");
   console.log("EXAMPLES:");
   console.log("  lightform init                    # Initialize new project");
-  console.log("  lightform setup --verbose         # Setup servers with detailed output");
-  console.log("  lightform deploy                  # Deploy all apps and services");
-  console.log("  lightform deploy web --force      # Force deploy specific app/service");
+  console.log(
+    "  lightform                         # Deploy all apps and services"
+  );
+  console.log(
+    "  lightform --verbose               # Deploy with detailed output"
+  );
+  console.log(
+    "  lightform web --force             # Force deploy specific app/service"
+  );
   console.log("  lightform status                  # Check all deployments");
   console.log("  lightform proxy status            # Check proxy status");
   console.log("");
   console.log("GETTING STARTED:");
   console.log("  1. lightform init                 # Create config files");
-  console.log("  2. Edit lightform.yml             # Configure your apps and servers");
-  console.log("  3. lightform setup                # Bootstrap your servers");
-  console.log("  4. lightform deploy               # Deploy your apps and services");
+  console.log(
+    "  2. Edit lightform.yml             # Configure your apps and servers"
+  );
+  console.log(
+    "  3. lightform                      # Deploy your apps and services"
+  );
   console.log("");
   console.log("For command-specific help: lightform <command> --help");
 }
@@ -57,8 +65,12 @@ function showCommandHelp(command: string): void {
       console.log("  lightform init [flags]");
       console.log("");
       console.log("DESCRIPTION:");
-      console.log("  Creates lightform.yml configuration file and .lightform/secrets file.");
-      console.log("  Automatically adds secrets file to .gitignore for security.");
+      console.log(
+        "  Creates lightform.yml configuration file and .lightform/secrets file."
+      );
+      console.log(
+        "  Automatically adds secrets file to .gitignore for security."
+      );
       console.log("");
       console.log("FLAGS:");
       console.log("  --help     Show this help message");
@@ -67,46 +79,27 @@ function showCommandHelp(command: string): void {
       console.log("  lightform init                    # Interactive setup");
       break;
 
-    case "setup":
-      console.log("Setup servers and infrastructure");
-      console.log("=================================");
-      console.log("");
-      console.log("USAGE:");
-      console.log("  lightform setup [entry-names...] [flags]");
-      console.log("");
-      console.log("DESCRIPTION:");
-      console.log("  Bootstraps fresh servers and configures infrastructure only.");
-      console.log("  Installs Docker, creates networks, sets up proxy, and starts services.");
-      console.log("  For fresh servers (root access), automatically creates lightform user.");
-      console.log("  Use 'lightform deploy' to deploy your apps after setup.");
-      console.log("");
-      console.log("FLAGS:");
-      console.log("  --verbose  Show detailed setup progress");
-      console.log("  --help     Show this help message");
-      console.log("");
-      console.log("EXAMPLES:");
-      console.log("  lightform setup                   # Setup all servers");
-      console.log("  lightform setup web               # Setup servers for 'web' app only");
-      console.log("  lightform setup --verbose         # Setup with detailed output");
-      console.log("");
-      console.log("TROUBLESHOOTING:");
-      console.log("  - Ensure SSH access to your servers");
-      console.log("  - For fresh servers, ensure root SSH access initially");
-      console.log("  - Check lightform.yml has correct server hostnames");
-      break;
-
     case "deploy":
-      console.log("Deploy apps and services");
-      console.log("========================");
+      console.log("Deploy apps and services (default command)");
+      console.log("===========================================");
       console.log("");
       console.log("USAGE:");
-      console.log("  lightform deploy [entry-names...] [flags]");
+      console.log(
+        "  lightform [entry-names...] [flags]       # Default - no 'deploy' needed"
+      );
+      console.log(
+        "  lightform deploy [entry-names...] [flags] # Explicit command"
+      );
       console.log("");
       console.log("DESCRIPTION:");
-      console.log("  Deploys both apps and services to configured servers.");
-      console.log("  Apps use zero-downtime blue-green deployment strategy.");
-      console.log("  Services are deployed directly (brief downtime during restart).");
-      console.log("  Builds images locally, transfers to servers, and configures routing.");
+      console.log(
+        "  Deploys apps and services to configured servers with zero downtime."
+      );
+      console.log(
+        "  Automatically sets up infrastructure if needed (no separate setup needed)."
+      );
+      console.log("  Apps use blue-green deployment for zero downtime.");
+      console.log("  Services restart briefly during deployment.");
       console.log("");
       console.log("FLAGS:");
       console.log("  --force      Deploy even with uncommitted git changes");
@@ -115,15 +108,28 @@ function showCommandHelp(command: string): void {
       console.log("  --help       Show this help message");
       console.log("");
       console.log("EXAMPLES:");
-      console.log("  lightform deploy                  # Deploy all apps and services");
-      console.log("  lightform deploy web api          # Deploy specific apps/services");
-      console.log("  lightform deploy --services       # Deploy only services");
-      console.log("  lightform deploy web --force      # Force deploy ignoring git status");
+      console.log(
+        "  lightform                         # Deploy all apps and services"
+      );
+      console.log(
+        "  lightform web api                 # Deploy specific apps/services"
+      );
+      console.log("  lightform --services              # Deploy only services");
+      console.log(
+        "  lightform web --force             # Force deploy ignoring git status"
+      );
+      console.log(
+        "  lightform --verbose               # Deploy with detailed output"
+      );
       console.log("");
-      console.log("REQUIREMENTS:");
-      console.log("  - Run 'lightform setup' first");
-      console.log("  - Commit git changes (or use --force)");
-      console.log("  - Docker running locally for image builds");
+      console.log("NOTES:");
+      console.log(
+        "  - Infrastructure setup is automatic (no separate setup command)"
+      );
+      console.log(
+        "  - Commit git changes or use --force for uncommitted changes"
+      );
+      console.log("  - Requires Docker running locally for image builds");
       break;
 
     case "status":
@@ -134,15 +140,21 @@ function showCommandHelp(command: string): void {
       console.log("  lightform status [entry-names...] [flags]");
       console.log("");
       console.log("DESCRIPTION:");
-      console.log("  Shows comprehensive status of apps, services, and proxy across servers.");
-      console.log("  Includes container health, resource usage, and deployment information.");
+      console.log(
+        "  Shows comprehensive status of apps, services, and proxy across servers."
+      );
+      console.log(
+        "  Includes container health, resource usage, and deployment information."
+      );
       console.log("");
       console.log("FLAGS:");
       console.log("  --verbose  Show detailed status information");
       console.log("  --help     Show this help message");
       console.log("");
       console.log("EXAMPLES:");
-      console.log("  lightform status                  # Check all deployments");
+      console.log(
+        "  lightform status                  # Check all deployments"
+      );
       console.log("  lightform status web              # Check specific app");
       console.log("  lightform status --verbose        # Detailed status info");
       break;
@@ -155,7 +167,9 @@ function showCommandHelp(command: string): void {
       console.log("  lightform proxy <subcommand> [flags]");
       console.log("");
       console.log("DESCRIPTION:");
-      console.log("  Manage the Lightform reverse proxy that handles SSL and routing.");
+      console.log(
+        "  Manage the Lightform reverse proxy that handles SSL and routing."
+      );
       console.log("");
       console.log("SUBCOMMANDS:");
       console.log("  status     Show proxy status on all servers");
@@ -196,12 +210,18 @@ function parseArgs(args: string[]): { flags: string[]; nonFlagArgs: string[] } {
  */
 function handleCliError(error: Error): void {
   console.error("\nError:", error.message);
-  
+
   // Provide specific suggestions based on error type
-  if (error.message.includes("ENOENT") || error.message.includes("lightform.yml")) {
+  if (
+    error.message.includes("ENOENT") ||
+    error.message.includes("lightform.yml")
+  ) {
     console.error("\nSuggestion:");
     console.error("   Run 'lightform init' to create configuration files");
-  } else if (error.message.includes("SSH") || error.message.includes("connection")) {
+  } else if (
+    error.message.includes("SSH") ||
+    error.message.includes("connection")
+  ) {
     console.error("\nSuggestions:");
     console.error("   - Check server hostname in lightform.yml");
     console.error("   - Verify SSH access to your servers");
@@ -210,13 +230,20 @@ function handleCliError(error: Error): void {
     console.error("\nSuggestions:");
     console.error("   - Ensure Docker is running locally");
     console.error("   - Run 'lightform setup' to install Docker on servers");
-  } else if (error.message.includes("git") || error.message.includes("uncommitted")) {
+  } else if (
+    error.message.includes("git") ||
+    error.message.includes("uncommitted")
+  ) {
     console.error("\nSuggestions:");
-    console.error("   - Commit your changes: git add . && git commit -m 'message'");
+    console.error(
+      "   - Commit your changes: git add . && git commit -m 'message'"
+    );
     console.error("   - Or use --force flag to deploy anyway");
   }
-  
-  console.error("\nNeed help? Use 'lightform --help' or 'lightform <command> --help'");
+
+  console.error(
+    "\nNeed help? Use 'lightform --help' or 'lightform <command> --help'"
+  );
 }
 
 async function main() {
@@ -237,7 +264,7 @@ async function main() {
   // If no command provided (only flags or nothing), default to deploy
   let command = args[0];
   let commandArgs = args.slice(1);
-  
+
   if (args.length === 0 || (args[0] && args[0].startsWith("--"))) {
     // No command provided, or first arg is a flag - default to deploy
     command = "deploy";
@@ -246,6 +273,7 @@ async function main() {
   const { flags, nonFlagArgs } = parseArgs(commandArgs);
   const verboseFlag = flags.includes("--verbose");
   const helpFlag = flags.includes("--help") || flags.includes("-h");
+  const forceFlag = flags.includes("--force");
 
   // Handle command-specific help
   if (helpFlag) {
@@ -254,12 +282,12 @@ async function main() {
   }
 
   // Validate command before executing
-  const validCommands = ["init", "setup", "deploy", "status", "proxy"];
+  const validCommands = ["init", "deploy", "status", "proxy"];
   if (!validCommands.includes(command)) {
     console.error(`Unknown command: ${command}`);
     console.error("");
     console.error("Available commands:");
-    validCommands.forEach(cmd => {
+    validCommands.forEach((cmd) => {
       console.error(`   ${cmd}`);
     });
     console.error("");
@@ -271,9 +299,6 @@ async function main() {
     switch (command) {
       case "init":
         await initCommand(commandArgs);
-        break;
-      case "setup":
-        await setupCommand(nonFlagArgs, verboseFlag);
         break;
       case "deploy":
         await deployCommand(commandArgs); // deploy handles its own flag parsing

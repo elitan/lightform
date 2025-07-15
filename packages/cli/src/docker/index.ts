@@ -9,7 +9,7 @@ import {
 } from "../config/types";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { getProjectNetworkName } from "../utils";
+import { getProjectNetworkName, processVolumes } from "../utils";
 
 const execAsync = promisify(exec);
 
@@ -28,6 +28,7 @@ export interface DockerContainerOptions {
   restart?: string;
   labels?: Record<string, string>;
   configHash?: string; // For Docker Compose-style change detection
+  command?: string; // Override container command
 }
 
 export interface DockerBuildOptions {
@@ -610,7 +611,13 @@ EOF`);
       const result = await this.execRemote(
         `network ls --filter name=${name} --format "{{.Name}}"`
       );
-      return result.trim() === name;
+      // Split by lines and check if any line exactly matches the network name
+      // This handles the case where Docker's name filter returns multiple partial matches
+      const networks = result
+        .trim()
+        .split("\n")
+        .filter((line) => line.trim());
+      return networks.includes(name);
     } catch {
       return false;
     }
@@ -634,6 +641,50 @@ EOF`);
       return true;
     } catch (error) {
       this.logError(`Failed to create Docker network: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Check if a container is connected to a specific network
+   */
+  async isContainerConnectedToNetwork(
+    containerName: string,
+    networkName: string
+  ): Promise<boolean> {
+    try {
+      const result = await this.execRemote(
+        `inspect ${containerName} --format "{{range .NetworkSettings.Networks}}{{.NetworkID}} {{end}}"`
+      );
+
+      // Get the network ID for the network name
+      const networkInfo = await this.execRemote(
+        `network inspect ${networkName} --format "{{.Id}}"`
+      );
+      const networkId = networkInfo.trim();
+
+      // Check if the container's networks include this network ID
+      return result.includes(networkId);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Connect a container to a network
+   */
+  async connectContainerToNetwork(
+    containerName: string,
+    networkName: string
+  ): Promise<boolean> {
+    try {
+      await this.execRemote(`network connect ${networkName} ${containerName}`);
+      this.log(`Connected ${containerName} to network ${networkName}`);
+      return true;
+    } catch (error) {
+      this.logError(
+        `Failed to connect ${containerName} to network ${networkName}: ${error}`
+      );
       return false;
     }
   }
@@ -767,6 +818,11 @@ EOF`);
 
       // Add the image
       cmd += ` ${options.image}`;
+
+      // Add custom command if specified
+      if (options.command) {
+        cmd += ` ${options.command}`;
+      }
 
       // Execute the command
       await this.execRemote(cmd);
@@ -1049,11 +1105,11 @@ EOF`);
     try {
       const inspectOutput = await this.execRemote(`inspect ${containerName}`);
       const inspectData = JSON.parse(inspectOutput);
-      
+
       if (!inspectData || inspectData.length === 0) {
         return null;
       }
-      
+
       return inspectData[0];
     } catch (error) {
       this.logError(`Failed to inspect container ${containerName}: ${error}`);
@@ -1076,8 +1132,9 @@ EOF`);
       network: `${projectName}-network`,
       networkAliases: [service.name], // Add service name as network alias (e.g., "db")
       ports: service.ports,
-      volumes: service.volumes,
+      volumes: processVolumes(service.volumes, projectName),
       envVars: {},
+      command: service.command,
       labels: {
         "lightform.managed": "true",
         "lightform.project": projectName,

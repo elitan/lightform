@@ -1,5 +1,11 @@
 import { AppEntry, LightformSecrets } from "../config/types";
 import { DockerClient, DockerContainerOptions } from "../docker";
+import {
+  appNeedsBuilding,
+  getAppImageName,
+  buildImageName,
+} from "../utils/image-utils";
+import { processVolumes } from "../utils";
 
 export interface BlueGreenDeploymentOptions {
   appEntry: AppEntry;
@@ -40,56 +46,6 @@ function generateContainerNames(
 }
 
 /**
- * Gets the base image name for an app (used for tagging built images)
- */
-function getAppImageName(appEntry: AppEntry): string {
-  // If image is specified, use it as the base name
-  if (appEntry.image) {
-    return appEntry.image;
-  }
-
-  // Otherwise, generate a name based on the app name
-  return `${appEntry.name}`;
-}
-
-/**
- * Checks if an app needs to be built (vs using an existing image)
- */
-function appNeedsBuilding(appEntry: AppEntry): boolean {
-  // If it has a build config, it needs building
-  if (appEntry.build) {
-    return true;
-  }
-
-  // If it doesn't have an image field, it needs building
-  if (!appEntry.image) {
-    return true;
-  }
-
-  // If it has an image field but also proxy config, it needs building
-  // (the image field is used as the base name for tagging)
-  if (appEntry.proxy) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Builds the full image name with release ID for built apps, or returns original name for pre-built apps
- */
-function buildImageName(appEntry: AppEntry, releaseId: string): string {
-  const baseImageName = getAppImageName(appEntry);
-
-  // For apps that need building, use release ID
-  if (appNeedsBuilding(appEntry)) {
-    return `${baseImageName}:${releaseId}`;
-  }
-  // For pre-built apps, use the image as-is (if it exists)
-  return appEntry.image || baseImageName;
-}
-
-/**
  * Creates container options for blue-green deployment
  */
 function createBlueGreenContainerOptions(
@@ -109,7 +65,7 @@ function createBlueGreenContainerOptions(
     name: containerName,
     image: imageNameWithRelease,
     ports: appEntry.ports,
-    volumes: appEntry.volumes,
+    volumes: processVolumes(appEntry.volumes, projectName),
     envVars: envVars,
     network: `${projectName}-network`,
     networkAliases: [
@@ -117,6 +73,7 @@ function createBlueGreenContainerOptions(
       projectSpecificAlias, // "gmail-web" - for proxy routing
     ],
     restart: "unless-stopped",
+    command: appEntry.command,
     labels: {
       "lightform.managed": "true",
       "lightform.project": projectName,
@@ -180,14 +137,15 @@ async function performBlueGreenHealthChecks(
   const healthCheckPath = appEntry.health_check?.path || "/up";
   const healthPromises = containerNames.map(async (containerName) => {
     try {
-      const healthCheckPassed = await dockerClient.checkHealthWithLightformProxy(
-        "lightform-proxy",
-        appEntry.name,
-        containerName,
-        projectName,
-        appPort,
-        healthCheckPath
-      );
+      const healthCheckPassed =
+        await dockerClient.checkHealthWithLightformProxy(
+          "lightform-proxy",
+          appEntry.name,
+          containerName,
+          projectName,
+          appPort,
+          healthCheckPath
+        );
 
       if (healthCheckPassed) {
         if (verbose) {
