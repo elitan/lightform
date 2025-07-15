@@ -1140,6 +1140,7 @@ async function deployServicesWithReconciliation(
       return entry.server === serverHostname;
     });
 
+    // Deploy services sequentially to handle potential dependencies
     for (const entry of servicesToDeploy) {
       const serviceEntry = entry as ServiceEntry;
       await deployServiceDirectly(
@@ -1173,6 +1174,16 @@ async function deployServiceDirectly(
   );
 
   try {
+    // Check if service needs updating before pulling image
+    const needsUpdate = await serviceNeedsUpdate(serviceEntry, dockerClient, context);
+    
+    if (!needsUpdate) {
+      logger.verboseLog(`✓ Service ${serviceEntry.name} is up-to-date, skipping recreation`);
+      return;
+    }
+    
+    // Only pull image if service needs updating
+    logger.verboseLog(`↻ Service ${serviceEntry.name} needs update, pulling image...`);
     await authenticateAndPullImage(
       serviceEntry,
       dockerClient,
@@ -1472,7 +1483,6 @@ export async function serviceNeedsUpdate(
       return true;
     }
 
-    logger.verboseLog(`✓ No changes detected for service ${containerName}, skipping recreation`);
     return false;
 
   } catch (error) {
@@ -1489,14 +1499,7 @@ async function replaceServiceContainer(
 ): Promise<void> {
   const containerName = `${context.projectName}-${serviceEntry.name}`;
   
-  // Check if service actually needs updating
-  const needsUpdate = await serviceNeedsUpdate(serviceEntry, dockerClient, context);
-  
-  if (!needsUpdate) {
-    logger.verboseLog(`✓ Service ${serviceEntry.name} is up-to-date, skipping recreation (Docker Compose-like behavior)`);
-    return;
-  }
-
+  // Note: needsUpdate check is now done before calling this function
   logger.verboseLog(`↻ Service ${serviceEntry.name} needs update, recreating container`);
   
   try {
