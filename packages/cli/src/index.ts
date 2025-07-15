@@ -24,7 +24,6 @@ function showMainHelp(): void {
   console.log("GLOBAL FLAGS:");
   console.log("  --help     Show command help");
   console.log("  --verbose  Show detailed output");
-  console.log("  --force    Force deployment (ignore git status)");
   console.log("");
   console.log("EXAMPLES:");
   console.log("  lightform init                    # Initialize new project");
@@ -33,9 +32,6 @@ function showMainHelp(): void {
   );
   console.log(
     "  lightform --verbose               # Deploy with detailed output"
-  );
-  console.log(
-    "  lightform web --force             # Force deploy specific app/service"
   );
   console.log("  lightform status                  # Check all deployments");
   console.log("  lightform proxy status            # Check proxy status");
@@ -102,7 +98,6 @@ function showCommandHelp(command: string): void {
       console.log("  Services restart briefly during deployment.");
       console.log("");
       console.log("FLAGS:");
-      console.log("  --force      Deploy even with uncommitted git changes");
       console.log("  --services   Deploy services only (skip apps)");
       console.log("  --verbose    Show detailed deployment progress");
       console.log("  --help       Show this help message");
@@ -116,9 +111,6 @@ function showCommandHelp(command: string): void {
       );
       console.log("  lightform --services              # Deploy only services");
       console.log(
-        "  lightform web --force             # Force deploy ignoring git status"
-      );
-      console.log(
         "  lightform --verbose               # Deploy with detailed output"
       );
       console.log("");
@@ -127,7 +119,7 @@ function showCommandHelp(command: string): void {
         "  - Infrastructure setup is automatic (no separate setup command)"
       );
       console.log(
-        "  - Commit git changes or use --force for uncommitted changes"
+        "  - Commit git changes before deploying"
       );
       console.log("  - Requires Docker running locally for image builds");
       break;
@@ -177,7 +169,6 @@ function showCommandHelp(command: string): void {
       console.log("");
       console.log("FLAGS:");
       console.log("  --verbose  Show detailed output");
-      console.log("  --force    Force update (update subcommand only)");
       console.log("  --help     Show this help message");
       break;
 
@@ -238,7 +229,6 @@ function handleCliError(error: Error): void {
     console.error(
       "   - Commit your changes: git add . && git commit -m 'message'"
     );
-    console.error("   - Or use --force flag to deploy anyway");
   }
 
   console.error(
@@ -273,7 +263,6 @@ async function main() {
   const { flags, nonFlagArgs } = parseArgs(commandArgs);
   const verboseFlag = flags.includes("--verbose");
   const helpFlag = flags.includes("--help") || flags.includes("-h");
-  const forceFlag = flags.includes("--force");
 
   // Handle command-specific help
   if (helpFlag) {
