@@ -31,7 +31,6 @@ import {
 } from "../utils";
 import { shouldUseSslip, generateAppSslipDomain } from "../utils/sslip";
 import { setupLightformProxy } from "../setup-proxy/index";
-import { execSync } from "child_process";
 import { LightformProxyClient } from "../proxy";
 import { performBlueGreenDeployment } from "./blue-green";
 import { Logger } from "../utils/logger";
@@ -95,20 +94,6 @@ function resolveEnvironmentVariables(
   return envVars;
 }
 
-/**
- * Checks if there are uncommitted changes in the working directory
- */
-async function hasUncommittedChanges(): Promise<boolean> {
-  try {
-    const status = execSync("git status --porcelain").toString().trim();
-    return status.length > 0;
-  } catch (error) {
-    logger.verboseLog(
-      "Failed to check git status. Assuming no uncommitted changes."
-    );
-    return false;
-  }
-}
 
 /**
  * Creates Docker container options for an app entry
@@ -203,7 +188,6 @@ interface DeploymentContext {
   releaseId: string;
   projectName: string;
   networkName: string;
-  forceFlag: boolean;
   deployServicesFlag: boolean;
   verboseFlag: boolean;
   imageArchives?: Map<string, string>; // app name -> archive path
@@ -211,7 +195,6 @@ interface DeploymentContext {
 
 interface ParsedArgs {
   entryNames: string[];
-  forceFlag: boolean;
   deployServicesFlag: boolean;
   verboseFlag: boolean;
 }
@@ -220,40 +203,17 @@ interface ParsedArgs {
  * Parses command line arguments and extracts flags and entry names
  */
 function parseDeploymentArgs(rawEntryNamesAndFlags: string[]): ParsedArgs {
-  const forceFlag = rawEntryNamesAndFlags.includes("--force");
   const deployServicesFlag = rawEntryNamesAndFlags.includes("--services");
   const verboseFlag = rawEntryNamesAndFlags.includes("--verbose");
 
   const entryNames = rawEntryNamesAndFlags.filter(
     (name) =>
-      name !== "--services" && name !== "--force" && name !== "--verbose"
+      name !== "--services" && name !== "--verbose"
   );
 
-  return { entryNames, forceFlag, deployServicesFlag, verboseFlag };
+  return { entryNames, deployServicesFlag, verboseFlag };
 }
 
-/**
- * Validates git status and throws error if uncommitted changes exist (unless forced)
- */
-async function checkUncommittedChanges(forceFlag: boolean): Promise<void> {
-  if (!forceFlag && (await hasUncommittedChanges())) {
-    logger.error("Uncommitted changes detected in working directory.");
-    logger.error("");
-    logger.error("To deploy safely:");
-    logger.error(
-      "   1. Commit your changes: git add . && git commit -m 'Your message'"
-    );
-    logger.error("   2. Then run: lightform deploy");
-    logger.error("");
-    logger.error("To deploy anyway (not recommended):");
-    logger.error("   lightform deploy --force");
-    logger.error("");
-    logger.error(
-      "Note: Lightform requires committed changes to enable easy rollbacks via git."
-    );
-    throw new Error("Uncommitted changes detected");
-  }
-}
 
 /**
  * Loads and validates Lightform configuration and secrets files
@@ -2163,7 +2123,7 @@ async function checkProjectDirectoriesExist(
  */
 export async function deployCommand(rawEntryNamesAndFlags: string[]) {
   try {
-    const { entryNames, forceFlag, deployServicesFlag, verboseFlag } =
+    const { entryNames, deployServicesFlag, verboseFlag } =
       parseDeploymentArgs(rawEntryNamesAndFlags);
 
     // Set logger verbose mode
@@ -2173,14 +2133,11 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     const releaseId = await generateReleaseId();
     logger.deploymentStart(releaseId);
 
-    // Check git status
+    // Load configuration
     logger.phase("Configuration loading");
-    await checkUncommittedChanges(forceFlag);
-    logger.phaseComplete("Configuration loaded");
 
-    logger.phase("Verifying git status");
     const { config, secrets } = await loadConfigurationAndSecrets();
-    logger.phaseComplete("Git status verified");
+    logger.phaseComplete("Configuration loaded");
 
     const { apps: targetApps, services: targetServices } =
       identifyTargetEntries(entryNames, deployServicesFlag, config);
@@ -2213,7 +2170,6 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       releaseId,
       projectName,
       networkName,
-      forceFlag,
       deployServicesFlag,
       verboseFlag,
     };

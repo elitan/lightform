@@ -23,7 +23,6 @@ interface ProxyContext {
 interface ParsedProxyArgs {
   subcommand: string;
   verboseFlag: boolean;
-  forceFlag: boolean;
 }
 
 /**
@@ -51,10 +50,9 @@ function normalizeConfigEntries(
  */
 function parseProxyArgs(args: string[]): ParsedProxyArgs {
   const verboseFlag = args.includes("--verbose");
-  const forceFlag = args.includes("--force");
 
   const cleanArgs = args.filter(
-    (arg) => arg !== "--verbose" && arg !== "--force"
+    (arg) => arg !== "--verbose"
   );
 
   const subcommand = cleanArgs[0] || "";
@@ -62,7 +60,6 @@ function parseProxyArgs(args: string[]): ParsedProxyArgs {
   return {
     subcommand,
     verboseFlag,
-    forceFlag,
   };
 }
 
@@ -350,8 +347,7 @@ async function proxyStatusSubcommand(context: ProxyContext): Promise<void> {
  * Update subcommand - updates proxy on all servers
  */
 async function proxyUpdateSubcommand(
-  context: ProxyContext,
-  forceFlag: boolean
+  context: ProxyContext
 ): Promise<void> {
   logger.phase("Updating proxy");
 
@@ -375,19 +371,17 @@ async function proxyUpdateSubcommand(
       const proxyImage =
         context.config.proxy?.image || "elitan/lightform-proxy:latest";
 
-      // Check if update is needed (unless force flag is used)
-      if (!forceFlag) {
-        const updateCheck = await checkProxyNeedsUpdate(
-          sshClient,
-          serverHostname,
-          proxyImage
-        );
+      // Check if update is needed
+      const updateCheck = await checkProxyNeedsUpdate(
+        sshClient,
+        serverHostname,
+        proxyImage
+      );
 
-        if (!updateCheck.needsUpdate) {
-          logger.verboseLog(`Proxy is already up to date on ${serverHostname}`);
-          skippedCount++;
-          continue;
-        }
+      if (!updateCheck.needsUpdate) {
+        logger.verboseLog(`Proxy is already up to date on ${serverHostname}`);
+        skippedCount++;
+        continue;
       }
 
       logger.serverStep("Updating Lightform Proxy");
@@ -441,7 +435,6 @@ function showProxyHelp(): void {
   console.log("FLAGS:");
   console.log("  --verbose  Show detailed output");
   console.log(
-    "  --force    Force update even if already up to date (update only)"
   );
   console.log("");
   console.log("EXAMPLES:");
@@ -452,7 +445,6 @@ function showProxyHelp(): void {
     "  lightform proxy update --verbose       # Update proxy on all servers with details"
   );
   console.log(
-    "  lightform proxy update --force         # Force update on all servers"
   );
 }
 
@@ -491,7 +483,7 @@ export async function proxyCommand(args: string[]): Promise<void> {
         await proxyStatusSubcommand(context);
         break;
       case "update":
-        await proxyUpdateSubcommand(context, parsedArgs.forceFlag);
+        await proxyUpdateSubcommand(context);
         break;
     }
   } catch (error) {
