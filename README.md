@@ -3,7 +3,7 @@
 Zero-downtime Docker deployments with automatic HTTPS. Build locally, deploy to your servers.
 
 ```bash
-npm install -g lightform
+npm install -g lightform-cli
 lightform init
 lightform setup    # bootstraps fresh server automatically
 lightform deploy   # zero-downtime blue-green deployment
