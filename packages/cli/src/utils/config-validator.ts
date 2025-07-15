@@ -2,7 +2,7 @@ import { LightformConfig, AppEntry, ServiceEntry } from "../config/types";
 import { parsePortMappings } from "./port-checker";
 
 export interface ConfigValidationError {
-  type: "port_conflict" | "invalid_port" | "configuration_error";
+  type: "port_conflict" | "invalid_port" | "configuration_error" | "reserved_name";
   message: string;
   entries: string[];
   server: string;
@@ -12,6 +12,9 @@ export interface ConfigValidationError {
 
 export class ConfigValidator {
   private config: LightformConfig;
+  
+  // Reserved command names that cannot be used as app/service names
+  private static readonly RESERVED_NAMES = ["init", "status", "proxy"];
 
   constructor(config: LightformConfig) {
     this.config = config;
@@ -23,6 +26,10 @@ export class ConfigValidator {
   validate(): ConfigValidationError[] {
     const errors: ConfigValidationError[] = [];
 
+    // Check for reserved names
+    const reservedNameErrors = this.checkReservedNames();
+    errors.push(...reservedNameErrors);
+
     // Check for port conflicts within the same project
     const portConflicts = this.checkIntraProjectPortConflicts();
     errors.push(...portConflicts);
@@ -30,6 +37,28 @@ export class ConfigValidator {
     // Check for invalid port configurations
     const invalidPorts = this.checkInvalidPorts();
     errors.push(...invalidPorts);
+
+    return errors;
+  }
+
+  /**
+   * Checks for reserved command names being used as app/service names
+   */
+  private checkReservedNames(): ConfigValidationError[] {
+    const errors: ConfigValidationError[] = [];
+    const allEntries = this.getAllEntries();
+
+    for (const entry of allEntries) {
+      if (ConfigValidator.RESERVED_NAMES.includes(entry.name)) {
+        errors.push({
+          type: "reserved_name",
+          message: `App/service name "${entry.name}" is reserved and cannot be used`,
+          entries: [entry.name],
+          server: entry.server,
+          suggestions: this.generateReservedNameSuggestions(entry.name),
+        });
+      }
+    }
 
     return errors;
   }
@@ -178,6 +207,37 @@ export class ConfigValidator {
     }
 
     return entries;
+  }
+
+  /**
+   * Generates suggestions for resolving reserved name conflicts
+   */
+  private generateReservedNameSuggestions(reservedName: string): string[] {
+    const suggestions = [
+      `The name "${reservedName}" is reserved for CLI commands.`,
+      "",
+      "Reserved names: " + ConfigValidator.RESERVED_NAMES.join(", "),
+      "",
+      "Try using a different name like:",
+      `• ${reservedName}-app`,
+      `• ${reservedName}-service`,  
+      `• web-${reservedName}`,
+      `• api-${reservedName}`,
+      `• my-${reservedName}`,
+      "",
+      "Example fix:",
+      "# Before:",
+      `apps:`,
+      `  ${reservedName}:`,
+      "    # ... your config",
+      "",
+      "# After:",
+      `apps:`,
+      `  ${reservedName}-app:`,
+      "    # ... your config",
+    ];
+
+    return suggestions;
   }
 
   /**

@@ -14,8 +14,8 @@
 ```bash
 cd examples/basic  # or examples/nextjs
 
-# Deploy with force flag (setup is automatic)
-bun ../../packages/cli/src/index.ts --force
+# Deploy (setup is automatic)
+bun ../../packages/cli/src/index.ts
 
 # Enable staging mode immediately after first deployment
 ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy set-staging --enabled true"
@@ -164,7 +164,7 @@ When troubleshooting Lightform issues, follow this systematic feedback loop:
 ```bash
 # 1. Test deploy (setup is automatic)
 cd examples/basic
-bun ../../packages/cli/src/index.ts --force --verbose
+bun ../../packages/cli/src/index.ts --verbose
 
 # 2. Check the logs
 ssh lightform@157.180.47.213 "docker logs --tail 50 lightform-proxy"
@@ -182,7 +182,7 @@ ssh lightform@157.180.47.213 "docker logs --tail 30 gmail-web"
 
 # 5. Redeploy
 cd packages/proxy && ./publish.sh && cd ../../examples/basic  # If proxy changes
-bun ../../packages/cli/src/index.ts --force --verbose         # Deploy (auto-setup included)
+bun ../../packages/cli/src/index.ts --verbose                   # Deploy (auto-setup included)
 
 # 6. Start over
 # Go back to step 2 and check logs again

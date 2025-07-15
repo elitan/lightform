@@ -122,6 +122,9 @@ function showCommandHelp(command: string): void {
         "  - Commit git changes before deploying"
       );
       console.log("  - Requires Docker running locally for image builds");
+      console.log(
+        "  - App/service names cannot be: init, status, proxy (reserved)"
+      );
       break;
 
     case "status":
