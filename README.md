@@ -124,7 +124,10 @@ lightform web                     # Deploy specific app
 lightform --services              # Deploy services only
 lightform --verbose               # Deploy with detailed output
 lightform status                  # Check deployment status
-lightform proxy status            # Manage proxy
+lightform proxy status            # Check proxy status on all servers
+lightform proxy update            # Update proxy to latest version
+lightform proxy delete-host --host api.example.com  # Remove host from proxy
+lightform proxy logs --lines 100  # Show proxy logs (default: 50 lines)
 ```
 
 **Note**: Infrastructure setup is automatic. Fresh servers are detected and configured automatically during deployment.
