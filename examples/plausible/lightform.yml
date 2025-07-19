@@ -24,7 +24,7 @@ apps:
         - DATABASE_URL
     proxy:
       hosts:
-        - analytics.elitasson.me
+        - analytics.eliasson.me
       app_port: 3000
     health_check:
       path: /api/health
