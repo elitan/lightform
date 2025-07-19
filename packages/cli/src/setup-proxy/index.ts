@@ -46,6 +46,29 @@ export async function setupLightformProxy(
           );
         }
 
+        // Backup state before updating container
+        try {
+          if (verbose) {
+            console.log(`[${serverHostname}] Backing up proxy state before update...`);
+          }
+          
+          // Ensure state directory exists on host
+          await sshClient.exec("mkdir -p ~/.lightform/lightform-proxy-state");
+          
+          // Copy state from container to host if it exists
+          const copyStateCmd = `docker cp ${LIGHTFORM_PROXY_NAME}:/var/lib/lightform-proxy/state.json ~/.lightform/lightform-proxy-state/state.json 2>/dev/null || echo "No existing state to backup"`;
+          const backupResult = await sshClient.exec(copyStateCmd);
+          
+          if (verbose) {
+            console.log(`[${serverHostname}] State backup result: ${backupResult.trim()}`);
+          }
+        } catch (error) {
+          if (verbose) {
+            console.log(`[${serverHostname}] Warning: Could not backup state: ${error}`);
+          }
+          // Continue with update anyway
+        }
+
         // Stop and remove existing container to force update
         try {
           const proxyRunning = await dockerClient.containerIsRunning(
@@ -140,7 +163,7 @@ export async function setupLightformProxy(
       console.log(`[${serverHostname}] Creating .lightform directory structure...`);
     }
     try {
-      await sshClient.exec("mkdir -p ~/.lightform/lightform-proxy-certs ~/.lightform/lightform-proxy-config");
+      await sshClient.exec("mkdir -p ~/.lightform/lightform-proxy-certs ~/.lightform/lightform-proxy-state");
       if (verbose) {
         console.log(`[${serverHostname}] .lightform directories created successfully.`);
       }
@@ -156,7 +179,7 @@ export async function setupLightformProxy(
       ports: ["80:80", "443:443"],
       volumes: [
         "./.lightform/lightform-proxy-certs:/var/lib/lightform-proxy/certs",
-        "./.lightform/lightform-proxy-config:/tmp",
+        "./.lightform/lightform-proxy-state:/var/lib/lightform-proxy",
         "/var/run/docker.sock:/var/run/docker.sock",
       ],
       restart: "always",
@@ -191,6 +214,59 @@ export async function setupLightformProxy(
         `[${serverHostname}] Lightform proxy container exists but is not running.`
       );
       return false;
+    }
+
+    // Reconnect proxy to all project networks (needed after container recreation)
+    try {
+      if (verbose) {
+        console.log(`[${serverHostname}] Reconnecting proxy to project networks...`);
+      }
+      
+      // Find all project networks (they follow the pattern: {project-name}-network)
+      const networksResult = await sshClient.exec('docker network ls --filter "name=-network" --format "{{.Name}}"');
+      const projectNetworks = networksResult.trim().split('\n').filter(network => 
+        network.trim() && network.endsWith('-network')
+      );
+      
+      if (verbose) {
+        console.log(`[${serverHostname}] Found project networks: ${projectNetworks.join(', ')}`);
+      }
+      
+      // Connect proxy to each project network
+      for (const networkName of projectNetworks) {
+        try {
+          // Check if already connected to avoid errors
+          const isConnected = await dockerClient.isContainerConnectedToNetwork(
+            LIGHTFORM_PROXY_NAME, 
+            networkName
+          );
+          
+          if (!isConnected) {
+            await dockerClient.connectContainerToNetwork(LIGHTFORM_PROXY_NAME, networkName);
+            if (verbose) {
+              console.log(`[${serverHostname}] Connected proxy to network: ${networkName}`);
+            }
+          } else {
+            if (verbose) {
+              console.log(`[${serverHostname}] Proxy already connected to network: ${networkName}`);
+            }
+          }
+        } catch (error) {
+          if (verbose) {
+            console.log(`[${serverHostname}] Warning: Could not connect to network ${networkName}: ${error}`);
+          }
+          // Continue with other networks
+        }
+      }
+      
+      if (verbose) {
+        console.log(`[${serverHostname}] Network reconnection completed`);
+      }
+    } catch (error) {
+      if (verbose) {
+        console.log(`[${serverHostname}] Warning: Network reconnection failed: ${error}`);
+      }
+      // Don't fail the setup if network reconnection fails
     }
 
     if (verbose) {
