@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"bufio"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -273,4 +275,12 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 		w.statusCode = http.StatusOK
 	}
 	return w.ResponseWriter.Write(b)
+}
+
+// Hijack implements http.Hijacker to support WebSocket upgrades
+func (w *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, fmt.Errorf("ResponseWriter does not support hijacking")
 }
