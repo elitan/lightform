@@ -40,6 +40,20 @@ apps:
 https://a1b2c3d4-web-lightform-192-168-1-100.app.lightform.dev
 ```
 
+## Features
+
+- **Zero-downtime deployments**: Blue-green deployment strategy with automatic health checks and traffic switching
+- **Registry-free**: Build Docker images locally, compress and transfer via SSH (no Docker registry setup needed)
+- **Auto-SSL**: Let's Encrypt certificates with automatic renewal and instant domain provisioning
+- **Server bootstrap**: Fresh Ubuntu/Debian servers configured automatically with security hardening
+- **Multi-server support**: Deploy across multiple machines with automatic load balancing
+- **Git-based releases**: Each deployment tagged with Git SHA for easy rollbacks via git checkout + redeploy
+- **Secure by default**: Fail2Ban, automatic updates, SSH hardening, dedicated users, firewall configuration
+- **Proxy management**: Built-in reverse proxy with HTTP/HTTPS termination and host-based routing
+- **Comprehensive status**: Real-time deployment status across all servers and applications
+- **Services vs Apps**: Apps get zero-downtime blue-green deployment, services get direct replacement
+- **Network aliases**: Seamless traffic switching using Docker network aliases for true zero-downtime
+
 ## Why Lightform?
 
 **Own your infrastructure** without the complexity. Deploy any Docker app to your servers with zero configuration.
@@ -64,16 +78,6 @@ https://a1b2c3d4-web-lightform-192-168-1-100.app.lightform.dev
 - Multi-server support - deploy across multiple machines
 - Automatic SSL certificates and reverse proxy
 - Git-based releases with rollback capabilities
-
-## Features
-
-- **Zero-downtime deployments**: Blue-green deployment with automatic health checks and rollbacks
-- **Registry-free**: Build locally, transfer via SSH (no Docker registry setup needed)
-- **Auto-SSL**: Let's Encrypt certificates with automatic domain provisioning
-- **Server bootstrap**: Fresh Ubuntu/Debian servers configured automatically with security hardening
-- **Multi-server**: Deploy across multiple machines with automatic load balancing
-- **Git-based releases**: Each deployment tagged with Git SHA for easy rollbacks
-- **Secure by default**: Fail2Ban, automatic updates, SSH hardening, dedicated users
 
 ## Configuration
 
