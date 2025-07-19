@@ -225,9 +225,15 @@ services:
 
 **Multi-environment:**
 
+Use different config files for different environments:
+
 ```bash
-lightform deploy -c lightform.staging.yml
-lightform deploy -c lightform.production.yml
+# Copy and customize configs for each environment
+cp lightform.yml lightform.staging.yml
+cp lightform.yml lightform.production.yml
+
+# Edit configs for specific environments
+# Deploy by manually switching config files as needed
 ```
 
 ## How it works

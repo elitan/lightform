@@ -482,8 +482,8 @@ async function proxyDeleteHostSubcommand(
 
       logger.serverStep(`Deleting host: ${host}`);
 
-      // Use the proxy CLI to delete the host
-      const deleteCmd = `docker exec ${LIGHTFORM_PROXY_NAME} /usr/local/bin/lightform-proxy delete-host ${host}`;
+      // Use the proxy CLI to delete the host (using 'remove' command which is actually implemented)
+      const deleteCmd = `docker exec ${LIGHTFORM_PROXY_NAME} /usr/local/bin/lightform-proxy remove --host ${host}`;
       const result = await sshClient.exec(deleteCmd);
 
       if (result.includes("Host deleted successfully") || result.includes("deleted")) {
