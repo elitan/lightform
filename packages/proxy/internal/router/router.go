@@ -2,6 +2,7 @@ package router
 
 import (
 	"crypto/tls"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -79,7 +80,13 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Get or create proxy
+	// Check if this is a WebSocket upgrade request
+	if r.isWebSocketUpgrade(req) {
+		r.handleWebSocketProxy(w, req, host.Target, start)
+		return
+	}
+
+	// Get or create proxy for regular HTTP requests
 	proxy := r.getOrCreateProxy(req.Host, host.Target)
 
 	// Set forwarding headers
@@ -220,6 +227,70 @@ func (r *Router) getProto(req *http.Request) string {
 	}
 
 	return "http"
+}
+
+// isWebSocketUpgrade checks if the request is a WebSocket upgrade
+func (r *Router) isWebSocketUpgrade(req *http.Request) bool {
+	return strings.ToLower(req.Header.Get("Connection")) == "upgrade" &&
+		strings.ToLower(req.Header.Get("Upgrade")) == "websocket"
+}
+
+// handleWebSocketProxy handles WebSocket upgrade and proxying
+func (r *Router) handleWebSocketProxy(w http.ResponseWriter, req *http.Request, target string, start time.Time) {
+	// Dial backend
+	backendConn, err := net.Dial("tcp", target)
+	if err != nil {
+		log.Printf("[PROXY] WebSocket backend dial failed %s: %v", target, err)
+		http.Error(w, "Backend unavailable", http.StatusBadGateway)
+		return
+	}
+	defer backendConn.Close()
+
+	// Hijack client connection
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		log.Printf("[PROXY] WebSocket hijacking not supported")
+		http.Error(w, "WebSocket not supported", http.StatusInternalServerError)
+		return
+	}
+
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		log.Printf("[PROXY] WebSocket hijack failed: %v", err)
+		return
+	}
+	defer clientConn.Close()
+
+	// Forward the upgrade request to backend
+	err = req.Write(backendConn)
+	if err != nil {
+		log.Printf("[PROXY] WebSocket request forward failed: %v", err)
+		return
+	}
+
+	// Log the WebSocket connection
+	duration := time.Since(start)
+	log.Printf("[PROXY] %s %s %s -> %s WebSocket (%dms)",
+		req.Host, req.Method, req.URL.Path, target, duration.Milliseconds())
+
+	// Start bidirectional copying
+	errChan := make(chan error, 2)
+
+	// Copy from client to backend
+	go func() {
+		_, err := io.Copy(backendConn, clientConn)
+		errChan <- err
+	}()
+
+	// Copy from backend to client
+	go func() {
+		_, err := io.Copy(clientConn, backendConn)
+		errChan <- err
+	}()
+
+	// Wait for one direction to close
+	<-errChan
+	log.Printf("[PROXY] WebSocket connection closed: %s %s", req.Host, req.URL.Path)
 }
 
 // responseWriter wraps http.ResponseWriter to capture status code
