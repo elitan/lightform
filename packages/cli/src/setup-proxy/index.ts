@@ -216,6 +216,59 @@ export async function setupLightformProxy(
       return false;
     }
 
+    // Reconnect proxy to all project networks (needed after container recreation)
+    try {
+      if (verbose) {
+        console.log(`[${serverHostname}] Reconnecting proxy to project networks...`);
+      }
+      
+      // Find all project networks (they follow the pattern: {project-name}-network)
+      const networksResult = await sshClient.exec('docker network ls --filter "name=-network" --format "{{.Name}}"');
+      const projectNetworks = networksResult.trim().split('\n').filter(network => 
+        network.trim() && network.endsWith('-network')
+      );
+      
+      if (verbose) {
+        console.log(`[${serverHostname}] Found project networks: ${projectNetworks.join(', ')}`);
+      }
+      
+      // Connect proxy to each project network
+      for (const networkName of projectNetworks) {
+        try {
+          // Check if already connected to avoid errors
+          const isConnected = await dockerClient.isContainerConnectedToNetwork(
+            LIGHTFORM_PROXY_NAME, 
+            networkName
+          );
+          
+          if (!isConnected) {
+            await dockerClient.connectContainerToNetwork(LIGHTFORM_PROXY_NAME, networkName);
+            if (verbose) {
+              console.log(`[${serverHostname}] Connected proxy to network: ${networkName}`);
+            }
+          } else {
+            if (verbose) {
+              console.log(`[${serverHostname}] Proxy already connected to network: ${networkName}`);
+            }
+          }
+        } catch (error) {
+          if (verbose) {
+            console.log(`[${serverHostname}] Warning: Could not connect to network ${networkName}: ${error}`);
+          }
+          // Continue with other networks
+        }
+      }
+      
+      if (verbose) {
+        console.log(`[${serverHostname}] Network reconnection completed`);
+      }
+    } catch (error) {
+      if (verbose) {
+        console.log(`[${serverHostname}] Warning: Network reconnection failed: ${error}`);
+      }
+      // Don't fail the setup if network reconnection fails
+    }
+
     if (verbose) {
       console.log(
         `[${serverHostname}] Lightform proxy has been successfully set up.`
