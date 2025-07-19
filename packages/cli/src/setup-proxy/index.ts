@@ -46,6 +46,29 @@ export async function setupLightformProxy(
           );
         }
 
+        // Backup state before updating container
+        try {
+          if (verbose) {
+            console.log(`[${serverHostname}] Backing up proxy state before update...`);
+          }
+          
+          // Ensure state directory exists on host
+          await sshClient.exec("mkdir -p ~/.lightform/lightform-proxy-state");
+          
+          // Copy state from container to host if it exists
+          const copyStateCmd = `docker cp ${LIGHTFORM_PROXY_NAME}:/var/lib/lightform-proxy/state.json ~/.lightform/lightform-proxy-state/state.json 2>/dev/null || echo "No existing state to backup"`;
+          const backupResult = await sshClient.exec(copyStateCmd);
+          
+          if (verbose) {
+            console.log(`[${serverHostname}] State backup result: ${backupResult.trim()}`);
+          }
+        } catch (error) {
+          if (verbose) {
+            console.log(`[${serverHostname}] Warning: Could not backup state: ${error}`);
+          }
+          // Continue with update anyway
+        }
+
         // Stop and remove existing container to force update
         try {
           const proxyRunning = await dockerClient.containerIsRunning(
@@ -140,7 +163,7 @@ export async function setupLightformProxy(
       console.log(`[${serverHostname}] Creating .lightform directory structure...`);
     }
     try {
-      await sshClient.exec("mkdir -p ~/.lightform/lightform-proxy-certs ~/.lightform/lightform-proxy-config");
+      await sshClient.exec("mkdir -p ~/.lightform/lightform-proxy-certs ~/.lightform/lightform-proxy-state");
       if (verbose) {
         console.log(`[${serverHostname}] .lightform directories created successfully.`);
       }
@@ -156,7 +179,7 @@ export async function setupLightformProxy(
       ports: ["80:80", "443:443"],
       volumes: [
         "./.lightform/lightform-proxy-certs:/var/lib/lightform-proxy/certs",
-        "./.lightform/lightform-proxy-config:/tmp",
+        "./.lightform/lightform-proxy-state:/var/lib/lightform-proxy",
         "/var/run/docker.sock:/var/run/docker.sock",
       ],
       restart: "always",
