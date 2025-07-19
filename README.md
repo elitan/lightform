@@ -30,7 +30,7 @@ apps:
         - DATABASE_URL
 ```
 
-```
+```bash
 ❯ lightform
 [✓] Ensuring infrastructure is ready (1.2s)
 [✓] Building Images (1.8s)
@@ -221,19 +221,6 @@ services:
         - POSTGRES_PASSWORD
     volumes:
       - postgres_data:/var/lib/postgresql/data
-```
-
-**Multi-environment:**
-
-Use different config files for different environments:
-
-```bash
-# Copy and customize configs for each environment
-cp lightform.yml lightform.staging.yml
-cp lightform.yml lightform.production.yml
-
-# Edit configs for specific environments
-# Deploy by manually switching config files as needed
 ```
 
 ## How it works
