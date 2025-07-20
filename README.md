@@ -37,7 +37,7 @@ apps:
 [✓] Zero-downtime deployment of web (3.5s)
 [✓] Deployment completed successfully in 9.8s
 
-https://a1b2c3d4-web-iop-192-168-1-100.app.iop.dev
+https://a1b2c3d4-web-iop-192-168-1-100.app.iop.run
 ```
 
 ## Features

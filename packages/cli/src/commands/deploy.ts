@@ -1297,14 +1297,14 @@ async function configureProxyForApp(
   // Determine hosts to configure
   let hosts: string[];
   if (shouldUseSslip(appEntry.proxy.hosts)) {
-    // Generate app.iop.dev domain if no hosts configured
+    // Generate app.iop.run domain if no hosts configured
     const sslipDomain = generateAppSslipDomain(
       projectName,
       appEntry.name,
       serverHostname
     );
     hosts = [sslipDomain];
-    logger.verboseLog(`Generated app.iop.dev domain: ${sslipDomain}`);
+    logger.verboseLog(`Generated app.iop.run domain: ${sslipDomain}`);
   } else {
     hosts = appEntry.proxy.hosts!;
   }
@@ -2143,7 +2143,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       for (const entry of targetApps) {
         const appEntry = entry;
         if (appEntry.proxy) {
-          // Use configured hosts or generate app.iop.dev domain
+          // Use configured hosts or generate app.iop.run domain
           let hosts: string[];
           if (shouldUseSslip(appEntry.proxy.hosts)) {
             const sslipDomain = generateAppSslipDomain(
