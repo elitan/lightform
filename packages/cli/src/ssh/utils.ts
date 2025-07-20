@@ -130,7 +130,7 @@ export async function getSSHCredentials(
 
   if (verbose) {
     console.log(
-      `[${serverHostname}] No specific SSH key or password found in Lightform secrets. Attempting agent-based authentication or found key file.`
+      `[${serverHostname}] No specific SSH key or password found in iop secrets. Attempting agent-based authentication or found key file.`
     );
   }
 

@@ -923,7 +923,7 @@ EOF`);
 
   /**
    * Run a health check using project-specific DNS targets
-   * @param proxyContainerName Name of the lightform-proxy container (should be "lightform-proxy")
+   * @param proxyContainerName Name of the iop-proxy container (should be "iop-proxy")
    * @param targetNetworkAlias Network alias of the container to check (e.g., "web") - DEPRECATED, use projectSpecificTarget
    * @param targetContainerName Name of the container to check
    * @param projectName The project name for network isolation

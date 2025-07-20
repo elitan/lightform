@@ -10,7 +10,7 @@ describe("Proxy Update Integration Tests", () => {
   
   const TEST_CONFIG = {
     testServer: "157.180.47.213",
-    sshUser: "lightform",
+    sshUser: "iop",
     proxyContainer: "iop-proxy",
     testDomain: "test.eliasson.me",
     projectName: "basic",
@@ -61,7 +61,7 @@ describe("Proxy Update Integration Tests", () => {
     });
 
     test("should validate update command structure", () => {
-      const updateCommand = "lightform proxy update --verbose";
+      const updateCommand = "iop proxy update --verbose";
       const expectedSteps = [
         "Checking if proxy needs update",
         "Backing up proxy state before update",
@@ -199,7 +199,7 @@ describe("Proxy Update Integration Tests", () => {
 
   describe("Backup and Restore", () => {
     test("should validate backup file creation", () => {
-      const backupPath = "~/.lightform/iop-proxy-state/state.json";
+      const backupPath = "~/.iop/iop-proxy-state/state.json";
       const backupCommand = `docker cp iop-proxy:/var/lib/iop-proxy/state.json ${backupPath}`;
       
       expect(backupCommand).toContain("docker cp");
@@ -207,7 +207,7 @@ describe("Proxy Update Integration Tests", () => {
     });
 
     test("should validate state directory mounting", () => {
-      const stateMount = "./.lightform/iop-proxy-state:/var/lib/iop-proxy";
+      const stateMount = "./.iop/iop-proxy-state:/var/lib/iop-proxy";
       
       // Mount should preserve the entire state directory
       expect(stateMount).toContain("/var/lib/iop-proxy");
