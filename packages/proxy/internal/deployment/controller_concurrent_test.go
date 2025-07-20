@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/elitan/lightform/proxy/internal/core"
-	"github.com/elitan/lightform/proxy/internal/events"
-	"github.com/elitan/lightform/proxy/internal/storage"
+	"github.com/elitan/iop/proxy/internal/core"
+	"github.com/elitan/iop/proxy/internal/events"
+	"github.com/elitan/iop/proxy/internal/storage"
 )
 
 // TestControllerConcurrentDeployments tests handling of simultaneous deployments

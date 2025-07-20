@@ -2,7 +2,7 @@ import { loadConfig, loadSecrets } from "../config";
 import { LightformConfig, LightformSecrets } from "../config/types";
 import { SSHClient, getSSHCredentials } from "../ssh";
 import { DockerClient } from "../docker";
-import { setupLightformProxy, LIGHTFORM_PROXY_NAME } from "../setup-proxy/index";
+import { setupIopProxy, LIGHTFORM_PROXY_NAME } from "../setup-proxy/index";
 import { LightformProxyClient } from "../proxy";
 import { Logger } from "../utils/logger";
 import {
@@ -83,7 +83,7 @@ function parseProxyArgs(args: string[]): ParsedProxyArgs {
 }
 
 /**
- * Loads and validates Lightform configuration and secrets files
+ * Loads and validates IOP configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
   config: LightformConfig;
@@ -319,7 +319,7 @@ async function proxyStatusSubcommand(context: ProxyContext): Promise<void> {
       // If proxy is running, check if it needs update
       if (proxyStatus.running) {
         const proxyImage =
-          context.config.proxy?.image || "elitan/lightform-proxy:latest";
+          context.config.proxy?.image || "elitan/iop-proxy:latest";
         const updateCheck = await checkProxyNeedsUpdate(
           sshClient,
           serverHostname,
@@ -388,7 +388,7 @@ async function proxyUpdateSubcommand(
       sshClient = await establishSSHConnection(serverHostname, context);
 
       const proxyImage =
-        context.config.proxy?.image || "elitan/lightform-proxy:latest";
+        context.config.proxy?.image || "elitan/iop-proxy:latest";
 
       // Check if update is needed
       const updateCheck = await checkProxyNeedsUpdate(
@@ -403,9 +403,9 @@ async function proxyUpdateSubcommand(
         continue;
       }
 
-      logger.serverStep("Updating Lightform Proxy");
+      logger.serverStep("Updating IOP Proxy");
 
-      const updateResult = await setupLightformProxy(
+      const updateResult = await setupIopProxy(
         serverHostname,
         sshClient,
         context.verboseFlag,
@@ -483,7 +483,7 @@ async function proxyDeleteHostSubcommand(
       logger.serverStep(`Deleting host: ${host}`);
 
       // Use the proxy CLI to delete the host (using 'remove' command which is actually implemented)
-      const deleteCmd = `docker exec ${LIGHTFORM_PROXY_NAME} /usr/local/bin/lightform-proxy remove --host ${host}`;
+      const deleteCmd = `docker exec ${LIGHTFORM_PROXY_NAME} /usr/local/bin/iop-proxy remove --host ${host}`;
       const result = await sshClient.exec(deleteCmd);
 
       if (result.includes("Host deleted successfully") || result.includes("deleted")) {
@@ -580,11 +580,11 @@ async function proxyLogsSubcommand(
  * Shows help for proxy command
  */
 function showProxyHelp(): void {
-  console.log("Lightform Proxy Management");
+  console.log("IOP Proxy Management");
   console.log("====================");
   console.log("");
   console.log("USAGE:");
-  console.log("  lightform proxy <subcommand> [flags]");
+  console.log("  iop proxy <subcommand> [flags]");
   console.log("");
   console.log("SUBCOMMANDS:");
   console.log("  status          Show proxy status on all servers (default)");
@@ -598,10 +598,10 @@ function showProxyHelp(): void {
   console.log("  --lines <n>     Number of log lines to show (for logs, default: 50)");
   console.log("");
   console.log("EXAMPLES:");
-  console.log("  lightform proxy status                      # Check status on all servers");
-  console.log("  lightform proxy update --verbose            # Update proxy on all servers with details");
-  console.log("  lightform proxy delete-host --host api.example.com  # Remove a specific host");
-  console.log("  lightform proxy logs --lines 100            # Show last 100 log lines from all servers");
+  console.log("  iop proxy status                      # Check status on all servers");
+  console.log("  iop proxy update --verbose            # Update proxy on all servers with details");
+  console.log("  iop proxy delete-host --host api.example.com  # Remove a specific host");
+  console.log("  iop proxy logs --lines 100            # Show last 100 log lines from all servers");
 }
 
 /**

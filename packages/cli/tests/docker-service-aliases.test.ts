@@ -41,10 +41,10 @@ describe("Docker service network aliases", () => {
       "~/.lightform/projects/test-project/postgres_data:/var/lib/postgresql/data"
     );
     expect(options.labels).toMatchObject({
-      "lightform.managed": "true",
-      "lightform.project": "test-project",
-      "lightform.type": "service",
-      "lightform.service": "db",
+      "iop.managed": "true",
+      "iop.project": "test-project",
+      "iop.type": "service",
+      "iop.service": "db",
     });
   });
 

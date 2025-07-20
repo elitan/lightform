@@ -9,12 +9,12 @@ import {
 import { constants } from "node:fs";
 import { createInterface } from "readline";
 
-const LIGHTFORM_DIR = ".lightform";
-const CONFIG_FILE = "lightform.yml";
+const IOP_DIR = ".iop";
+const CONFIG_FILE = "iop.yml";
 const SECRETS_FILE = "secrets";
 
 const ACTUAL_CONFIG_PATH = CONFIG_FILE; // Config file will be in the root
-const ACTUAL_SECRETS_PATH = path.join(LIGHTFORM_DIR, SECRETS_FILE);
+const ACTUAL_SECRETS_PATH = path.join(IOP_DIR, SECRETS_FILE);
 
 interface ConfigPrompts {
   projectName: string;
@@ -34,7 +34,7 @@ function prompt(question: string): Promise<string> {
 }
 
 async function promptForConfig(): Promise<ConfigPrompts> {
-  console.log("Let's set up your Lightform configuration!\n");
+  console.log("Let's set up your iop configuration!\n");
 
   const projectName =
     (await prompt("Project name (my-project): ")) || "my-project";
@@ -127,14 +127,14 @@ async function ensureSecretsInGitignore(): Promise<void> {
 export async function initCommand(args: string[] = []) {
   // Check for help flag
   if (args.includes("--help") || args.includes("-h")) {
-    console.log("Initialize Lightform project");
+    console.log("Initialize iop project");
     console.log("============================");
     console.log("");
     console.log("USAGE:");
-    console.log("  lightform init [flags]");
+    console.log("  iop init [flags]");
     console.log("");
     console.log("DESCRIPTION:");
-    console.log("  Creates lightform.yml configuration file and .lightform/secrets file.");
+    console.log("  Creates iop.yml configuration file and .iop/secrets file.");
     console.log("  Automatically adds secrets file to .gitignore for security.");
     console.log("");
     console.log("FLAGS:");
@@ -143,13 +143,13 @@ export async function initCommand(args: string[] = []) {
     console.log("  --name <name>      Set project name (non-interactive mode)");
     console.log("");
     console.log("EXAMPLES:");
-    console.log("  lightform init                    # Interactive setup");
-    console.log("  lightform init --non-interactive  # Use defaults");
-    console.log("  lightform init --name my-app      # Set name non-interactively");
+    console.log("  iop init                    # Interactive setup");
+    console.log("  iop init --non-interactive  # Use defaults");
+    console.log("  iop init --name my-app      # Set name non-interactively");
     console.log("");
     console.log("FILES CREATED:");
-    console.log("  lightform.yml                     # Main configuration");
-    console.log("  .lightform/secrets                # Environment secrets (gitignored)");
+    console.log("  iop.yml                     # Main configuration");
+    console.log("  .iop/secrets                # Environment secrets (gitignored)");
     return;
   }
 
@@ -166,11 +166,11 @@ export async function initCommand(args: string[] = []) {
   let secretsCreated = false;
 
   try {
-    await mkdir(LIGHTFORM_DIR, { recursive: true });
+    await mkdir(IOP_DIR, { recursive: true });
   } catch (e) {
     const error = e as Error & { code?: string };
     if (error.code !== "EEXIST") {
-      console.error(`Error creating directory ${LIGHTFORM_DIR}: ${error.message}`);
+      console.error(`Error creating directory ${IOP_DIR}: ${error.message}`);
       return;
     }
   }

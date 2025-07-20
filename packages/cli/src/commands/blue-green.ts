@@ -75,10 +75,10 @@ function createBlueGreenContainerOptions(
     restart: "unless-stopped",
     command: appEntry.command,
     labels: {
-      "lightform.managed": "true",
-      "lightform.project": projectName,
-      "lightform.type": "app",
-      "lightform.app": appEntry.name,
+      "iop.managed": "true",
+      "iop.project": projectName,
+      "iop.type": "app",
+      "iop.app": appEntry.name,
     },
   };
 }
@@ -419,14 +419,14 @@ export async function performBlueGreenDeployment(
     // Step 7: Graceful shutdown of old containers
     if (currentActiveColor) {
       const oldContainers = await dockerClient.findContainersByLabelAndProject(
-        `lightform.app=${appEntry.name}`,
+        `iop.app=${appEntry.name}`,
         projectName
       );
 
       const oldActiveContainers = [];
       for (const containerName of oldContainers) {
         const labels = await dockerClient.getContainerLabels(containerName);
-        if (labels["lightform.color"] === currentActiveColor) {
+        if (labels["iop.color"] === currentActiveColor) {
           oldActiveContainers.push(containerName);
         }
       }

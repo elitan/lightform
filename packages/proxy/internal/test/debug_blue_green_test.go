@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/elitan/lightform/proxy/internal/router"
-	"github.com/elitan/lightform/proxy/internal/state"
+	"github.com/elitan/iop/proxy/internal/router"
+	"github.com/elitan/iop/proxy/internal/state"
 )
 
 // TestDebugBlueGreen helps us understand what's happening

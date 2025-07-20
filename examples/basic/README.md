@@ -21,10 +21,10 @@ This example includes a complete Lightform configuration for zero-downtime deplo
 
 ```bash
 # Set up your servers
-lightform setup
+iop setup
 
 # Deploy with zero downtime!
-lightform deploy
+iop deploy
 ```
 
 ## 🆚 Why This Example?

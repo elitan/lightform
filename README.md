@@ -3,13 +3,13 @@
 Zero-downtime Docker deployments with automatic HTTPS. Build locally, deploy to your servers.
 
 ```bash
-npm install -g lightform-cli
-lightform init
-lightform       # Deploys with automatic setup - that's it!
+npm install -g iop
+iop init
+iop       # Deploys with automatic setup - that's it!
 ```
 
 ```yaml
-# lightform.yml
+# iop.yml
 name: my-app
 
 ssh:
@@ -112,7 +112,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
 ```
 
-Secrets in `.lightform/secrets`:
+Secrets in `.iop/secrets`:
 
 ```bash
 DATABASE_URL=postgres://user:pass@localhost:5432/myapp
@@ -122,16 +122,16 @@ POSTGRES_PASSWORD=supersecret
 ## Commands
 
 ```bash
-lightform init                    # Create lightform.yml and .lightform/secrets
-lightform                         # Deploy all apps (auto-setup included)
-lightform web                     # Deploy specific app
-lightform --services              # Deploy services only
-lightform --verbose               # Deploy with detailed output
-lightform status                  # Check deployment status
-lightform proxy status            # Check proxy status on all servers
-lightform proxy update            # Update proxy to latest version
-lightform proxy delete-host --host api.example.com  # Remove host from proxy
-lightform proxy logs --lines 100  # Show proxy logs (default: 50 lines)
+iop init                    # Create iop.yml and .iop/secrets
+iop                         # Deploy all apps (auto-setup included)
+iop web                     # Deploy specific app
+iop --services              # Deploy services only
+iop --verbose               # Deploy with detailed output
+iop status                  # Check deployment status
+iop proxy status            # Check proxy status on all servers
+iop proxy update            # Update proxy to latest version
+iop proxy delete-host --host api.example.com  # Remove host from proxy
+iop proxy logs --lines 100  # Show proxy logs (default: 50 lines)
 ```
 
 **Note**: Infrastructure setup is automatic. Fresh servers are detected and configured automatically during deployment.
@@ -163,7 +163,7 @@ apps:
 ```yaml
 # Repository structure:
 # /
-# ├── lightform.yml
+# ├── iop.yml
 # ├── frontend/
 # │   └── Dockerfile
 # ├── backend/

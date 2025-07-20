@@ -4,8 +4,8 @@ import { SSHClient } from "../ssh";
 import { loadConfig } from "../config";
 
 // Constants
-export const LIGHTFORM_PROXY_NAME = "lightform-proxy";
-const DEFAULT_LIGHTFORM_PROXY_IMAGE = "elitan/lightform-proxy:latest";
+export const LIGHTFORM_PROXY_NAME = "iop-proxy";
+const DEFAULT_LIGHTFORM_PROXY_IMAGE = "elitan/iop-proxy:latest";
 
 /**
  * Check if the Lightform proxy is running and set it up if not
@@ -14,7 +14,7 @@ const DEFAULT_LIGHTFORM_PROXY_IMAGE = "elitan/lightform-proxy:latest";
  * @param verbose Whether to show verbose output
  * @param forceUpdate Whether to force update the proxy even if it exists (default: false - only install if not present)
  */
-export async function setupLightformProxy(
+export async function setupIopProxy(
   serverHostname: string,
   sshClient: SSHClient,
   verbose: boolean = false,
@@ -148,7 +148,7 @@ export async function setupLightformProxy(
           `[${serverHostname}] If you are seeing "pull access denied" errors, you may need to use a different proxy image.`
         );
         console.error(
-          `[${serverHostname}] You can configure a custom proxy image in your lightform.yml file:`
+          `[${serverHostname}] You can configure a custom proxy image in your iop.yml file:`
         );
         console.error(`[${serverHostname}] proxy:`);
         console.error(

@@ -1,5 +1,5 @@
 {
-  "name": "lightform-monorepo",
+  "name": "iop-monorepo",
   "private": true,
   "description": "Zero-downtime deployments for your own servers - Monorepo",
   "version": "0.1.2",
@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/elitan/lightform.git"
+    "url": "git+https://github.com/elitan/iop.git"
   },
   "workspaces": [
     "packages/*"
@@ -15,7 +15,7 @@
   "scripts": {
     "build": "bun run build:cli && bun run build:proxy",
     "build:cli": "cd packages/cli && bun run build",
-    "build:proxy": "cd packages/proxy && go build -o dist/lightform-proxy ./cmd/lightform-proxy",
+    "build:proxy": "cd packages/proxy && go build -o dist/iop-proxy ./cmd/iop-proxy",
     "test": "bun run test:cli",
     "test:cli": "cd packages/cli && bun test",
     "start:cli": "cd packages/cli && bun run start",

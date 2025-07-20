@@ -31,7 +31,7 @@ const mockCurrentContainer = {
       "HOSTNAME=container123"
     ],
     Labels: {
-      "lightform.config-hash": "abc123def456" // Same hash as desired = no changes
+      "iop.config-hash": "abc123def456" // Same hash as desired = no changes
     }
   },
   NetworkSettings: {

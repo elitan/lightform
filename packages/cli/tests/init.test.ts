@@ -30,23 +30,23 @@ describe("init command", () => {
     }
   });
 
-  test("should create lightform.yml and .lightform/secrets files", async () => {
+  test("should create iop.yml and .iop/secrets files", async () => {
     // Run the init command in non-interactive mode
     await initCommand(["--non-interactive"]);
 
     // Check that files were created
-    expect(existsSync("lightform.yml")).toBe(true);
-    expect(existsSync(".lightform")).toBe(true);
-    expect(existsSync(join(".lightform", "secrets"))).toBe(true);
+    expect(existsSync("iop.yml")).toBe(true);
+    expect(existsSync(".iop")).toBe(true);
+    expect(existsSync(join(".iop", "secrets"))).toBe(true);
 
     // Check file contents
-    const configFile = Bun.file("lightform.yml");
+    const configFile = Bun.file("iop.yml");
     const configContent = await configFile.text();
     expect(configContent).toContain("apps:");
     expect(configContent).toContain("web:");
 
     // Secrets file should contain example content
-    const secretsFile = Bun.file(join(".lightform", "secrets"));
+    const secretsFile = Bun.file(join(".iop", "secrets"));
     const secretsContent = await secretsFile.text();
     expect(secretsContent).toContain("# Add your secret environment variables here");
     expect(secretsContent).toContain("# DATABASE_URL=postgres://user:password@localhost:5432/mydb");
@@ -57,22 +57,22 @@ describe("init command", () => {
   test("should not overwrite existing files", async () => {
     // Create the config file with custom content
     const customContent = "name: test-project";
-    await Bun.write("lightform.yml", customContent);
+    await Bun.write("iop.yml", customContent);
 
     // Create the secrets directory and file
-    await mkdir(".lightform", { recursive: true });
+    await mkdir(".iop", { recursive: true });
     const customSecrets = "API_KEY=1234";
-    await Bun.write(join(".lightform", "secrets"), customSecrets);
+    await Bun.write(join(".iop", "secrets"), customSecrets);
 
     // Run the init command in non-interactive mode
     await initCommand(["--non-interactive"]);
 
     // Verify files still have original content
-    const configFile = Bun.file("lightform.yml");
+    const configFile = Bun.file("iop.yml");
     const configContent = await configFile.text();
     expect(configContent).toBe(customContent);
 
-    const secretsFile = Bun.file(join(".lightform", "secrets"));
+    const secretsFile = Bun.file(join(".iop", "secrets"));
     const secretsContent = await secretsFile.text();
     expect(secretsContent).toBe(customSecrets);
   });
@@ -87,7 +87,7 @@ describe("init command", () => {
     // Check that secrets file is in .gitignore
     const gitignoreFile = Bun.file(".gitignore");
     const gitignoreContent = await gitignoreFile.text();
-    expect(gitignoreContent).toContain(".lightform/secrets");
+    expect(gitignoreContent).toContain(".iop/secrets");
   });
 
   test("should add secrets file to existing .gitignore", async () => {
@@ -108,14 +108,14 @@ dist/
     expect(gitignoreContent).toContain("node_modules/");
     expect(gitignoreContent).toContain("dist/");
     expect(gitignoreContent).toContain("*.log");
-    expect(gitignoreContent).toContain(".lightform/secrets");
+    expect(gitignoreContent).toContain(".iop/secrets");
   });
 
   test("should not duplicate secrets file in .gitignore if already present", async () => {
     // Create .gitignore that already contains the secrets file
     const existingContent = `node_modules/
 dist/
-.lightform/secrets
+.iop/secrets
 *.log
 `;
     await Bun.write(".gitignore", existingContent);
@@ -129,33 +129,33 @@ dist/
 
     const lines = gitignoreContent.split("\n");
     const secretsLines = lines.filter(
-      (line) => line.trim() === ".lightform/secrets"
+      (line) => line.trim() === ".iop/secrets"
     );
     expect(secretsLines.length).toBe(1);
   });
 
   test("should handle different variations of secrets path in .gitignore", async () => {
     // Test with leading slash
-    await Bun.write(".gitignore", "/.lightform/secrets\n");
+    await Bun.write(".gitignore", "/.iop/secrets\n");
     await initCommand(["--non-interactive"]);
 
     let gitignoreContent = await Bun.file(".gitignore").text();
     let lines = gitignoreContent.split("\n");
     let secretsLines = lines.filter(
       (line) =>
-        line.trim() === ".lightform/secrets" || line.trim() === "/.lightform/secrets"
+        line.trim() === ".iop/secrets" || line.trim() === "/.iop/secrets"
     );
     expect(secretsLines.length).toBe(1);
 
     // Clean up and test with forward slashes on Windows
-    await Bun.write(".gitignore", ".lightform/secrets\n");
+    await Bun.write(".gitignore", ".iop/secrets\n");
     await initCommand(["--non-interactive"]);
 
     gitignoreContent = await Bun.file(".gitignore").text();
     lines = gitignoreContent.split("\n");
     secretsLines = lines.filter(
       (line) =>
-        line.trim() === ".lightform/secrets" || line.trim() === "/.lightform/secrets"
+        line.trim() === ".iop/secrets" || line.trim() === "/.iop/secrets"
     );
     expect(secretsLines.length).toBe(1);
   });
@@ -170,6 +170,6 @@ dist/
     // Check that secrets file is added to .gitignore
     const gitignoreFile = Bun.file(".gitignore");
     const gitignoreContent = await gitignoreFile.text();
-    expect(gitignoreContent.trim()).toBe(".lightform/secrets");
+    expect(gitignoreContent.trim()).toBe(".iop/secrets");
   });
 });

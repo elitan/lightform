@@ -12,7 +12,7 @@ describe("Proxy Integration Tests", () => {
       projectAlias: "gmail-web",
     },
     nextjs: {
-      domain: "nextjs.example.mylightform.cloud",
+      domain: "nextjs.example.myiop.cloud",
       expectedContent: "<!DOCTYPE html>",
       projectAlias: "lightform-example-nextjs-web",
     },

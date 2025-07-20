@@ -1136,10 +1136,10 @@ EOF`);
       envVars: {},
       command: service.command,
       labels: {
-        "lightform.managed": "true",
-        "lightform.project": projectName,
-        "lightform.type": "service",
-        "lightform.service": service.name,
+        "iop.managed": "true",
+        "iop.project": projectName,
+        "iop.type": "service",
+        "iop.service": service.name,
       },
     };
 
@@ -1168,7 +1168,7 @@ EOF`);
 
   /**
    * Find containers by label filter
-   * @param labelFilter Docker label filter string (e.g., "lightform.app=blog", "lightform.color=blue")
+   * @param labelFilter Docker label filter string (e.g., "iop.app=blog", "iop.color=blue")
    * @returns Array of container names matching the filter
    */
   async findContainersByLabel(labelFilter: string): Promise<string[]> {
@@ -1190,7 +1190,7 @@ EOF`);
 
   /**
    * Find containers by label filter within a specific project
-   * @param labelFilter Docker label filter string (e.g., "lightform.app=web", "lightform.color=blue")
+   * @param labelFilter Docker label filter string (e.g., "iop.app=web", "iop.color=blue")
    * @param projectName Project name to scope the search to
    * @returns Array of container names matching the filter within the project
    */
@@ -1200,7 +1200,7 @@ EOF`);
   ): Promise<string[]> {
     try {
       const result = await this.execRemote(
-        `ps -a --filter "label=${labelFilter}" --filter "label=lightform.project=${projectName}" --format "{{.Names}}"`
+        `ps -a --filter "label=${labelFilter}" --filter "label=iop.project=${projectName}" --format "{{.Names}}"`
       );
       if (!result.trim()) {
         return [];
@@ -1248,7 +1248,7 @@ EOF`);
   ): Promise<"blue" | "green" | null> {
     try {
       const containers = await this.findContainersByLabel(
-        `lightform.app=${appName}`
+        `iop.app=${appName}`
       );
 
       if (containers.length === 0) {
@@ -1258,8 +1258,8 @@ EOF`);
       // First, try to find containers explicitly marked as active
       for (const containerName of containers) {
         const labels = await this.getContainerLabels(containerName);
-        if (labels["lightform.active"] === "true") {
-          return labels["lightform.color"] as "blue" | "green";
+        if (labels["iop.active"] === "true") {
+          return labels["iop.color"] as "blue" | "green";
         }
       }
 
@@ -1277,7 +1277,7 @@ EOF`);
           for (const networkData of Object.values(networks) as any[]) {
             if (networkData.Aliases && networkData.Aliases.includes(appName)) {
               const labels = await this.getContainerLabels(containerName);
-              return labels["lightform.color"] as "blue" | "green";
+              return labels["iop.color"] as "blue" | "green";
             }
           }
         } catch (error) {
@@ -1291,7 +1291,7 @@ EOF`);
         const isRunning = await this.containerIsRunning(containerName);
         if (isRunning) {
           const labels = await this.getContainerLabels(containerName);
-          return labels["lightform.color"] as "blue" | "green";
+          return labels["iop.color"] as "blue" | "green";
         }
       }
 
@@ -1316,7 +1316,7 @@ EOF`);
   ): Promise<"blue" | "green" | null> {
     try {
       const containers = await this.findContainersByLabelAndProject(
-        `lightform.app=${appName}`,
+        `iop.app=${appName}`,
         projectName
       );
 
@@ -1327,8 +1327,8 @@ EOF`);
       // First, try to find containers explicitly marked as active
       for (const containerName of containers) {
         const labels = await this.getContainerLabels(containerName);
-        if (labels["lightform.active"] === "true") {
-          return labels["lightform.color"] as "blue" | "green";
+        if (labels["iop.active"] === "true") {
+          return labels["iop.color"] as "blue" | "green";
         }
       }
 
@@ -1346,7 +1346,7 @@ EOF`);
           for (const networkData of Object.values(networks) as any[]) {
             if (networkData.Aliases && networkData.Aliases.includes(appName)) {
               const labels = await this.getContainerLabels(containerName);
-              return labels["lightform.color"] as "blue" | "green";
+              return labels["iop.color"] as "blue" | "green";
             }
           }
         } catch (error) {
@@ -1360,7 +1360,7 @@ EOF`);
         const isRunning = await this.containerIsRunning(containerName);
         if (isRunning) {
           const labels = await this.getContainerLabels(containerName);
-          return labels["lightform.color"] as "blue" | "green";
+          return labels["iop.color"] as "blue" | "green";
         }
       }
 
@@ -1422,11 +1422,11 @@ EOF`);
         ...options,
         labels: {
           ...options.labels,
-          "lightform.app": appName,
-          "lightform.color": color,
-          "lightform.replica": replicaIndex.toString(),
-          "lightform.active": active.toString(),
-          "lightform.managed": "true",
+          "iop.app": appName,
+          "iop.color": color,
+          "iop.replica": replicaIndex.toString(),
+          "iop.active": active.toString(),
+          "iop.managed": "true",
         },
       };
 
@@ -1457,13 +1457,13 @@ EOF`);
 
       // Get all containers for the new color
       const newContainers = await this.findContainersByLabel(
-        `lightform.app=${appName}`
+        `iop.app=${appName}`
       );
       const newColorContainers = [];
 
       for (const containerName of newContainers) {
         const labels = await this.getContainerLabels(containerName);
-        if (labels["lightform.color"] === newColor) {
+        if (labels["iop.color"] === newColor) {
           newColorContainers.push(containerName);
         }
       }
@@ -1523,14 +1523,14 @@ EOF`);
 
       // Get all containers for the new color within the project
       const newContainers = await this.findContainersByLabelAndProject(
-        `lightform.app=${appName}`,
+        `iop.app=${appName}`,
         projectName
       );
       const newColorContainers = [];
 
       for (const containerName of newContainers) {
         const labels = await this.getContainerLabels(containerName);
-        if (labels["lightform.color"] === newColor) {
+        if (labels["iop.color"] === newColor) {
           newColorContainers.push(containerName);
         }
       }
@@ -1636,7 +1636,7 @@ EOF`);
   async findProjectContainers(projectName: string): Promise<string[]> {
     try {
       return await this.findContainersByLabel(
-        `lightform.project=${projectName}`
+        `iop.project=${projectName}`
       );
     } catch (error) {
       this.logError(
@@ -1654,7 +1654,7 @@ EOF`);
   async findProjectAppContainers(projectName: string): Promise<string[]> {
     try {
       const result = await this.execRemote(
-        `ps -a --filter "label=lightform.project=${projectName}" --filter "label=lightform.type=app" --format "{{.Names}}"`
+        `ps -a --filter "label=iop.project=${projectName}" --filter "label=iop.type=app" --format "{{.Names}}"`
       );
       if (!result.trim()) {
         return [];
@@ -1676,7 +1676,7 @@ EOF`);
   async findProjectServiceContainers(projectName: string): Promise<string[]> {
     try {
       const result = await this.execRemote(
-        `ps -a --filter "label=lightform.project=${projectName}" --filter "label=lightform.type=service" --format "{{.Names}}"`
+        `ps -a --filter "label=iop.project=${projectName}" --filter "label=iop.type=service" --format "{{.Names}}"`
       );
       if (!result.trim()) {
         return [];
@@ -1710,17 +1710,17 @@ EOF`);
       for (const containerName of allContainers) {
         const labels = await this.getContainerLabels(containerName);
 
-        if (labels["lightform.type"] === "app" && labels["lightform.app"]) {
-          const appName = labels["lightform.app"];
+        if (labels["iop.type"] === "app" && labels["iop.app"]) {
+          const appName = labels["iop.app"];
           if (!state.apps[appName]) {
             state.apps[appName] = [];
           }
           state.apps[appName].push(containerName);
         } else if (
-          labels["lightform.type"] === "service" &&
-          labels["lightform.service"]
+          labels["iop.type"] === "service" &&
+          labels["iop.service"]
         ) {
-          const serviceName = labels["lightform.service"];
+          const serviceName = labels["iop.service"];
           state.services[serviceName] = containerName;
         }
       }

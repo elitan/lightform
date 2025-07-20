@@ -8,8 +8,8 @@ import {
   LightformSecrets,
 } from "./types";
 
-const LIGHTFORM_DIR = ".lightform";
-const CONFIG_FILE = "lightform.yml";
+const IOP_DIR = ".iop";
+const CONFIG_FILE = "iop.yml";
 const SECRETS_FILE = "secrets";
 
 export async function loadConfig(): Promise<LightformConfig> {
@@ -105,7 +105,7 @@ export async function loadConfig(): Promise<LightformConfig> {
         const showError = (description: string, yamlFix: string[]) => {
           console.error(`\n  Configuration Error in ${path}:`);
           console.error(`    ${description}`);
-          console.error(`    Fix in lightform.yml:`);
+          console.error(`    Fix in iop.yml:`);
           yamlFix.forEach(line => console.error(`    ${line}`));
         };
 
@@ -267,7 +267,7 @@ export async function loadConfig(): Promise<LightformConfig> {
 }
 
 export async function loadSecrets(): Promise<LightformSecrets> {
-  const secretsPath = path.join(LIGHTFORM_DIR, SECRETS_FILE);
+  const secretsPath = path.join(IOP_DIR, SECRETS_FILE);
   try {
     const secretsFile = await fs.readFile(secretsPath, "utf-8");
     const parsedSecrets: Record<string, string> = {};
