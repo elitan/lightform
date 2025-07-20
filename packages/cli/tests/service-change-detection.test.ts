@@ -1,7 +1,7 @@
 import { describe, expect, test, mock } from "bun:test";
 import { DockerClient } from "../src/docker";
 import { checkServiceConfigChanges } from "../src/commands/deploy";
-import type { ServiceEntry, LightformSecrets, LightformConfig, AppEntry } from "../src/config/types";
+import type { ServiceEntry, IopSecrets, IopConfig, AppEntry } from "../src/config/types";
 
 // Mock service configuration
 const baseService: ServiceEntry = {
@@ -16,7 +16,7 @@ const baseService: ServiceEntry = {
   }
 };
 
-const baseSecrets: LightformSecrets = {
+const baseSecrets: IopSecrets = {
   POSTGRES_PASSWORD: "supersecret123"
 };
 

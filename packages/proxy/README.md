@@ -1,6 +1,6 @@
-# Lightform Proxy
+# iop Proxy
 
-A high-performance reverse proxy with automatic HTTPS certificate management, designed for the Lightform deployment system.
+A high-performance reverse proxy with automatic HTTPS certificate management, designed for the iop deployment system.
 
 ## Features
 
@@ -19,7 +19,7 @@ The proxy consists of several components:
 - **Certificate Manager**: Handles Let's Encrypt certificate lifecycle
 - **Router**: Routes HTTP/HTTPS traffic to backend containers
 - **Health Checker**: Monitors backend service health
-- **CLI Interface**: Accepts commands from the Lightform CLI
+- **CLI Interface**: Accepts commands from the iop CLI
 
 ## Building
 
@@ -49,7 +49,7 @@ docker build -t iop-proxy .
 ```bash
 docker run -d \
   --name iop-proxy \
-  --network lightform-global \
+  --network iop-global \
   -p 80:80 \
   -p 443:443 \
   -v iop-proxy-data:/var/lib/iop-proxy \
@@ -287,4 +287,4 @@ go test -cover ./...
 
 ## License
 
-Part of the Lightform deployment system.
+Part of the iop deployment system.

@@ -1,16 +1,18 @@
-# Lightform Packages
+# iop Packages
 
-This directory contains the core packages for the Lightform deployment system:
+This directory contains the core packages for the iop deployment system:
 
 ## Structure
 
 - **`cli/`** - TypeScript CLI for managing deployments
+
   - Zero-downtime deployments via SSH
   - Blue-green deployment strategy
   - Docker container management
   - Proxy configuration
 
 - **`proxy/`** - Go-based reverse proxy service
+
   - Automatic HTTPS with Let's Encrypt
   - Health checking
   - Dynamic routing
@@ -34,7 +36,7 @@ bun test
 ```bash
 cd packages/proxy
 go mod download
-go build -o dist/lightform-proxy ./cmd/lightform-proxy
+go build -o dist/iop-proxy ./cmd/iop-proxy
 go test ./...
 ```
 

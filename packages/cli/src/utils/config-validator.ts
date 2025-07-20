@@ -1,4 +1,4 @@
-import { LightformConfig, AppEntry, ServiceEntry } from "../config/types";
+import { IopConfig, AppEntry, ServiceEntry } from "../config/types";
 import { parsePortMappings } from "./port-checker";
 
 export interface ConfigValidationError {
@@ -11,12 +11,12 @@ export interface ConfigValidationError {
 }
 
 export class ConfigValidator {
-  private config: LightformConfig;
+  private config: IopConfig;
   
   // Reserved command names that cannot be used as app/service names
   private static readonly RESERVED_NAMES = ["init", "status", "proxy"];
 
-  constructor(config: LightformConfig) {
+  constructor(config: IopConfig) {
     this.config = config;
   }
 
@@ -284,9 +284,9 @@ export class ConfigValidator {
 }
 
 /**
- * Validates a Lightform configuration and returns any errors found
+ * Validates a iop configuration and returns any errors found
  */
-export function validateConfig(config: LightformConfig): ConfigValidationError[] {
+export function validateConfig(config: IopConfig): ConfigValidationError[] {
   const validator = new ConfigValidator(config);
   return validator.validate();
 }

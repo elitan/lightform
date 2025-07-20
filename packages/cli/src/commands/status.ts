@@ -1,9 +1,9 @@
 import { loadConfig, loadSecrets } from "../config";
 import {
-  LightformConfig,
+  IopConfig,
   AppEntry,
   ServiceEntry,
-  LightformSecrets,
+  IopSecrets,
 } from "../config/types";
 import { DockerClient } from "../docker";
 import { SSHClient, getSSHCredentials, SSHClientOptions } from "../ssh";
@@ -18,8 +18,8 @@ import {
 let logger: Logger;
 
 interface StatusContext {
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
   verboseFlag: boolean;
   verboseMessages: string[]; // Store verbose messages for later display
   projectName: string;
@@ -161,8 +161,8 @@ function parseStatusArgs(
  * Loads and validates iop configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
 }> {
   try {
     const config = await loadConfig();

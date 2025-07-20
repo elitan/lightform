@@ -103,18 +103,18 @@ describe("Proxy Command Argument Parsing Tests", () => {
   });
 
   test("should construct correct docker commands", () => {
-    const LIGHTFORM_PROXY_NAME = "lightform-proxy";
+    const LIGHTFORM_PROXY_NAME = "iop-proxy";
     
     // Test delete-host command construction
-    const deleteHostCmd = `docker exec ${LIGHTFORM_PROXY_NAME} /usr/local/bin/lightform-proxy delete-host api.example.com`;
-    expect(deleteHostCmd).toBe("docker exec lightform-proxy /usr/local/bin/lightform-proxy delete-host api.example.com");
+    const deleteHostCmd = `docker exec ${LIGHTFORM_PROXY_NAME} /usr/local/bin/iop-proxy delete-host api.example.com`;
+    expect(deleteHostCmd).toBe("docker exec iop-proxy /usr/local/bin/iop-proxy delete-host api.example.com");
     
     // Test logs command construction
     const logsCmd = `docker logs --tail 50 ${LIGHTFORM_PROXY_NAME}`;
-    expect(logsCmd).toBe("docker logs --tail 50 lightform-proxy");
+    expect(logsCmd).toBe("docker logs --tail 50 iop-proxy");
     
     const customLogsCmd = `docker logs --tail 100 ${LIGHTFORM_PROXY_NAME}`;
-    expect(customLogsCmd).toBe("docker logs --tail 100 lightform-proxy");
+    expect(customLogsCmd).toBe("docker logs --tail 100 iop-proxy");
   });
 
   test("should handle missing required arguments", () => {

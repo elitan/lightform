@@ -1,11 +1,11 @@
 import { loadConfig } from "../config"; // Assuming loadConfig is exported from src/config/index.ts
 import { loadSecrets } from "../config"; // Assuming loadSecrets is exported from src/config/index.ts
 import {
-  LightformConfig,
+  IopConfig,
   AppEntry,
   ServiceEntry,
   HealthCheckConfig,
-  LightformSecrets,
+  IopSecrets,
 } from "../config/types";
 import {
   appNeedsBuilding,
@@ -31,7 +31,7 @@ import {
 } from "../utils";
 import { shouldUseSslip, generateAppSslipDomain } from "../utils/sslip";
 import { setupIopProxy } from "../setup-proxy/index";
-import { LightformProxyClient } from "../proxy";
+import { IopProxyClient } from "../proxy";
 import { performBlueGreenDeployment } from "./blue-green";
 import { Logger } from "../utils/logger";
 import * as path from "path";
@@ -67,7 +67,7 @@ function createServiceConfigHash(serviceEntry: ServiceEntry): string {
  */
 function resolveEnvironmentVariables(
   entry: AppEntry | ServiceEntry,
-  secrets: LightformSecrets
+  secrets: IopSecrets
 ): Record<string, string> {
   const envVars: Record<string, string> = {};
 
@@ -94,45 +94,12 @@ function resolveEnvironmentVariables(
   return envVars;
 }
 
-
-/**
- * Creates Docker container options for an app entry
- */
-function appEntryToContainerOptions(
-  appEntry: AppEntry,
-  releaseId: string,
-  secrets: LightformSecrets,
-  projectName: string
-): DockerContainerOptions {
-  const imageNameWithRelease = buildImageName(appEntry, releaseId);
-  const containerName = `${projectName}-${appEntry.name}-${releaseId}`;
-  const envVars = resolveEnvironmentVariables(appEntry, secrets);
-  const networkName = getProjectNetworkName(projectName);
-
-  // Dual alias approach: generic name for internal communication + project-specific for proxy routing
-  const projectSpecificAlias = `${projectName}-${appEntry.name}`;
-
-  return {
-    name: containerName,
-    image: imageNameWithRelease,
-    ports: appEntry.ports,
-    volumes: processVolumes(appEntry.volumes, projectName),
-    envVars: envVars,
-    network: networkName,
-    networkAliases: [
-      appEntry.name, // internal project docker network alias for internal project communication (e.g. "web")
-      projectSpecificAlias, // globally unique docker network alias used by the iop proxy to healthcheck and route traffic to the app (e.g. "gmail-web")
-    ],
-    restart: "unless-stopped",
-  };
-}
-
 /**
  * Creates Docker container options for a service entry
  */
 function serviceEntryToContainerOptions(
   serviceEntry: ServiceEntry,
-  secrets: LightformSecrets,
+  secrets: IopSecrets,
   projectName: string
 ): DockerContainerOptions {
   const containerName = `${projectName}-${serviceEntry.name}`; // Project-prefixed names
@@ -181,8 +148,8 @@ function normalizeConfigEntries(
 }
 
 interface DeploymentContext {
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
   targetApps: AppEntry[];
   targetServices: ServiceEntry[];
   releaseId: string;
@@ -207,20 +174,18 @@ function parseDeploymentArgs(rawEntryNamesAndFlags: string[]): ParsedArgs {
   const verboseFlag = rawEntryNamesAndFlags.includes("--verbose");
 
   const entryNames = rawEntryNamesAndFlags.filter(
-    (name) =>
-      name !== "--services" && name !== "--verbose"
+    (name) => name !== "--services" && name !== "--verbose"
   );
 
   return { entryNames, deployServicesFlag, verboseFlag };
 }
 
-
 /**
  * Loads and validates IOP configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
 }> {
   try {
     const config = await loadConfig();
@@ -240,9 +205,7 @@ async function loadConfigurationAndSecrets(): Promise<{
       logger.error("");
       logger.error("To fix configuration errors:");
       logger.error("   # Edit iop.yml to fix the issues above");
-      logger.error(
-        "   iop deploy                  # Try deploying again"
-      );
+      logger.error("   iop deploy                  # Try deploying again");
 
       throw new Error("Configuration validation failed");
     }
@@ -278,7 +241,7 @@ async function loadConfigurationAndSecrets(): Promise<{
 function identifyTargetEntries(
   entryNames: string[],
   deployServicesFlag: boolean,
-  config: LightformConfig
+  config: IopConfig
 ): { apps: AppEntry[]; services: ServiceEntry[] } {
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
@@ -352,8 +315,8 @@ function identifyTargetEntries(
  */
 async function verifyInfrastructure(
   targetEntries: (AppEntry | ServiceEntry)[],
-  config: LightformConfig,
-  secrets: LightformSecrets,
+  config: IopConfig,
+  secrets: IopSecrets,
   networkName: string,
   verbose: boolean = false
 ): Promise<void> {
@@ -395,7 +358,7 @@ async function verifyInfrastructure(
         missingNetworkServers.push(serverHostname);
       }
 
-      const proxyClient = new LightformProxyClient(
+      const proxyClient = new IopProxyClient(
         dockerClientRemote,
         serverHostname
       );
@@ -1217,8 +1180,8 @@ async function deployServiceDirectly(
  */
 async function establishSSHConnection(
   serverHostname: string,
-  config: LightformConfig,
-  secrets: LightformSecrets,
+  config: IopConfig,
+  secrets: IopSecrets,
   verbose: boolean = false
 ): Promise<SSHClient> {
   const sshCreds = await getSSHCredentials(
@@ -1317,7 +1280,7 @@ async function configureProxyForApp(
   dockerClient: DockerClient,
   serverHostname: string,
   projectName: string,
-  config: LightformConfig,
+  config: IopConfig,
   verbose: boolean = false
 ): Promise<void> {
   // Skip proxy configuration if no proxy config at all
@@ -1325,7 +1288,7 @@ async function configureProxyForApp(
 
   logger.verboseLog(`Configuring iop-proxy for ${appEntry.name}`);
 
-  const proxyClient = new LightformProxyClient(
+  const proxyClient = new IopProxyClient(
     dockerClient,
     serverHostname,
     verbose
@@ -1415,8 +1378,7 @@ export function checkServiceConfigChanges(
   containerName: string
 ): { hasChanges: boolean; reason?: string } {
   // Docker Compose approach: Compare config hashes (primary method)
-  const currentConfigHash =
-    currentConfig.Config?.Labels?.["iop.config-hash"];
+  const currentConfigHash = currentConfig.Config?.Labels?.["iop.config-hash"];
   const desiredConfigHash = desiredConfig.configHash;
 
   if (currentConfigHash && desiredConfigHash) {
@@ -1883,8 +1845,8 @@ async function transferAndLoadImage(
  */
 async function bootstrapFreshServer(
   serverHostname: string,
-  config: LightformConfig,
-  secrets: LightformSecrets,
+  config: IopConfig,
+  secrets: IopSecrets,
   verbose: boolean = false
 ): Promise<void> {
   logger.verboseLog(`Attempting to bootstrap fresh server: ${serverHostname}`);
@@ -1977,8 +1939,8 @@ async function bootstrapFreshServer(
  * This replaces the need for a separate 'iop setup' command
  */
 async function ensureInfrastructureReady(
-  config: LightformConfig,
-  secrets: LightformSecrets,
+  config: IopConfig,
+  secrets: IopSecrets,
   servers: string[],
   verbose: boolean = false
 ): Promise<void> {
@@ -2075,9 +2037,7 @@ async function ensureInfrastructureReady(
             projectNetworkName
           );
         if (!isProxyConnected) {
-          logger.verboseLog(
-            `Connecting iop-proxy to ${projectNetworkName}`
-          );
+          logger.verboseLog(`Connecting iop-proxy to ${projectNetworkName}`);
           await dockerClient.connectContainerToNetwork(
             "iop-proxy",
             projectNetworkName
@@ -2123,8 +2083,9 @@ async function checkProjectDirectoriesExist(
  */
 export async function deployCommand(rawEntryNamesAndFlags: string[]) {
   try {
-    const { entryNames, deployServicesFlag, verboseFlag } =
-      parseDeploymentArgs(rawEntryNamesAndFlags);
+    const { entryNames, deployServicesFlag, verboseFlag } = parseDeploymentArgs(
+      rawEntryNamesAndFlags
+    );
 
     // Set logger verbose mode
     logger = new Logger({ verbose: verboseFlag });

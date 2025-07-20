@@ -64,7 +64,7 @@ export function processVolumes(
     ) {
       // Relative path or local directory - convert to project-specific bind mount
       const relativePath = source.startsWith("./") ? source.slice(2) : source;
-      processedSource = `~/.lightform/projects/${sanitizedProjectName}/${relativePath}`;
+      processedSource = `~/.iop/projects/${sanitizedProjectName}/${relativePath}`;
     } else if (source.startsWith("/")) {
       // Absolute path - use as-is (but warn user)
       processedSource = source;
@@ -94,7 +94,7 @@ export async function ensureProjectDirectories(
   projectName: string
 ): Promise<void> {
   const sanitizedProjectName = sanitizeFolderName(projectName);
-  const projectDir = `~/.lightform/projects/${sanitizedProjectName}`;
+  const projectDir = `~/.iop/projects/${sanitizedProjectName}`;
 
   try {
     await sshClient.exec(`mkdir -p "${projectDir}"`);

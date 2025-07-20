@@ -20,11 +20,11 @@ iop         # Deploys with automatic setup - that's it!
 ## Quick Start
 
 ```yaml
-# lightform.yml
+# iop.yml
 name: my-app
 
 ssh:
-  username: lightform
+  username: iop
 
 apps:
   web:
@@ -46,13 +46,13 @@ apps:
 [✓] Zero-downtime deployment of web (3.5s)
 [✓] Deployment completed successfully in 9.8s
 
-https://a1b2c3d4-web-lightform-192-168-1-100.app.lightform.dev
+https://a1b2c3d4-web-iop-192-168-1-100.app.iop.dev
 ```
 
 ## Commands
 
 ```bash
-iop init                    # Create lightform.yml and .lightform/secrets
+iop init                    # Create iop.yml and .iop/secrets
 iop                         # Deploy all apps (auto-setup included)
 iop web                     # Deploy specific app
 iop --services              # Deploy services only
@@ -64,6 +64,6 @@ iop proxy update            # Update proxy to latest version
 
 ## Documentation
 
-For complete documentation, examples, and guides, visit: https://github.com/elitan/lightform
+For complete documentation, examples, and guides, visit: https://github.com/elitan/iop
 
 **MIT License** - Made for developers who want simple, reliable deployments on their own infrastructure.

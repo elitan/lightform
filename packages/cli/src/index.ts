@@ -19,7 +19,7 @@ function showMainHelp(): void {
   console.log("COMMANDS:");
   console.log("  init      Initialize iop.yml config and secrets file");
   console.log("  status    Check deployment status across all servers");
-  console.log("  proxy     Manage Lightform proxy (status, update)");
+  console.log("  proxy     Manage iop proxy (status, update)");
   console.log("");
   console.log("GLOBAL FLAGS:");
   console.log("  --help     Show command help");
@@ -54,7 +54,7 @@ function showMainHelp(): void {
 function showCommandHelp(command: string): void {
   switch (command) {
     case "init":
-      console.log("Initialize Lightform project");
+      console.log("Initialize iop project");
       console.log("============================");
       console.log("");
       console.log("USAGE:");
@@ -155,7 +155,7 @@ function showCommandHelp(command: string): void {
       break;
 
     case "proxy":
-      console.log("Manage Lightform proxy");
+      console.log("Manage iop proxy");
       console.log("======================");
       console.log("");
       console.log("USAGE:");
@@ -163,7 +163,7 @@ function showCommandHelp(command: string): void {
       console.log("");
       console.log("DESCRIPTION:");
       console.log(
-        "  Manage the Lightform reverse proxy that handles SSL and routing."
+        "  Manage the iop reverse proxy that handles SSL and routing."
       );
       console.log("");
       console.log("SUBCOMMANDS:");

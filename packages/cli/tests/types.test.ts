@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   ServiceEntryWithoutNameSchema,
-  LightformConfigSchema,
-  LightformSecretsSchema,
+  IopConfigSchema,
+  IopSecretsSchema,
 } from "../src/config/types";
 
 describe("type schemas", () => {
@@ -68,7 +68,7 @@ describe("type schemas", () => {
     });
   });
 
-  describe("LightformConfigSchema", () => {
+  describe("IopConfigSchema", () => {
     test("should validate a minimal valid config", () => {
       const validConfig = {
         name: "test-project",
@@ -80,7 +80,7 @@ describe("type schemas", () => {
         },
       };
 
-      const result = LightformConfigSchema.safeParse(validConfig);
+      const result = IopConfigSchema.safeParse(validConfig);
       expect(result.success).toBe(true);
     });
 
@@ -107,7 +107,7 @@ describe("type schemas", () => {
         },
       };
 
-      const result = LightformConfigSchema.safeParse(validConfig);
+      const result = IopConfigSchema.safeParse(validConfig);
       expect(result.success).toBe(true);
     });
 
@@ -122,7 +122,7 @@ describe("type schemas", () => {
         },
       };
 
-      const result = LightformConfigSchema.safeParse(invalidConfig);
+      const result = IopConfigSchema.safeParse(invalidConfig);
       expect(result.success).toBe(false);
 
       if (!result.success) {
@@ -132,7 +132,7 @@ describe("type schemas", () => {
     });
   });
 
-  describe("LightformSecretsSchema", () => {
+  describe("IopSecretsSchema", () => {
     test("should validate a secrets object", () => {
       const validSecrets = {
         API_KEY: "123456",
@@ -140,14 +140,14 @@ describe("type schemas", () => {
         JWT_SECRET: "very-secret",
       };
 
-      const result = LightformSecretsSchema.safeParse(validSecrets);
+      const result = IopSecretsSchema.safeParse(validSecrets);
       expect(result.success).toBe(true);
     });
 
     test("should validate an empty secrets object", () => {
       const validSecrets = {};
 
-      const result = LightformSecretsSchema.safeParse(validSecrets);
+      const result = IopSecretsSchema.safeParse(validSecrets);
       expect(result.success).toBe(true);
     });
 
@@ -157,7 +157,7 @@ describe("type schemas", () => {
         CONFIG: { key: "value" }, // Object instead of string
       };
 
-      const result = LightformSecretsSchema.safeParse(invalidSecrets);
+      const result = IopSecretsSchema.safeParse(invalidSecrets);
       expect(result.success).toBe(false);
 
       if (!result.success) {

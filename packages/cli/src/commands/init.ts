@@ -46,7 +46,7 @@ function generateConfigContent(config: ConfigPrompts): string {
   return `name: ${config.projectName}
 
 ssh:
-  username: lightform
+  username: iop
 
 apps:
   web:

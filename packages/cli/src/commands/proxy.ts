@@ -1,9 +1,9 @@
 import { loadConfig, loadSecrets } from "../config";
-import { LightformConfig, LightformSecrets } from "../config/types";
+import { IopConfig, IopSecrets } from "../config/types";
 import { SSHClient, getSSHCredentials } from "../ssh";
 import { DockerClient } from "../docker";
-import { setupIopProxy, LIGHTFORM_PROXY_NAME } from "../setup-proxy/index";
-import { LightformProxyClient } from "../proxy";
+import { setupIopProxy, IOP_PROXY_NAME } from "../setup-proxy/index";
+import { IopProxyClient } from "../proxy";
 import { Logger } from "../utils/logger";
 import {
   checkProxyStatus,
@@ -15,8 +15,8 @@ import {
 let logger: Logger;
 
 interface ProxyContext {
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
   verboseFlag: boolean;
 }
 
@@ -86,8 +86,8 @@ function parseProxyArgs(args: string[]): ParsedProxyArgs {
  * Loads and validates IOP configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
 }> {
   try {
     const config = await loadConfig();
@@ -102,7 +102,7 @@ async function loadConfigurationAndSecrets(): Promise<{
 /**
  * Collects all unique servers from apps and services configuration
  */
-function collectAllServers(config: LightformConfig): Set<string> {
+function collectAllServers(config: IopConfig): Set<string> {
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
   const allServers = new Set<string>();
@@ -129,7 +129,7 @@ function collectAllServers(config: LightformConfig): Set<string> {
  */
 function filterServersByEntries(
   entryNames: string[],
-  config: LightformConfig
+  config: IopConfig
 ): Set<string> {
   if (entryNames.length === 0) {
     return collectAllServers(config);
@@ -208,7 +208,7 @@ async function getCurrentProxyImageDigest(
 ): Promise<string | null> {
   try {
     // Get the image digest of the running proxy container
-    const inspectCmd = `docker inspect ${LIGHTFORM_PROXY_NAME} --format='{{.Image}}'`;
+    const inspectCmd = `docker inspect ${IOP_PROXY_NAME} --format='{{.Image}}'`;
     const currentImageId = await sshClient.exec(inspectCmd);
 
     // Get the full digest
@@ -336,7 +336,7 @@ async function proxyStatusSubcommand(context: ProxyContext): Promise<void> {
       logger.verboseLog(`Failed to check proxy on ${serverHostname}: ${error}`);
       proxyStatuses.push({
         running: false,
-        containerName: LIGHTFORM_PROXY_NAME,
+        containerName: IOP_PROXY_NAME,
         serverId: serverHostname,
         ports: [],
         error: `Failed to connect: ${error}`,
@@ -483,7 +483,7 @@ async function proxyDeleteHostSubcommand(
       logger.serverStep(`Deleting host: ${host}`);
 
       // Use the proxy CLI to delete the host (using 'remove' command which is actually implemented)
-      const deleteCmd = `docker exec ${LIGHTFORM_PROXY_NAME} /usr/local/bin/iop-proxy remove --host ${host}`;
+      const deleteCmd = `docker exec ${IOP_PROXY_NAME} /usr/local/bin/iop-proxy remove --host ${host}`;
       const result = await sshClient.exec(deleteCmd);
 
       if (result.includes("Host deleted successfully") || result.includes("deleted")) {
@@ -552,7 +552,7 @@ async function proxyLogsSubcommand(
       logger.serverStep(`Fetching logs (${lines} lines)`);
 
       // Get proxy logs
-      const logsCmd = `docker logs --tail ${lines} ${LIGHTFORM_PROXY_NAME}`;
+      const logsCmd = `docker logs --tail ${lines} ${IOP_PROXY_NAME}`;
       const logs = await sshClient.exec(logsCmd);
 
       console.log(`\n=== Proxy Logs from ${serverHostname} ===`);

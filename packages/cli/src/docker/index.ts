@@ -4,8 +4,8 @@ import { SSHClient } from "../ssh";
 import {
   ServiceEntry,
   AppEntry,
-  LightformSecrets,
-  LightformConfig,
+  IopSecrets,
+  IopConfig,
 } from "../config/types";
 import { exec } from "child_process";
 import { promisify } from "util";
@@ -931,7 +931,7 @@ EOF`);
    * @param healthCheckPath The health check endpoint path (default: "/up")
    * @returns true if the health check endpoint returns 200, false otherwise
    */
-  async checkHealthWithLightformProxy(
+  async checkHealthWithIopProxy(
     proxyContainerName: string,
     targetNetworkAlias: string,
     targetContainerName: string,
@@ -1118,12 +1118,12 @@ EOF`);
   }
 
   /**
-   * Convert a Lightform service definition to Docker container options
+   * Convert a iop service definition to Docker container options
    */
   static serviceToContainerOptions(
     service: ServiceEntry,
     projectName: string,
-    secrets: LightformSecrets
+    secrets: IopSecrets
   ): DockerContainerOptions {
     const containerName = `${projectName}-${service.name}`;
     const options: DockerContainerOptions = {
@@ -1629,7 +1629,7 @@ EOF`);
   }
 
   /**
-   * Find all containers managed by Lightform for a specific project
+   * Find all containers managed by iop for a specific project
    * @param projectName The project name to filter by
    * @returns Array of container names belonging to the project
    */

@@ -1,4 +1,4 @@
-import { AppEntry, LightformSecrets } from "../config/types";
+import { AppEntry, IopSecrets } from "../config/types";
 import { DockerClient, DockerContainerOptions } from "../docker";
 import {
   appNeedsBuilding,
@@ -10,7 +10,7 @@ import { processVolumes } from "../utils";
 export interface BlueGreenDeploymentOptions {
   appEntry: AppEntry;
   releaseId: string;
-  secrets: LightformSecrets;
+  secrets: IopSecrets;
   projectName: string;
   networkName: string;
   dockerClient: DockerClient;
@@ -51,7 +51,7 @@ function generateContainerNames(
 function createBlueGreenContainerOptions(
   appEntry: AppEntry,
   releaseId: string,
-  secrets: LightformSecrets,
+  secrets: IopSecrets,
   projectName: string,
   containerName: string
 ): DockerContainerOptions {
@@ -88,7 +88,7 @@ function createBlueGreenContainerOptions(
  */
 function resolveEnvironmentVariables(
   entry: AppEntry,
-  secrets: LightformSecrets
+  secrets: IopSecrets
 ): Record<string, string> {
   const envVars: Record<string, string> = {};
 
@@ -138,8 +138,8 @@ async function performBlueGreenHealthChecks(
   const healthPromises = containerNames.map(async (containerName) => {
     try {
       const healthCheckPassed =
-        await dockerClient.checkHealthWithLightformProxy(
-          "lightform-proxy",
+        await dockerClient.checkHealthWithIopProxy(
+          "iop-proxy",
           appEntry.name,
           containerName,
           projectName,

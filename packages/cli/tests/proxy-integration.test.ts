@@ -14,7 +14,7 @@ describe("Proxy Integration Tests", () => {
     nextjs: {
       domain: "nextjs.example.myiop.cloud",
       expectedContent: "<!DOCTYPE html>",
-      projectAlias: "lightform-example-nextjs-web",
+      projectAlias: "iop-example-nextjs-web",
     },
   };
 
@@ -52,7 +52,7 @@ describe("Proxy Integration Tests", () => {
       expect(proxyConfig).toContain(
         `Target: ${testTargets.nextjs.projectAlias}:3000`
       );
-      expect(proxyConfig).toContain(`Project: lightform-example-nextjs`);
+      expect(proxyConfig).toContain(`Project: iop-example-nextjs`);
     } catch (error) {
       // Handle SSH execution error by checking stderr
       const errorOutput = String(error);

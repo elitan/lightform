@@ -1,10 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import { validateConfig, ConfigValidationError } from "../src/utils/config-validator";
-import { LightformConfig } from "../src/config/types";
+import { IopConfig } from "../src/config/types";
 
 describe("Reserved Names Validation", () => {
   test("should reject app with reserved name 'proxy'", () => {
-    const config: LightformConfig = {
+    const config: IopConfig = {
       name: "test-project",
       apps: {
         proxy: {
@@ -26,7 +26,7 @@ describe("Reserved Names Validation", () => {
   });
 
   test("should reject service with reserved name 'status'", () => {
-    const config: LightformConfig = {
+    const config: IopConfig = {
       name: "test-project",
       services: {
         status: {
@@ -45,7 +45,7 @@ describe("Reserved Names Validation", () => {
   });
 
   test("should reject app with reserved name 'init'", () => {
-    const config: LightformConfig = {
+    const config: IopConfig = {
       name: "test-project",
       apps: {
         init: {
@@ -63,7 +63,7 @@ describe("Reserved Names Validation", () => {
   });
 
   test("should reject multiple reserved names", () => {
-    const config: LightformConfig = {
+    const config: IopConfig = {
       name: "test-project",
       apps: {
         proxy: {
@@ -91,7 +91,7 @@ describe("Reserved Names Validation", () => {
   });
 
   test("should allow non-reserved names", () => {
-    const config: LightformConfig = {
+    const config: IopConfig = {
       name: "test-project",
       apps: {
         web: {
@@ -123,7 +123,7 @@ describe("Reserved Names Validation", () => {
   });
 
   test("should allow names similar to reserved names", () => {
-    const config: LightformConfig = {
+    const config: IopConfig = {
       name: "test-project",
       apps: {
         "proxy-app": {
@@ -149,7 +149,7 @@ describe("Reserved Names Validation", () => {
   });
 
   test("should work with array format configuration", () => {
-    const config: LightformConfig = {
+    const config: IopConfig = {
       name: "test-project",
       apps: [
         {
@@ -175,7 +175,7 @@ describe("Reserved Names Validation", () => {
   });
 
   test("should include helpful suggestions", () => {
-    const config: LightformConfig = {
+    const config: IopConfig = {
       name: "test-project",
       apps: {
         proxy: {

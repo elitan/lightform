@@ -1,7 +1,7 @@
 name: plausible
 
 ssh:
-  username: lightform
+  username: iop
 
 apps:
   plausible:

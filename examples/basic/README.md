@@ -1,8 +1,8 @@
-# Basic Go + Lightform Deployment Example
+# Basic Go + iop Deployment Example
 
-This is a simple Go web application that demonstrates zero-downtime deployments using [Lightform](https://github.com/elitan/lightform), including both an app and a PostgreSQL database service.
+This is a simple Go web application that demonstrates zero-downtime deployments using [iop](https://github.com/elitan/iop), including both an app and a PostgreSQL database service.
 
-## 🚀 Quick Start with Lightform
+## 🚀 Quick Start with iop
 
 ### 1. Development Setup
 
@@ -15,9 +15,9 @@ go run main.go
 
 The server will start on port 3000. Visit [http://localhost:3000](http://localhost:3000) to see "Hello World 2".
 
-### 2. Deploy with Lightform
+### 2. Deploy with iop
 
-This example includes a complete Lightform configuration for zero-downtime deployment:
+This example includes a complete iop configuration for zero-downtime deployment:
 
 ```bash
 # Set up your servers
@@ -38,7 +38,7 @@ This basic example demonstrates:
 - **Zero-downtime deployments** - Blue-green deployment for the web app
 - **Service persistence** - Database with persistent volumes
 
-Perfect for understanding Lightform's core concepts with a minimal setup!
+Perfect for understanding iop's core concepts with a minimal setup!
 
 ## 📚 Learn More
 
@@ -47,7 +47,7 @@ Perfect for understanding Lightform's core concepts with a minimal setup!
 - [Go Documentation](https://golang.org/doc/) - Official Go documentation
 - [Go Web Programming](https://golang.org/doc/articles/wiki/) - Building web applications with Go
 
-### Lightform Resources
+### iop Resources
 
-- [Lightform Documentation](https://github.com/elitan/lightform) - Zero-downtime Docker deployments
-- [Lightform Examples](https://github.com/elitan/lightform/tree/main/examples) - More deployment examples
+- [iop Documentation](https://github.com/elitan/iop) - Zero-downtime Docker deployments
+- [iop Examples](https://github.com/elitan/iop/tree/main/examples) - More deployment examples

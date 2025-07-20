@@ -1,4 +1,4 @@
-# Lightform
+# iop
 
 Zero-downtime Docker deployments with automatic HTTPS. Build locally, deploy to your servers.
 
@@ -13,7 +13,7 @@ iop       # Deploys with automatic setup - that's it!
 name: my-app
 
 ssh:
-  username: lightform
+  username: iop
 
 apps:
   web:
@@ -31,13 +31,13 @@ apps:
 ```
 
 ```bash
-❯ lightform
+❯ iop
 [✓] Ensuring infrastructure is ready (1.2s)
 [✓] Building Images (1.8s)
 [✓] Zero-downtime deployment of web (3.5s)
 [✓] Deployment completed successfully in 9.8s
 
-https://a1b2c3d4-web-lightform-192-168-1-100.app.lightform.dev
+https://a1b2c3d4-web-iop-192-168-1-100.app.iop.dev
 ```
 
 ## Features
@@ -54,7 +54,7 @@ https://a1b2c3d4-web-lightform-192-168-1-100.app.lightform.dev
 - **Services vs Apps**: Apps get zero-downtime blue-green deployment, services get direct replacement
 - **Network aliases**: Seamless traffic switching using Docker network aliases for true zero-downtime
 
-## Why Lightform?
+## Why iop?
 
 **Own your infrastructure** without the complexity. Deploy any Docker app to your servers with zero configuration.
 
@@ -85,7 +85,7 @@ https://a1b2c3d4-web-lightform-192-168-1-100.app.lightform.dev
 name: my-app
 
 ssh:
-  username: lightform
+  username: iop
 
 apps:
   web:
@@ -144,7 +144,7 @@ iop proxy logs --lines 100  # Show proxy logs (default: 50 lines)
 name: blog
 
 ssh:
-  username: lightform
+  username: iop
 
 apps:
   web:
@@ -174,7 +174,7 @@ apps:
 name: ecommerce
 
 ssh:
-  username: lightform
+  username: iop
 
 apps:
   frontend:
@@ -237,13 +237,17 @@ services:
 - **Servers**: Ubuntu/Debian with SSH access (root for fresh servers)
 - **Ports**: 80, 443 open
 
-Fresh servers only need root SSH access - Lightform handles the rest automatically.
+Fresh servers only need root SSH access - iop handles the rest automatically.
+
+## Community
+
+Join our Discord: https://discord.gg/t4KetSPhWu
 
 ## Development
 
 ```bash
-git clone https://github.com/elitan/lightform
-cd lightform && bun install && bun run dev
+git clone https://github.com/elitan/iop
+cd iop && bun install && bun run dev
 ```
 
 **MIT License** - Made for developers who want simple, reliable deployments on their own infrastructure.
