@@ -1,20 +1,20 @@
 import { DockerClient } from "../docker";
-import { LightformConfig, LightformSecrets } from "../config/types";
+import { IopConfig, IopSecrets } from "../config/types";
 import { SSHClient } from "../ssh";
 import { loadConfig } from "../config";
 
 // Constants
-export const LIGHTFORM_PROXY_NAME = "lightform-proxy";
-const DEFAULT_LIGHTFORM_PROXY_IMAGE = "elitan/lightform-proxy:latest";
+export const IOP_PROXY_NAME = "iop-proxy";
+const DEFAULT_IOP_PROXY_IMAGE = "elitan/iop-proxy:latest";
 
 /**
- * Check if the Lightform proxy is running and set it up if not
+ * Check if the iop proxy is running and set it up if not
  * @param serverHostname The hostname of the server
  * @param sshClient SSH client connection
  * @param verbose Whether to show verbose output
  * @param forceUpdate Whether to force update the proxy even if it exists (default: false - only install if not present)
  */
-export async function setupLightformProxy(
+export async function setupIopProxy(
   serverHostname: string,
   sshClient: SSHClient,
   verbose: boolean = false,
@@ -22,7 +22,7 @@ export async function setupLightformProxy(
 ): Promise<boolean> {
   try {
     if (verbose) {
-      console.log(`[${serverHostname}] Checking Lightform proxy status...`);
+      console.log(`[${serverHostname}] Checking iop proxy status...`);
     }
 
     // Get SSH client from Docker client (reusing existing SSH connection)
@@ -30,16 +30,16 @@ export async function setupLightformProxy(
 
     // Get config to check for custom proxy image
     const config = await loadConfig();
-    const proxyImage = config.proxy?.image || DEFAULT_LIGHTFORM_PROXY_IMAGE;
+    const proxyImage = config.proxy?.image || DEFAULT_IOP_PROXY_IMAGE;
 
     // Check if container exists
-    const proxyExists = await dockerClient.containerExists(LIGHTFORM_PROXY_NAME);
+    const proxyExists = await dockerClient.containerExists(IOP_PROXY_NAME);
 
     if (proxyExists) {
       if (forceUpdate) {
         if (verbose) {
           console.log(
-            `[${serverHostname}] Lightform proxy already exists. Force updating to latest version...`
+            `[${serverHostname}] iop proxy already exists. Force updating to latest version...`
           );
           console.log(
             `[${serverHostname}] Stopping and removing existing proxy container...`
@@ -53,10 +53,10 @@ export async function setupLightformProxy(
           }
           
           // Ensure state directory exists on host
-          await sshClient.exec("mkdir -p ~/.lightform/lightform-proxy-state");
+          await sshClient.exec("mkdir -p ~/.iop/iop-proxy-state");
           
           // Copy state from container to host if it exists
-          const copyStateCmd = `docker cp ${LIGHTFORM_PROXY_NAME}:/var/lib/lightform-proxy/state.json ~/.lightform/lightform-proxy-state/state.json 2>/dev/null || echo "No existing state to backup"`;
+          const copyStateCmd = `docker cp ${IOP_PROXY_NAME}:/var/lib/iop-proxy/state.json ~/.iop/iop-proxy-state/state.json 2>/dev/null || echo "No existing state to backup"`;
           const backupResult = await sshClient.exec(copyStateCmd);
           
           if (verbose) {
@@ -72,12 +72,12 @@ export async function setupLightformProxy(
         // Stop and remove existing container to force update
         try {
           const proxyRunning = await dockerClient.containerIsRunning(
-            LIGHTFORM_PROXY_NAME
+            IOP_PROXY_NAME
           );
           if (proxyRunning) {
-            await dockerClient.stopContainer(LIGHTFORM_PROXY_NAME);
+            await dockerClient.stopContainer(IOP_PROXY_NAME);
           }
-          await dockerClient.removeContainer(LIGHTFORM_PROXY_NAME);
+          await dockerClient.removeContainer(IOP_PROXY_NAME);
           if (verbose) {
             console.log(
               `[${serverHostname}] Existing proxy container removed successfully.`
@@ -92,27 +92,27 @@ export async function setupLightformProxy(
       } else {
         // Check if proxy is running, if not start it
         const proxyRunning = await dockerClient.containerIsRunning(
-          LIGHTFORM_PROXY_NAME
+          IOP_PROXY_NAME
         );
 
         if (proxyRunning) {
           if (verbose) {
             console.log(
-              `[${serverHostname}] Lightform proxy already exists and is running. Skipping setup.`
+              `[${serverHostname}] iop proxy already exists and is running. Skipping setup.`
             );
           }
           return true;
         } else {
           if (verbose) {
             console.log(
-              `[${serverHostname}] Lightform proxy exists but is not running. Starting it...`
+              `[${serverHostname}] iop proxy exists but is not running. Starting it...`
             );
           }
           try {
-            await dockerClient.startContainer(LIGHTFORM_PROXY_NAME);
+            await dockerClient.startContainer(IOP_PROXY_NAME);
             if (verbose) {
               console.log(
-                `[${serverHostname}] Lightform proxy started successfully.`
+                `[${serverHostname}] iop proxy started successfully.`
               );
             }
             return true;
@@ -128,9 +128,9 @@ export async function setupLightformProxy(
 
     // Force pull the latest image (whether container existed or not)
     if (verbose) {
-      console.log(`[${serverHostname}] Setting up Lightform proxy...`);
+      console.log(`[${serverHostname}] Setting up iop proxy...`);
       console.log(
-        `[${serverHostname}] Force pulling latest Lightform proxy image from registry...`
+        `[${serverHostname}] Force pulling latest iop proxy image from registry...`
       );
       console.log(
         `[${serverHostname}] Force pulling latest image ${proxyImage}...`
@@ -141,14 +141,14 @@ export async function setupLightformProxy(
 
     if (!pullResult) {
       console.error(
-        `[${serverHostname}] Failed to pull Lightform proxy image. Aborting setup.`
+        `[${serverHostname}] Failed to pull iop proxy image. Aborting setup.`
       );
       if (verbose) {
         console.error(
           `[${serverHostname}] If you are seeing "pull access denied" errors, you may need to use a different proxy image.`
         );
         console.error(
-          `[${serverHostname}] You can configure a custom proxy image in your lightform.yml file:`
+          `[${serverHostname}] You can configure a custom proxy image in your iop.yml file:`
         );
         console.error(`[${serverHostname}] proxy:`);
         console.error(
@@ -158,28 +158,28 @@ export async function setupLightformProxy(
       return false;
     }
 
-    // Ensure .lightform directories exist on the server before mounting
+    // Ensure .iop directories exist on the server before mounting
     if (verbose) {
-      console.log(`[${serverHostname}] Creating .lightform directory structure...`);
+      console.log(`[${serverHostname}] Creating .iop directory structure...`);
     }
     try {
-      await sshClient.exec("mkdir -p ~/.lightform/lightform-proxy-certs ~/.lightform/lightform-proxy-state");
+      await sshClient.exec("mkdir -p ~/.iop/iop-proxy-certs ~/.iop/iop-proxy-state");
       if (verbose) {
-        console.log(`[${serverHostname}] .lightform directories created successfully.`);
+        console.log(`[${serverHostname}] .iop directories created successfully.`);
       }
     } catch (error) {
-      console.error(`[${serverHostname}] Failed to create .lightform directories: ${error}`);
+      console.error(`[${serverHostname}] Failed to create .iop directories: ${error}`);
       return false;
     }
 
     // Create container options
     const containerOptions = {
-      name: LIGHTFORM_PROXY_NAME,
+      name: IOP_PROXY_NAME,
       image: proxyImage,
       ports: ["80:80", "443:443"],
       volumes: [
-        "./.lightform/lightform-proxy-certs:/var/lib/lightform-proxy/certs",
-        "./.lightform/lightform-proxy-state:/var/lib/lightform-proxy",
+        "./.iop/iop-proxy-certs:/var/lib/iop-proxy/certs",
+        "./.iop/iop-proxy-state:/var/lib/iop-proxy",
         "/var/run/docker.sock:/var/run/docker.sock",
       ],
       restart: "always",
@@ -192,26 +192,26 @@ export async function setupLightformProxy(
 
     if (!containerCreated) {
       console.error(
-        `[${serverHostname}] Failed to create Lightform proxy container.`
+        `[${serverHostname}] Failed to create iop proxy container.`
       );
       return false;
     }
 
     // Verify the container actually exists and is running
-    const containerExists = await dockerClient.containerExists(LIGHTFORM_PROXY_NAME);
+    const containerExists = await dockerClient.containerExists(IOP_PROXY_NAME);
     if (!containerExists) {
       console.error(
-        `[${serverHostname}] Lightform proxy container was not created successfully despite no errors.`
+        `[${serverHostname}] iop proxy container was not created successfully despite no errors.`
       );
       return false;
     }
 
     const containerRunning = await dockerClient.containerIsRunning(
-      LIGHTFORM_PROXY_NAME
+      IOP_PROXY_NAME
     );
     if (!containerRunning) {
       console.error(
-        `[${serverHostname}] Lightform proxy container exists but is not running.`
+        `[${serverHostname}] iop proxy container exists but is not running.`
       );
       return false;
     }
@@ -237,12 +237,12 @@ export async function setupLightformProxy(
         try {
           // Check if already connected to avoid errors
           const isConnected = await dockerClient.isContainerConnectedToNetwork(
-            LIGHTFORM_PROXY_NAME, 
+            IOP_PROXY_NAME, 
             networkName
           );
           
           if (!isConnected) {
-            await dockerClient.connectContainerToNetwork(LIGHTFORM_PROXY_NAME, networkName);
+            await dockerClient.connectContainerToNetwork(IOP_PROXY_NAME, networkName);
             if (verbose) {
               console.log(`[${serverHostname}] Connected proxy to network: ${networkName}`);
             }
@@ -271,12 +271,12 @@ export async function setupLightformProxy(
 
     if (verbose) {
       console.log(
-        `[${serverHostname}] Lightform proxy has been successfully set up.`
+        `[${serverHostname}] iop proxy has been successfully set up.`
       );
     }
     return true;
   } catch (error) {
-    console.error(`[${serverHostname}] Failed to set up Lightform proxy: ${error}`);
+    console.error(`[${serverHostname}] Failed to set up iop proxy: ${error}`);
     return false;
   }
 }

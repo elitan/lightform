@@ -2,15 +2,15 @@ import { DockerClient } from "../docker";
 import { SSHClient } from "../ssh";
 
 /**
- * Client for interacting with the lightform-proxy service
+ * Client for interacting with the iop-proxy service
  */
-export class LightformProxyClient {
+export class IopProxyClient {
   private dockerClient: DockerClient;
   private serverHostname?: string;
   private verbose: boolean = false;
 
   /**
-   * Create a new LightformProxyClient
+   * Create a new IopProxyClient
    * @param dockerClient An initialized DockerClient for the target server
    * @param serverHostname The hostname of the server (for logging purposes)
    * @param verbose Whether to enable verbose logging
@@ -50,35 +50,35 @@ export class LightformProxyClient {
   }
 
   /**
-   * Check if the lightform-proxy container is running
-   * @returns true if the lightform-proxy container exists and is running
+   * Check if the iop-proxy container is running
+   * @returns true if the iop-proxy container exists and is running
    */
   async isProxyRunning(): Promise<boolean> {
     try {
-      const proxyExists = await this.dockerClient.containerExists("lightform-proxy");
+      const proxyExists = await this.dockerClient.containerExists("iop-proxy");
       if (!proxyExists) {
-        this.log("lightform-proxy container does not exist");
+        this.log("iop-proxy container does not exist");
         return false;
       }
 
       const isRunning = await this.dockerClient.containerIsRunning(
-        "lightform-proxy"
+        "iop-proxy"
       );
       if (!isRunning) {
-        this.log("lightform-proxy container exists but is not running");
+        this.log("iop-proxy container exists but is not running");
         return false;
       }
 
-      this.log("lightform-proxy container is running");
+      this.log("iop-proxy container is running");
       return true;
     } catch (error) {
-      this.logError(`Error checking lightform-proxy status: ${error}`);
+      this.logError(`Error checking iop-proxy status: ${error}`);
       return false;
     }
   }
 
   /**
-   * Configure the lightform-proxy to route traffic from a host to a target container
+   * Configure the iop-proxy to route traffic from a host to a target container
    * @param host The hostname to route traffic from (e.g., api.example.com)
    * @param targetContainer The container name to route traffic to
    * @param targetPort The port on the target container
@@ -108,9 +108,9 @@ export class LightformProxyClient {
         "--ssl",
       ];
 
-      const command = `/usr/local/bin/lightform-proxy ${args.join(" ")}`;
+      const command = `/usr/local/bin/iop-proxy ${args.join(" ")}`;
       const execResult = await this.dockerClient.execInContainer(
-        "lightform-proxy",
+        "iop-proxy",
         command
       );
 
@@ -134,42 +134,42 @@ export class LightformProxyClient {
   }
 
   /**
-   * Remove a host configuration from the lightform-proxy
+   * Remove a host configuration from the iop-proxy
    * @param host The hostname to remove
    * @returns true if the removal was successful
    */
   async removeProxyConfig(host: string): Promise<boolean> {
     try {
-      // Check if lightform-proxy is running
+      // Check if iop-proxy is running
       if (!(await this.isProxyRunning())) {
         this.logError(
-          "Cannot remove proxy config: lightform-proxy container is not running"
+          "Cannot remove proxy config: iop-proxy container is not running"
         );
         return false;
       }
 
-      this.log(`Removing lightform-proxy configuration for host: ${host}`);
+      this.log(`Removing iop-proxy configuration for host: ${host}`);
 
       // Build the proxy removal command
-      const proxyCmd = `lightform-proxy remove --host ${host}`;
+      const proxyCmd = `iop-proxy remove --host ${host}`;
 
-      // Execute the command in the lightform-proxy container
+      // Execute the command in the iop-proxy container
       const execResult = await this.dockerClient.execInContainer(
-        "lightform-proxy",
+        "iop-proxy",
         proxyCmd
       );
 
       if (execResult.success) {
-        this.log(`Successfully removed lightform-proxy configuration for ${host}`);
+        this.log(`Successfully removed iop-proxy configuration for ${host}`);
         return true;
       } else {
         this.logError(
-          `Failed to remove lightform-proxy configuration: ${execResult.output}`
+          `Failed to remove iop-proxy configuration: ${execResult.output}`
         );
         return false;
       }
     } catch (error) {
-      this.logError(`Error removing lightform-proxy configuration: ${error}`);
+      this.logError(`Error removing iop-proxy configuration: ${error}`);
       return false;
     }
   }
@@ -180,32 +180,32 @@ export class LightformProxyClient {
    */
   async listProxyConfigs(): Promise<string | null> {
     try {
-      // Check if lightform-proxy is running
+      // Check if iop-proxy is running
       if (!(await this.isProxyRunning())) {
         this.logError(
-          "Cannot list proxy configs: lightform-proxy container is not running"
+          "Cannot list proxy configs: iop-proxy container is not running"
         );
         return null;
       }
 
-      this.log("Listing lightform-proxy configurations");
+      this.log("Listing iop-proxy configurations");
 
-      // Execute the list command in the lightform-proxy container
+      // Execute the list command in the iop-proxy container
       const execResult = await this.dockerClient.execInContainer(
-        "lightform-proxy",
-        "lightform-proxy list"
+        "iop-proxy",
+        "iop-proxy list"
       );
 
       if (execResult.success) {
         return execResult.output;
       } else {
         this.logError(
-          `Failed to list lightform-proxy configurations: ${execResult.output}`
+          `Failed to list iop-proxy configurations: ${execResult.output}`
         );
         return null;
       }
     } catch (error) {
-      this.logError(`Error listing lightform-proxy configurations: ${error}`);
+      this.logError(`Error listing iop-proxy configurations: ${error}`);
       return null;
     }
   }
@@ -218,10 +218,10 @@ export class LightformProxyClient {
    */
   async updateServiceHealth(host: string, healthy: boolean): Promise<boolean> {
     try {
-      // Check if lightform-proxy is running
+      // Check if iop-proxy is running
       if (!(await this.isProxyRunning())) {
         this.logError(
-          "Cannot update service health: lightform-proxy container is not running"
+          "Cannot update service health: iop-proxy container is not running"
         );
         return false;
       }
@@ -234,11 +234,11 @@ export class LightformProxyClient {
 
       // Build the proxy update health command
       const healthStatus = healthy ? "true" : "false";
-      const proxyCmd = `/usr/local/bin/lightform-proxy updatehealth --host ${host} --healthy ${healthStatus}`;
+      const proxyCmd = `/usr/local/bin/iop-proxy updatehealth --host ${host} --healthy ${healthStatus}`;
 
-      // Execute the command in the lightform-proxy container
+      // Execute the command in the iop-proxy container
       const execResult = await this.dockerClient.execInContainer(
-        "lightform-proxy",
+        "iop-proxy",
         proxyCmd
       );
 

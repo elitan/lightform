@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DockerClient } from "../src/docker";
-import type { ServiceEntry, LightformSecrets } from "../src/config/types";
+import type { ServiceEntry, IopSecrets } from "../src/config/types";
 
 describe("Docker service network aliases", () => {
   test("serviceToContainerOptions should include service name as network alias", () => {
@@ -18,7 +18,7 @@ describe("Docker service network aliases", () => {
     };
 
     const projectName = "test-project";
-    const secrets: LightformSecrets = {
+    const secrets: IopSecrets = {
       POSTGRES_PASSWORD: "secret123",
     };
 
@@ -38,13 +38,13 @@ describe("Docker service network aliases", () => {
     expect(options.networkAliases?.length).toBe(1);
     expect(options.ports).toContain("5432:5432");
     expect(options.volumes).toContain(
-      "~/.lightform/projects/test-project/postgres_data:/var/lib/postgresql/data"
+      "~/.iop/projects/test-project/postgres_data:/var/lib/postgresql/data"
     );
     expect(options.labels).toMatchObject({
-      "lightform.managed": "true",
-      "lightform.project": "test-project",
-      "lightform.type": "service",
-      "lightform.service": "db",
+      "iop.managed": "true",
+      "iop.project": "test-project",
+      "iop.type": "service",
+      "iop.service": "db",
     });
   });
 
@@ -57,7 +57,7 @@ describe("Docker service network aliases", () => {
     };
 
     const projectName = "my-app";
-    const secrets: LightformSecrets = {};
+    const secrets: IopSecrets = {};
 
     // Act
     const options = DockerClient.serviceToContainerOptions(
@@ -81,7 +81,7 @@ describe("Docker service network aliases", () => {
     };
 
     const projectName = "web-project";
-    const secrets: LightformSecrets = {};
+    const secrets: IopSecrets = {};
 
     // Act
     const options = DockerClient.serviceToContainerOptions(
@@ -110,7 +110,7 @@ describe("Docker service network aliases", () => {
     };
 
     const projectName = "production-app";
-    const secrets: LightformSecrets = {
+    const secrets: IopSecrets = {
       DATABASE_URL: "postgres://user:pass@db:5432/myapp",
       API_SECRET: "super-secret-key",
     };

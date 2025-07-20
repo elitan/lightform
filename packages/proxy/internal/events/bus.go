@@ -3,7 +3,7 @@ package events
 import (
 	"sync"
 
-	"github.com/elitan/lightform/proxy/internal/core"
+	"github.com/elitan/iop/proxy/internal/core"
 )
 
 // SimpleBus is a simple in-memory event bus

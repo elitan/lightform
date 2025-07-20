@@ -75,7 +75,7 @@ project123-network`;
         return containerNetworkIds.includes(networkId);
       }
 
-      const containerName = "lightform-proxy";
+      const containerName = "iop-proxy";
       const networkName = "basic-network";
       const mockNetworkId = "7a5679d864e5";
       const mockContainerNetworks = "7a5679d864e5 84230c432d8b";
@@ -91,16 +91,16 @@ project123-network`;
     });
 
     test("should construct correct network connection command", () => {
-      const containerName = "lightform-proxy";
+      const containerName = "iop-proxy";
       const networkName = "basic-network";
       
       const connectCmd = `docker network connect ${networkName} ${containerName}`;
       
-      expect(connectCmd).toBe("docker network connect basic-network lightform-proxy");
+      expect(connectCmd).toBe("docker network connect basic-network iop-proxy");
     });
 
     test("should handle connection to multiple networks", () => {
-      const containerName = "lightform-proxy";
+      const containerName = "iop-proxy";
       const networks = ["basic-network", "test-project-network", "api-network"];
       
       const commands = networks.map(network => 
@@ -108,18 +108,18 @@ project123-network`;
       );
 
       expect(commands).toHaveLength(3);
-      expect(commands[0]).toBe("docker network connect basic-network lightform-proxy");
-      expect(commands[1]).toBe("docker network connect test-project-network lightform-proxy");
-      expect(commands[2]).toBe("docker network connect api-network lightform-proxy");
+      expect(commands[0]).toBe("docker network connect basic-network iop-proxy");
+      expect(commands[1]).toBe("docker network connect test-project-network iop-proxy");
+      expect(commands[2]).toBe("docker network connect api-network iop-proxy");
     });
   });
 
   describe("Network Inspection Commands", () => {
     test("should construct container network inspection command", () => {
-      const containerName = "lightform-proxy";
+      const containerName = "iop-proxy";
       const inspectCmd = `docker inspect ${containerName} --format "{{range .NetworkSettings.Networks}}{{.NetworkID}} {{end}}"`;
       
-      expect(inspectCmd).toContain("docker inspect lightform-proxy");
+      expect(inspectCmd).toContain("docker inspect iop-proxy");
       expect(inspectCmd).toContain("NetworkSettings.Networks");
       expect(inspectCmd).toContain("NetworkID");
     });
@@ -212,13 +212,13 @@ project123-network`;
   describe("Network Connection Validation", () => {
     test("should validate proxy can reach apps after reconnection", () => {
       // Mock health check after network reconnection
-      const proxyContainer = "lightform-proxy";
+      const proxyContainer = "iop-proxy";
       const appTarget = "basic-web:3000";
       const healthPath = "/up";
       
       const healthCheckCmd = `docker exec ${proxyContainer} curl -s http://${appTarget}${healthPath}`;
       
-      expect(healthCheckCmd).toBe("docker exec lightform-proxy curl -s http://basic-web:3000/up");
+      expect(healthCheckCmd).toBe("docker exec iop-proxy curl -s http://basic-web:3000/up");
     });
 
     test("should support multiple project patterns", () => {

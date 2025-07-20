@@ -14,16 +14,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/elitan/lightform/proxy/internal/api"
-	"github.com/elitan/lightform/proxy/internal/cert"
-	"github.com/elitan/lightform/proxy/internal/cli"
-	"github.com/elitan/lightform/proxy/internal/health"
-	"github.com/elitan/lightform/proxy/internal/router"
-	"github.com/elitan/lightform/proxy/internal/state"
+	"github.com/elitan/iop/proxy/internal/api"
+	"github.com/elitan/iop/proxy/internal/cert"
+	"github.com/elitan/iop/proxy/internal/cli"
+	"github.com/elitan/iop/proxy/internal/health"
+	"github.com/elitan/iop/proxy/internal/router"
+	"github.com/elitan/iop/proxy/internal/state"
 )
 
 const (
-	defaultStateFile = "/var/lib/lightform-proxy/state.json"
+	defaultStateFile = "/var/lib/iop-proxy/state.json"
 )
 
 func getStateFile() string {
@@ -40,7 +40,7 @@ func getStateFile() string {
 		return "./state.json"
 	}
 
-	localStateDir := filepath.Join(currentUser.HomeDir, ".lightform-proxy")
+	localStateDir := filepath.Join(currentUser.HomeDir, ".iop-proxy")
 	os.MkdirAll(localStateDir, 0755)
 	return filepath.Join(localStateDir, "state.json")
 }

@@ -1,6 +1,6 @@
-# 📦 Lightform Publishing & Release Guide
+# 📦 iop Publishing & Release Guide
 
-This guide explains how to publish and manage releases for the Lightform package on npmjs.org using Bun.
+This guide explains how to publish and manage releases for the iop package on npmjs.org using Bun.
 
 ## 🚀 Quick Reference
 
@@ -59,7 +59,7 @@ bun run version:check    # Check current version
 
 ## 🔢 Semantic Versioning (SemVer)
 
-Lightform follows semantic versioning: `MAJOR.MINOR.PATCH`
+iop follows semantic versioning: `MAJOR.MINOR.PATCH`
 
 ### **PATCH** (0.1.0 → 0.1.1)
 
@@ -116,7 +116,7 @@ Lightform follows semantic versioning: `MAJOR.MINOR.PATCH`
 
 5. **Verify publication:**
    ```bash
-   bun pm view lightform
+   bun pm view iop
    ```
 
 ### Workflow 2: Bug Fix Release
@@ -196,8 +196,8 @@ Lightform follows semantic versioning: `MAJOR.MINOR.PATCH`
 3. **Install and test:**
 
    ```bash
-   bun add -g lightform@beta
-   lightform --version  # Shows: 0.1.1-beta.0
+   bun add -g iop@beta
+   iop --version  # Shows: 0.1.1-beta.0
    ```
 
 4. **When ready, promote to stable:**
@@ -253,17 +253,17 @@ After publishing, verify everything worked:
 
 ```bash
 # Check if package exists and view info
-bun pm view lightform
+bun pm view iop
 
 # See all available versions
-bun pm view lightform --versions
+bun pm view iop --versions
 
 # Install globally and test
-bun add -g lightform@latest
-lightform --version
+bun add -g iop@latest
+iop --version
 
 # Check package page
-open https://www.npmjs.com/package/lightform
+open https://www.npmjs.com/package/iop
 ```
 
 ---
@@ -273,7 +273,7 @@ open https://www.npmjs.com/package/lightform
 ### "Error: 403 Forbidden"
 
 - Make sure you're logged in: `bun pm login` or `npm whoami`
-- Make sure you have permission to publish `lightform`
+- Make sure you have permission to publish `iop`
 
 ### "Error: Version already exists"
 
@@ -294,8 +294,8 @@ open https://www.npmjs.com/package/lightform
 
 ## 📚 Additional Resources
 
-- **NPM Package:** https://www.npmjs.com/package/lightform
-- **GitHub Repository:** https://github.com/elitan/lightform
+- **NPM Package:** https://www.npmjs.com/package/iop
+- **GitHub Repository:** https://github.com/elitan/iop
 - **Semantic Versioning:** https://semver.org/
 - **Bun Publishing Guide:** https://bun.sh/docs/cli/publish
 

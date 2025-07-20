@@ -1,12 +1,12 @@
 {
-  "name": "lightform-cli",
+  "name": "iop",
   "description": "Ship Docker Anywhere",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "elitan",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/elitan/lightform.git",
+    "url": "git+https://github.com/elitan/iop.git",
     "directory": "packages/cli"
   },
   "keywords": [
@@ -17,7 +17,7 @@
     "cli"
   ],
   "bin": {
-    "lightform": "dist/index.js"
+    "iop": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [

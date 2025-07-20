@@ -1,6 +1,6 @@
-# Lightform Proxy
+# iop Proxy
 
-A high-performance reverse proxy with automatic HTTPS certificate management, designed for the Lightform deployment system.
+A high-performance reverse proxy with automatic HTTPS certificate management, designed for the iop deployment system.
 
 ## Features
 
@@ -19,7 +19,7 @@ The proxy consists of several components:
 - **Certificate Manager**: Handles Let's Encrypt certificate lifecycle
 - **Router**: Routes HTTP/HTTPS traffic to backend containers
 - **Health Checker**: Monitors backend service health
-- **CLI Interface**: Accepts commands from the Lightform CLI
+- **CLI Interface**: Accepts commands from the iop CLI
 
 ## Building
 
@@ -30,7 +30,7 @@ The proxy consists of several components:
 go mod download
 
 # Build the binary
-go build -o lightform-proxy ./cmd/lightform-proxy
+go build -o iop-proxy ./cmd/iop-proxy
 
 # Run tests
 go test ./...
@@ -39,7 +39,7 @@ go test ./...
 ### Docker Build
 
 ```bash
-docker build -t lightform-proxy .
+docker build -t iop-proxy .
 ```
 
 ## Running
@@ -48,22 +48,22 @@ docker build -t lightform-proxy .
 
 ```bash
 docker run -d \
-  --name lightform-proxy \
-  --network lightform-global \
+  --name iop-proxy \
+  --network iop-global \
   -p 80:80 \
   -p 443:443 \
-  -v lightform-proxy-data:/var/lib/lightform-proxy \
-  lightform-proxy
+  -v iop-proxy-data:/var/lib/iop-proxy \
+  iop-proxy
 ```
 
 ### Local Development
 
 ```bash
 # Run the proxy server
-./lightform-proxy
+./iop-proxy
 
 # Or use go run
-go run ./cmd/lightform-proxy
+go run ./cmd/iop-proxy
 ```
 
 ## CLI Commands
@@ -72,29 +72,29 @@ The proxy accepts commands via `docker exec`:
 
 ```bash
 # Deploy a route
-docker exec lightform-proxy lightform-proxy deploy \
+docker exec iop-proxy iop-proxy deploy \
   --host api.example.com \
   --target my-project-web:3000 \
   --project my-project \
   --health-path /up
 
 # Remove a route
-docker exec lightform-proxy lightform-proxy remove --host api.example.com
+docker exec iop-proxy iop-proxy remove --host api.example.com
 
 # List all routes
-docker exec lightform-proxy lightform-proxy list
+docker exec iop-proxy iop-proxy list
 
 # Check certificate status
-docker exec lightform-proxy lightform-proxy cert-status --host api.example.com
+docker exec iop-proxy iop-proxy cert-status --host api.example.com
 
 # Force certificate renewal
-docker exec lightform-proxy lightform-proxy cert-renew --host api.example.com
+docker exec iop-proxy iop-proxy cert-renew --host api.example.com
 
 # Enable Let's Encrypt staging mode (for testing)
-docker exec lightform-proxy lightform-proxy set-staging --enabled true
+docker exec iop-proxy iop-proxy set-staging --enabled true
 
 # Switch traffic for blue-green deployment
-docker exec lightform-proxy lightform-proxy switch \
+docker exec iop-proxy iop-proxy switch \
   --host api.example.com \
   --target my-project-web-green:3000
 ```
@@ -103,7 +103,7 @@ docker exec lightform-proxy lightform-proxy switch \
 
 ### State File
 
-The proxy maintains its state in `/var/lib/lightform-proxy/state.json`:
+The proxy maintains its state in `/var/lib/iop-proxy/state.json`:
 
 ```json
 {
@@ -131,7 +131,7 @@ The proxy maintains its state in `/var/lib/lightform-proxy/state.json`:
 For development and testing, enable Let's Encrypt staging mode:
 
 ```bash
-docker exec lightform-proxy lightform-proxy set-staging --enabled true
+docker exec iop-proxy iop-proxy set-staging --enabled true
 ```
 
 This uses Let's Encrypt's staging environment which has much higher rate limits but issues untrusted certificates.
@@ -183,7 +183,7 @@ All logs are written to stdout with structured prefixes:
 View logs:
 
 ```bash
-docker logs -f lightform-proxy
+docker logs -f iop-proxy
 ```
 
 ## Troubleshooting
@@ -204,7 +204,7 @@ docker logs -f lightform-proxy
 
 3. Check proxy logs for ACME validation attempts:
    ```bash
-   docker logs lightform-proxy | grep ACME
+   docker logs iop-proxy | grep ACME
    ```
 
 ### Health Check Failures
@@ -212,7 +212,7 @@ docker logs -f lightform-proxy
 1. Test the health endpoint directly:
 
    ```bash
-   docker exec lightform-proxy curl http://my-project-web:3000/up
+   docker exec iop-proxy curl http://my-project-web:3000/up
    ```
 
 2. Verify the container is on the correct network:
@@ -230,7 +230,7 @@ docker logs -f lightform-proxy
 
 2. Check health status of both versions:
    ```bash
-   docker exec lightform-proxy lightform-proxy list
+   docker exec iop-proxy iop-proxy list
    ```
 
 ## Development
@@ -253,19 +253,19 @@ go test -cover ./...
 1. Build and run locally:
 
    ```bash
-   go build -o lightform-proxy ./cmd/lightform-proxy
-   sudo ./lightform-proxy  # Needs root for ports 80/443
+   go build -o iop-proxy ./cmd/iop-proxy
+   sudo ./iop-proxy  # Needs root for ports 80/443
    ```
 
 2. Enable staging mode:
 
    ```bash
-   ./lightform-proxy set-staging --enabled true
+   ./iop-proxy set-staging --enabled true
    ```
 
 3. Deploy a test route:
    ```bash
-   ./lightform-proxy deploy \
+   ./iop-proxy deploy \
      --host test.example.com \
      --target localhost:8080 \
      --project test
@@ -287,4 +287,4 @@ go test -cover ./...
 
 ## License
 
-Part of the Lightform deployment system.
+Part of the iop deployment system.

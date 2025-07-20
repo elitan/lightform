@@ -1,6 +1,6 @@
 import { SSHClient } from "../ssh";
 import { DockerClient } from "../docker";
-import { LightformProxyClient } from "../proxy";
+import { IopProxyClient } from "../proxy";
 
 export interface ProxyStatus {
   running: boolean;
@@ -56,7 +56,7 @@ async function getCertificateQueueStatus(
 ): Promise<CertificateQueueEntry[]> {
   try {
     const statusOutput = await sshClient.exec(
-      `docker exec lightform-proxy /usr/local/bin/lightform-proxy status 2>/dev/null || echo "PROXY_NOT_AVAILABLE"`
+      `docker exec iop-proxy /usr/local/bin/iop-proxy status 2>/dev/null || echo "PROXY_NOT_AVAILABLE"`
     );
 
     if (statusOutput.includes("PROXY_NOT_AVAILABLE") || !statusOutput.trim()) {
@@ -67,7 +67,7 @@ async function getCertificateQueueStatus(
     const entries: CertificateQueueEntry[] = [];
     const lines = statusOutput.split("\n");
 
-    // Look for the specific output format from lightform-proxy status
+    // Look for the specific output format from iop-proxy status
     let foundCertSection = false;
 
     for (const line of lines) {
@@ -133,14 +133,14 @@ export async function checkProxyStatus(
 ): Promise<ProxyStatus> {
   try {
     const dockerClient = new DockerClient(sshClient, serverHostname, verbose);
-    const proxyClient = new LightformProxyClient(
+    const proxyClient = new IopProxyClient(
       dockerClient,
       serverHostname,
       verbose
     );
-    const containerName = "lightform-proxy";
+    const containerName = "iop-proxy";
 
-    // Use the existing LightformProxyClient to check if proxy is running
+    // Use the existing IopProxyClient to check if proxy is running
     const isRunning = await proxyClient.isProxyRunning();
 
     // Get port mappings
@@ -180,7 +180,7 @@ export async function checkProxyStatus(
             }
 
             // Look for configuration issues
-            if (line.includes("not configured in Lightform proxy")) {
+            if (line.includes("not configured in iop proxy")) {
               const domainMatch = line.match(/domain "([^"]+)" not configured/);
               if (domainMatch) {
                 configurationIssues.push(`${domainMatch[1]} not configured`);
@@ -220,7 +220,7 @@ export async function checkProxyStatus(
   } catch (error) {
     return {
       running: false,
-      containerName: "lightform-proxy",
+      containerName: "iop-proxy",
       serverId: serverHostname,
       ports: [],
       error: `Failed to check proxy status: ${error}`,

@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/elitan/lightform/proxy/internal/state"
+	"github.com/elitan/iop/proxy/internal/state"
 	"golang.org/x/crypto/acme"
 )
 
@@ -331,13 +331,13 @@ func (m *Manager) AcquireCertificate(hostname string) error {
 
 	// Save certificate
 	log.Printf("[CERT] [%s] Saving certificate to disk", hostname)
-	certPath := filepath.Join("/var/lib/lightform-proxy/certs", hostname, "cert.pem")
-	keyPath := filepath.Join("/var/lib/lightform-proxy/certs", hostname, "key.pem")
+	certPath := filepath.Join("/var/lib/iop-proxy/certs", hostname, "cert.pem")
+	keyPath := filepath.Join("/var/lib/iop-proxy/certs", hostname, "key.pem")
 
 	// For local testing, use home directory if we can't write to /var/lib
 	if os.Getuid() != 0 {
 		if homeDir, err := os.UserHomeDir(); err == nil {
-			localCertDir := filepath.Join(homeDir, ".lightform-proxy", "certs", hostname)
+			localCertDir := filepath.Join(homeDir, ".iop-proxy", "certs", hostname)
 			certPath = filepath.Join(localCertDir, "cert.pem")
 			keyPath = filepath.Join(localCertDir, "key.pem")
 		}
@@ -423,7 +423,7 @@ func (m *Manager) loadOrCreateAccountKey() (crypto.Signer, error) {
 		if os.Getuid() != 0 { // Not running as root
 			homeDir, err := os.UserHomeDir()
 			if err == nil {
-				localDir := filepath.Join(homeDir, ".lightform-proxy", "certs")
+				localDir := filepath.Join(homeDir, ".iop-proxy", "certs")
 				keyPath = filepath.Join(localDir, "account.key")
 				// Update the state to use the local path
 				m.state.LetsEncrypt.AccountKeyFile = keyPath
@@ -540,7 +540,7 @@ func (m *Manager) loadCertificate(hostname, certPath, keyPath string) (*tls.Cert
 
 // saveCertificate saves a certificate to disk
 func (m *Manager) saveCertificate(hostname string, derCerts [][]byte, key crypto.PrivateKey) error {
-	certDir := filepath.Join("/var/lib/lightform-proxy/certs", hostname)
+	certDir := filepath.Join("/var/lib/iop-proxy/certs", hostname)
 	if err := os.MkdirAll(certDir, 0755); err != nil {
 		return fmt.Errorf("failed to create certificate directory: %w", err)
 	}

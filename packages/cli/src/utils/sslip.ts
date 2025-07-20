@@ -17,7 +17,7 @@ function sanitizeHostForDns(host: string): string {
 }
 
 /**
- * Generates a deterministic hash for app.lightform.dev domain
+ * Generates a deterministic hash for app.iop.run domain
  */
 function generateDeterministicHash(projectName: string, appName: string, serverHost: string): string {
   const input = `${projectName}:${appName}:${serverHost}`;
@@ -25,7 +25,7 @@ function generateDeterministicHash(projectName: string, appName: string, serverH
 }
 
 /**
- * Generates a deterministic app.lightform.dev domain for an app
+ * Generates a deterministic app.iop.run domain for an app
  */
 export function generateAppSslipDomain(
   projectName: string,
@@ -35,13 +35,13 @@ export function generateAppSslipDomain(
   const hash = generateDeterministicHash(projectName, appName, serverHost);
   const sanitizedHost = sanitizeHostForDns(serverHost);
   
-  return `${hash}-${appName}-lightform-${sanitizedHost}.app.lightform.dev`;
+  return `${hash}-${appName}-iop-${sanitizedHost}.app.iop.run`;
 }
 
 /**
- * Checks if app.lightform.dev should be used for domain generation
+ * Checks if app.iop.run should be used for domain generation
  */
 export function shouldUseSslip(hosts?: string[]): boolean {
-  // Use app.lightform.dev if no custom hosts are specified
+  // Use app.iop.run if no custom hosts are specified
   return !hosts || hosts.length === 0;
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { parsePortMappings } from "../src/utils/port-checker";
 import { validateConfig } from "../src/utils/config-validator";
-import { LightformConfig } from "../src/config/types";
+import { IopConfig } from "../src/config/types";
 
 describe("Port Conflict Detection", () => {
   describe("parsePortMappings", () => {
@@ -47,7 +47,7 @@ describe("Port Conflict Detection", () => {
 
   describe("Configuration Validation", () => {
     it("should detect port conflicts within the same project", () => {
-      const config: LightformConfig = {
+      const config: IopConfig = {
         name: "test-project",
         services: {
           postgres1: {
@@ -73,7 +73,7 @@ describe("Port Conflict Detection", () => {
     });
 
     it("should allow same ports on different servers", () => {
-      const config: LightformConfig = {
+      const config: IopConfig = {
         name: "test-project",
         services: {
           postgres1: {
@@ -95,7 +95,7 @@ describe("Port Conflict Detection", () => {
     });
 
     it("should detect invalid port specifications", () => {
-      const config: LightformConfig = {
+      const config: IopConfig = {
         name: "test-project",
         services: {
           postgres: {
@@ -114,7 +114,7 @@ describe("Port Conflict Detection", () => {
     });
 
     it("should handle mixed apps and services", () => {
-      const config: LightformConfig = {
+      const config: IopConfig = {
         name: "test-project",
         apps: {
           web: {
@@ -142,7 +142,7 @@ describe("Port Conflict Detection", () => {
     });
 
     it("should handle complex port conflicts", () => {
-      const config: LightformConfig = {
+      const config: IopConfig = {
         name: "test-project",
         services: {
           service1: {
@@ -185,7 +185,7 @@ describe("Port Conflict Examples", () => {
     // This represents the original user question:
     // Two projects with PostgreSQL both using port 5432
 
-    const project1Config: LightformConfig = {
+    const project1Config: IopConfig = {
       name: "gmail-clone",
       services: {
         postgres: {
@@ -196,7 +196,7 @@ describe("Port Conflict Examples", () => {
       },
     };
 
-    const project2Config: LightformConfig = {
+    const project2Config: IopConfig = {
       name: "blog-app",
       services: {
         postgres: {
@@ -212,7 +212,7 @@ describe("Port Conflict Examples", () => {
     expect(validateConfig(project2Config)).toHaveLength(0);
 
     // But if they were in the same config, there would be a conflict
-    const combinedConfig: LightformConfig = {
+    const combinedConfig: IopConfig = {
       name: "combined-project",
       services: {
         "gmail-postgres": {
@@ -235,7 +235,7 @@ describe("Port Conflict Examples", () => {
   });
 
   it("should show recommended solutions", () => {
-    const config: LightformConfig = {
+    const config: IopConfig = {
       name: "test-project",
       services: {
         postgres1: {

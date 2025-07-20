@@ -1,11 +1,11 @@
 import { loadConfig } from "../config"; // Assuming loadConfig is exported from src/config/index.ts
 import { loadSecrets } from "../config"; // Assuming loadSecrets is exported from src/config/index.ts
 import {
-  LightformConfig,
+  IopConfig,
   AppEntry,
   ServiceEntry,
   HealthCheckConfig,
-  LightformSecrets,
+  IopSecrets,
 } from "../config/types";
 import {
   appNeedsBuilding,
@@ -30,8 +30,8 @@ import {
   sanitizeFolderName,
 } from "../utils";
 import { shouldUseSslip, generateAppSslipDomain } from "../utils/sslip";
-import { setupLightformProxy } from "../setup-proxy/index";
-import { LightformProxyClient } from "../proxy";
+import { setupIopProxy } from "../setup-proxy/index";
+import { IopProxyClient } from "../proxy";
 import { performBlueGreenDeployment } from "./blue-green";
 import { Logger } from "../utils/logger";
 import * as path from "path";
@@ -67,7 +67,7 @@ function createServiceConfigHash(serviceEntry: ServiceEntry): string {
  */
 function resolveEnvironmentVariables(
   entry: AppEntry | ServiceEntry,
-  secrets: LightformSecrets
+  secrets: IopSecrets
 ): Record<string, string> {
   const envVars: Record<string, string> = {};
 
@@ -94,45 +94,12 @@ function resolveEnvironmentVariables(
   return envVars;
 }
 
-
-/**
- * Creates Docker container options for an app entry
- */
-function appEntryToContainerOptions(
-  appEntry: AppEntry,
-  releaseId: string,
-  secrets: LightformSecrets,
-  projectName: string
-): DockerContainerOptions {
-  const imageNameWithRelease = buildImageName(appEntry, releaseId);
-  const containerName = `${projectName}-${appEntry.name}-${releaseId}`;
-  const envVars = resolveEnvironmentVariables(appEntry, secrets);
-  const networkName = getProjectNetworkName(projectName);
-
-  // Dual alias approach: generic name for internal communication + project-specific for proxy routing
-  const projectSpecificAlias = `${projectName}-${appEntry.name}`;
-
-  return {
-    name: containerName,
-    image: imageNameWithRelease,
-    ports: appEntry.ports,
-    volumes: processVolumes(appEntry.volumes, projectName),
-    envVars: envVars,
-    network: networkName,
-    networkAliases: [
-      appEntry.name, // internal project docker network alias for internal project communication (e.g. "web")
-      projectSpecificAlias, // globally unique docker network alias used by the lightform proxy to healthcheck and route traffic to the app (e.g. "gmail-web")
-    ],
-    restart: "unless-stopped",
-  };
-}
-
 /**
  * Creates Docker container options for a service entry
  */
 function serviceEntryToContainerOptions(
   serviceEntry: ServiceEntry,
-  secrets: LightformSecrets,
+  secrets: IopSecrets,
   projectName: string
 ): DockerContainerOptions {
   const containerName = `${projectName}-${serviceEntry.name}`; // Project-prefixed names
@@ -151,11 +118,11 @@ function serviceEntryToContainerOptions(
     restart: "unless-stopped",
     configHash, // Add for comparison
     labels: {
-      "lightform.managed": "true",
-      "lightform.project": projectName,
-      "lightform.type": "service",
-      "lightform.service": serviceEntry.name,
-      "lightform.config-hash": configHash, // Docker Compose style config tracking
+      "iop.managed": "true",
+      "iop.project": projectName,
+      "iop.type": "service",
+      "iop.service": serviceEntry.name,
+      "iop.config-hash": configHash, // Docker Compose style config tracking
     },
   };
 }
@@ -181,8 +148,8 @@ function normalizeConfigEntries(
 }
 
 interface DeploymentContext {
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
   targetApps: AppEntry[];
   targetServices: ServiceEntry[];
   releaseId: string;
@@ -207,20 +174,18 @@ function parseDeploymentArgs(rawEntryNamesAndFlags: string[]): ParsedArgs {
   const verboseFlag = rawEntryNamesAndFlags.includes("--verbose");
 
   const entryNames = rawEntryNamesAndFlags.filter(
-    (name) =>
-      name !== "--services" && name !== "--verbose"
+    (name) => name !== "--services" && name !== "--verbose"
   );
 
   return { entryNames, deployServicesFlag, verboseFlag };
 }
 
-
 /**
- * Loads and validates Lightform configuration and secrets files
+ * Loads and validates IOP configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
 }> {
   try {
     const config = await loadConfig();
@@ -239,10 +204,8 @@ async function loadConfigurationAndSecrets(): Promise<{
 
       logger.error("");
       logger.error("To fix configuration errors:");
-      logger.error("   # Edit lightform.yml to fix the issues above");
-      logger.error(
-        "   lightform deploy                  # Try deploying again"
-      );
+      logger.error("   # Edit iop.yml to fix the issues above");
+      logger.error("   iop deploy                  # Try deploying again");
 
       throw new Error("Configuration validation failed");
     }
@@ -254,11 +217,11 @@ async function loadConfigurationAndSecrets(): Promise<{
       logger.error("");
       logger.error("To fix this:");
       logger.error(
-        "   lightform init                    # Create configuration files"
+        "   iop init                    # Create configuration files"
       );
-      logger.error("   # Edit lightform.yml with your app settings");
-      logger.error("   lightform setup                   # Setup your servers");
-      logger.error("   lightform deploy                  # Deploy your apps");
+      logger.error("   # Edit iop.yml with your app settings");
+      logger.error("   iop setup                   # Setup your servers");
+      logger.error("   iop deploy                  # Deploy your apps");
     } else if (
       error instanceof Error &&
       error.message.includes("Invalid configuration")
@@ -278,7 +241,7 @@ async function loadConfigurationAndSecrets(): Promise<{
 function identifyTargetEntries(
   entryNames: string[],
   deployServicesFlag: boolean,
-  config: LightformConfig
+  config: IopConfig
 ): { apps: AppEntry[]; services: ServiceEntry[] } {
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
@@ -347,13 +310,13 @@ function identifyTargetEntries(
 }
 
 /**
- * Verifies that required networks and lightform-proxy containers exist on target servers
+ * Verifies that required networks and iop-proxy containers exist on target servers
  * and checks for port conflicts
  */
 async function verifyInfrastructure(
   targetEntries: (AppEntry | ServiceEntry)[],
-  config: LightformConfig,
-  secrets: LightformSecrets,
+  config: IopConfig,
+  secrets: IopSecrets,
   networkName: string,
   verbose: boolean = false
 ): Promise<void> {
@@ -395,7 +358,7 @@ async function verifyInfrastructure(
         missingNetworkServers.push(serverHostname);
       }
 
-      const proxyClient = new LightformProxyClient(
+      const proxyClient = new IopProxyClient(
         dockerClientRemote,
         serverHostname
       );
@@ -450,16 +413,16 @@ async function verifyInfrastructure(
     }
     if (missingProxyServers.length > 0) {
       logger.error(
-        `Missing lightform-proxy on servers: ${missingProxyServers.join(", ")}`
+        `Missing iop-proxy on servers: ${missingProxyServers.join(", ")}`
       );
     }
 
     if (!hasPortConflicts) {
       logger.error("");
       logger.error("To fix infrastructure issues:");
-      logger.error("   lightform setup                    # Setup all servers");
+      logger.error("   iop setup                    # Setup all servers");
       logger.error(
-        "   lightform setup --verbose          # Setup with detailed output"
+        "   iop setup --verbose          # Setup with detailed output"
       );
       logger.error("");
       logger.error("To setup specific servers:");
@@ -467,7 +430,7 @@ async function verifyInfrastructure(
         .concat(missingProxyServers)
         .filter((v, i, a) => a.indexOf(v) === i);
       if (uniqueServers.length > 0) {
-        logger.error(`   lightform setup ${uniqueServers.join(" ")}`);
+        logger.error(`   iop setup ${uniqueServers.join(" ")}`);
       }
     }
 
@@ -913,7 +876,7 @@ async function saveAppImage(
   logger.verboseLog(`Saving image ${imageNameWithRelease} to archive...`);
   try {
     // Create a temporary directory for the archive
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "lightform-"));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "iop-"));
     const compressedArchivePath = path.join(
       tempDir,
       `${appEntry.name}-${Date.now()}.tar.gz`
@@ -1217,8 +1180,8 @@ async function deployServiceDirectly(
  */
 async function establishSSHConnection(
   serverHostname: string,
-  config: LightformConfig,
-  secrets: LightformSecrets,
+  config: IopConfig,
+  secrets: IopSecrets,
   verbose: boolean = false
 ): Promise<SSHClient> {
   const sshCreds = await getSSHCredentials(
@@ -1310,22 +1273,22 @@ async function performRegistryLogin(
 }
 
 /**
- * Configures lightform-proxy routing for an app's hosts
+ * Configures iop-proxy routing for an app's hosts
  */
 async function configureProxyForApp(
   appEntry: AppEntry,
   dockerClient: DockerClient,
   serverHostname: string,
   projectName: string,
-  config: LightformConfig,
+  config: IopConfig,
   verbose: boolean = false
 ): Promise<void> {
   // Skip proxy configuration if no proxy config at all
   if (!appEntry.proxy) return;
 
-  logger.verboseLog(`Configuring lightform-proxy for ${appEntry.name}`);
+  logger.verboseLog(`Configuring iop-proxy for ${appEntry.name}`);
 
-  const proxyClient = new LightformProxyClient(
+  const proxyClient = new IopProxyClient(
     dockerClient,
     serverHostname,
     verbose
@@ -1334,14 +1297,14 @@ async function configureProxyForApp(
   // Determine hosts to configure
   let hosts: string[];
   if (shouldUseSslip(appEntry.proxy.hosts)) {
-    // Generate app.lightform.dev domain if no hosts configured
+    // Generate app.iop.run domain if no hosts configured
     const sslipDomain = generateAppSslipDomain(
       projectName,
       appEntry.name,
       serverHostname
     );
     hosts = [sslipDomain];
-    logger.verboseLog(`Generated app.lightform.dev domain: ${sslipDomain}`);
+    logger.verboseLog(`Generated app.iop.run domain: ${sslipDomain}`);
   } else {
     hosts = appEntry.proxy.hosts!;
   }
@@ -1415,8 +1378,7 @@ export function checkServiceConfigChanges(
   containerName: string
 ): { hasChanges: boolean; reason?: string } {
   // Docker Compose approach: Compare config hashes (primary method)
-  const currentConfigHash =
-    currentConfig.Config?.Labels?.["lightform.config-hash"];
+  const currentConfigHash = currentConfig.Config?.Labels?.["iop.config-hash"];
   const desiredConfigHash = desiredConfig.configHash;
 
   if (currentConfigHash && desiredConfigHash) {
@@ -1732,7 +1694,7 @@ async function removeOrphanedApps(
 
       // Find all containers for this app (both blue and green)
       const appContainers = await dockerClient.findContainersByLabelAndProject(
-        `lightform.app=${appName}`,
+        `iop.app=${appName}`,
         projectName
       );
 
@@ -1786,7 +1748,7 @@ async function transferAndLoadImage(
     const isCompressed =
       archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz");
     const fileExt = isCompressed ? ".tar.gz" : ".tar";
-    const remoteArchivePath = `/tmp/lightform-${appEntry.name}-${context.releaseId}${fileExt}`;
+    const remoteArchivePath = `/tmp/iop-${appEntry.name}-${context.releaseId}${fileExt}`;
 
     logger.verboseLog(
       `Transferring ${
@@ -1879,12 +1841,12 @@ async function transferAndLoadImage(
 }
 
 /**
- * Bootstrap a fresh server by connecting as root and setting up the lightform user
+ * Bootstrap a fresh server by connecting as root and setting up the iop user
  */
 async function bootstrapFreshServer(
   serverHostname: string,
-  config: LightformConfig,
-  secrets: LightformSecrets,
+  config: IopConfig,
+  secrets: IopSecrets,
   verbose: boolean = false
 ): Promise<void> {
   logger.verboseLog(`Attempting to bootstrap fresh server: ${serverHostname}`);
@@ -1919,8 +1881,8 @@ async function bootstrapFreshServer(
       throw new Error("Failed to install Docker");
     }
 
-    // Create lightform user
-    const username = config.ssh?.username || "lightform";
+    // Create iop user
+    const username = config.ssh?.username || "iop";
     logger.verboseLog(`Creating user: ${username}`);
 
     try {
@@ -1974,11 +1936,11 @@ async function bootstrapFreshServer(
 
 /**
  * Performs intelligent setup checks and auto-setup if needed
- * This replaces the need for a separate 'lightform setup' command
+ * This replaces the need for a separate 'iop setup' command
  */
 async function ensureInfrastructureReady(
-  config: LightformConfig,
-  secrets: LightformSecrets,
+  config: IopConfig,
+  secrets: IopSecrets,
   servers: string[],
   verbose: boolean = false
 ): Promise<void> {
@@ -2042,7 +2004,7 @@ async function ensureInfrastructureReady(
       const [networkExists, proxyRunning, directoriesExist] = await Promise.all(
         [
           dockerClient.networkExists(getProjectNetworkName(config.name!)),
-          dockerClient.containerExists("lightform-proxy"),
+          dockerClient.containerExists("iop-proxy"),
           checkProjectDirectoriesExist(sshClient, config.name!),
         ]
       );
@@ -2063,7 +2025,7 @@ async function ensureInfrastructureReady(
       }
 
       if (!proxyRunning) {
-        tasks.push(() => setupLightformProxy(server, sshClient, false));
+        tasks.push(() => setupIopProxy(server, sshClient, false));
       }
 
       // Always ensure proxy is connected to project network (needed for health checks)
@@ -2071,15 +2033,13 @@ async function ensureInfrastructureReady(
       tasks.push(async () => {
         const isProxyConnected =
           await dockerClient.isContainerConnectedToNetwork(
-            "lightform-proxy",
+            "iop-proxy",
             projectNetworkName
           );
         if (!isProxyConnected) {
-          logger.verboseLog(
-            `Connecting lightform-proxy to ${projectNetworkName}`
-          );
+          logger.verboseLog(`Connecting iop-proxy to ${projectNetworkName}`);
           await dockerClient.connectContainerToNetwork(
-            "lightform-proxy",
+            "iop-proxy",
             projectNetworkName
           );
         }
@@ -2111,7 +2071,7 @@ async function checkProjectDirectoriesExist(
 ): Promise<boolean> {
   try {
     const sanitizedName = sanitizeFolderName(projectName);
-    await sshClient.exec(`test -d ~/.lightform/projects/${sanitizedName}`);
+    await sshClient.exec(`test -d ~/.iop/projects/${sanitizedName}`);
     return true;
   } catch {
     return false;
@@ -2123,8 +2083,9 @@ async function checkProjectDirectoriesExist(
  */
 export async function deployCommand(rawEntryNamesAndFlags: string[]) {
   try {
-    const { entryNames, deployServicesFlag, verboseFlag } =
-      parseDeploymentArgs(rawEntryNamesAndFlags);
+    const { entryNames, deployServicesFlag, verboseFlag } = parseDeploymentArgs(
+      rawEntryNamesAndFlags
+    );
 
     // Set logger verbose mode
     logger = new Logger({ verbose: verboseFlag });
@@ -2182,7 +2143,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       for (const entry of targetApps) {
         const appEntry = entry;
         if (appEntry.proxy) {
-          // Use configured hosts or generate app.lightform.dev domain
+          // Use configured hosts or generate app.iop.run domain
           let hosts: string[];
           if (shouldUseSslip(appEntry.proxy.hosts)) {
             const sslipDomain = generateAppSslipDomain(

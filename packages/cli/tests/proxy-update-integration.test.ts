@@ -10,8 +10,8 @@ describe("Proxy Update Integration Tests", () => {
   
   const TEST_CONFIG = {
     testServer: "157.180.47.213",
-    sshUser: "lightform",
-    proxyContainer: "lightform-proxy",
+    sshUser: "iop",
+    proxyContainer: "iop-proxy",
     testDomain: "test.eliasson.me",
     projectName: "basic",
     appTarget: "basic-web:3000"
@@ -28,7 +28,7 @@ describe("Proxy Update Integration Tests", () => {
 
     test.skip("should capture state before update", async () => {
       const { stdout } = await execAsync(
-        `ssh ${TEST_CONFIG.sshUser}@${TEST_CONFIG.testServer} "docker exec ${TEST_CONFIG.proxyContainer} cat /var/lib/lightform-proxy/state.json"`
+        `ssh ${TEST_CONFIG.sshUser}@${TEST_CONFIG.testServer} "docker exec ${TEST_CONFIG.proxyContainer} cat /var/lib/iop-proxy/state.json"`
       );
       
       const state = JSON.parse(stdout);
@@ -61,7 +61,7 @@ describe("Proxy Update Integration Tests", () => {
     });
 
     test("should validate update command structure", () => {
-      const updateCommand = "lightform proxy update --verbose";
+      const updateCommand = "iop proxy update --verbose";
       const expectedSteps = [
         "Checking if proxy needs update",
         "Backing up proxy state before update",
@@ -82,7 +82,7 @@ describe("Proxy Update Integration Tests", () => {
   describe("Post-Update State Validation", () => {
     test.skip("should preserve state after update", async () => {
       const { stdout } = await execAsync(
-        `ssh ${TEST_CONFIG.sshUser}@${TEST_CONFIG.testServer} "docker exec ${TEST_CONFIG.proxyContainer} cat /var/lib/lightform-proxy/state.json"`
+        `ssh ${TEST_CONFIG.sshUser}@${TEST_CONFIG.testServer} "docker exec ${TEST_CONFIG.proxyContainer} cat /var/lib/iop-proxy/state.json"`
       );
       
       const state = JSON.parse(stdout);
@@ -97,7 +97,7 @@ describe("Proxy Update Integration Tests", () => {
 
     test.skip("should preserve domain configuration", async () => {
       const { stdout } = await execAsync(
-        `ssh ${TEST_CONFIG.sshUser}@${TEST_CONFIG.testServer} "docker exec ${TEST_CONFIG.proxyContainer} /usr/local/bin/lightform-proxy list"`
+        `ssh ${TEST_CONFIG.sshUser}@${TEST_CONFIG.testServer} "docker exec ${TEST_CONFIG.proxyContainer} /usr/local/bin/iop-proxy list"`
       );
       
       expect(stdout).toContain("Configured hosts:");
@@ -199,19 +199,19 @@ describe("Proxy Update Integration Tests", () => {
 
   describe("Backup and Restore", () => {
     test("should validate backup file creation", () => {
-      const backupPath = "~/.lightform/lightform-proxy-state/state.json";
-      const backupCommand = `docker cp lightform-proxy:/var/lib/lightform-proxy/state.json ${backupPath}`;
+      const backupPath = "~/.iop/iop-proxy-state/state.json";
+      const backupCommand = `docker cp iop-proxy:/var/lib/iop-proxy/state.json ${backupPath}`;
       
       expect(backupCommand).toContain("docker cp");
       expect(backupCommand).toContain(backupPath);
     });
 
     test("should validate state directory mounting", () => {
-      const stateMount = "./.lightform/lightform-proxy-state:/var/lib/lightform-proxy";
+      const stateMount = "./.iop/iop-proxy-state:/var/lib/iop-proxy";
       
       // Mount should preserve the entire state directory
-      expect(stateMount).toContain("/var/lib/lightform-proxy");
-      expect(stateMount).toContain("lightform-proxy-state");
+      expect(stateMount).toContain("/var/lib/iop-proxy");
+      expect(stateMount).toContain("iop-proxy-state");
     });
   });
 });

@@ -1,6 +1,6 @@
-# Lightform Project - AI Developer Guide
+# iop Project - AI Developer Guide
 
-Lightform is a zero-downtime Docker deployment tool that lets you deploy any Docker app to your own servers with automatic HTTPS and no configuration complexity.
+iop is a zero-downtime Docker deployment tool that lets you deploy any Docker app to your own servers with automatic HTTPS and no configuration complexity.
 
 **🔧 Package Manager**: This project uses `bun` and not `npm` or other package managers.
 
@@ -11,6 +11,7 @@ Lightform is a zero-downtime Docker deployment tool that lets you deploy any Doc
 **Core Value Proposition**: Own your infrastructure without the complexity. Deploy Docker apps to your servers with zero configuration.
 
 **Key Features**:
+
 - Zero-downtime blue-green deployments
 - Registry-free deployment (build locally, transfer via SSH)
 - Automatic fresh server setup with security hardening
@@ -18,11 +19,12 @@ Lightform is a zero-downtime Docker deployment tool that lets you deploy any Doc
 - Multi-server support with load balancing
 - Git-based releases for easy rollbacks
 
-**Philosophy**: No rollback commands needed - just checkout the git commit you want and run `lightform deploy` again.
+**Philosophy**: No rollback commands needed - just checkout the git commit you want and run `iop deploy` again.
 
 ## Architecture
 
 ### Monorepo Structure
+
 ```
 packages/
 ├── cli/          # TypeScript CLI (main user interface)
@@ -40,7 +42,8 @@ docs/             # Fumadocs documentation site
 **Entry Point**: `src/index.ts` - Main CLI router handling command dispatch
 
 **Core Commands** (`src/commands/`):
-- **`init.ts`**: Creates `lightform.yml` config and `.lightform/secrets`
+
+- **`init.ts`**: Creates `iop.yml` config and `.iop/secrets`
 - **`setup.ts`**: Bootstraps fresh servers, installs Docker, configures security
 - **`deploy.ts`**: Zero-downtime deployment with blue-green strategy
 - **`status.ts`**: Comprehensive status reporting across all servers
@@ -48,6 +51,7 @@ docs/             # Fumadocs documentation site
 - **`blue-green.ts`**: Core zero-downtime deployment logic (used by deploy)
 
 **Supporting Modules**:
+
 - **`config/`**: Configuration parsing and validation with Zod schemas
 - **`docker/`**: Docker image building, compression, and transfer
 - **`ssh/`**: SSH connection management and command execution
@@ -57,9 +61,10 @@ docs/             # Fumadocs documentation site
 
 ### Proxy (Go) - `./packages/proxy/`
 
-**Entry Point**: `cmd/lightform-proxy/main.go` - Proxy server with CLI capabilities
+**Entry Point**: `cmd/iop-proxy/main.go` - Proxy server with CLI capabilities
 
 **Core Packages** (`internal/`):
+
 - **`api/`**: HTTP API server for CLI communication (localhost:8080)
 - **`cert/`**: Let's Encrypt certificate management and renewal
 - **`proxy/`**: HTTP/HTTPS reverse proxy with TLS termination
@@ -70,7 +75,8 @@ docs/             # Fumadocs documentation site
 - **`events/`**: Event bus for internal communication
 
 **Key Concepts**:
-- **State Persistence**: All proxy state stored in `/var/lib/lightform-proxy/state.json`
+
+- **State Persistence**: All proxy state stored in `/var/lib/iop-proxy/state.json`
 - **Dual Mode**: Runs as proxy server OR CLI commands via HTTP API
 - **Background Workers**: Certificate acquisition, renewal, state persistence
 - **Zero-Downtime**: Network alias switching for seamless traffic routing
@@ -97,10 +103,11 @@ bun run test:cli    # CLI tests only
 
 ### Configuration Files
 
-**`lightform.yml`** (Main config):
+**`iop.yml`** (Main config):
+
 ```yaml
 name: my-app
-apps:                    # User-facing applications
+apps: # User-facing applications
   web:
     image: my-app/web
     servers: [server.com]
@@ -109,7 +116,7 @@ apps:                    # User-facing applications
     environment:
       secret: [DATABASE_URL]
 
-services:               # Infrastructure services (databases, etc.)
+services: # Infrastructure services (databases, etc.)
   postgres:
     image: postgres:15
     servers: [db.com]
@@ -117,7 +124,8 @@ services:               # Infrastructure services (databases, etc.)
       secret: [POSTGRES_PASSWORD]
 ```
 
-**`.lightform/secrets`** (Environment variables):
+**`.iop/secrets`** (Environment variables):
+
 ```bash
 DATABASE_URL=postgres://user:pass@localhost:5432/myapp
 POSTGRES_PASSWORD=supersecret
@@ -135,11 +143,13 @@ POSTGRES_PASSWORD=supersecret
 ### Testing Strategy
 
 **Local Testing**:
+
 - Use examples in `examples/` directory
 - Test server: `157.180.47.213` (see DEBUG.md)
 - Always enable staging mode for SSL testing
 
 **Testing Workflow** (see DEBUG.md for full details):
+
 1. Test deploy the basic example
 2. Check logs on server
 3. Understand the problem
@@ -150,12 +160,14 @@ POSTGRES_PASSWORD=supersecret
 ### Code Organization Philosophy
 
 **CLI (`packages/cli/`)**:
+
 - Each command is self-contained in `commands/`
 - Shared utilities in `utils/` and supporting modules
 - Heavy use of TypeScript for type safety
 - Zod schemas for configuration validation
 
 **Proxy (`packages/proxy/`)**:
+
 - Clean separation of concerns with `internal/` packages
 - Interfaces defined in `core/interfaces.go`
 - Comprehensive test coverage in `test/` directory
@@ -175,7 +187,7 @@ POSTGRES_PASSWORD=supersecret
 1. Update relevant package in `packages/proxy/internal/`
 2. Test locally with examples
 3. Publish updated proxy: `cd packages/proxy && ./publish.sh`
-4. Update via CLI: `lightform setup --verbose` (auto-pulls latest)
+4. Update via CLI: `iop setup --verbose` (auto-pulls latest)
 
 ### Adding Configuration Options
 
@@ -186,18 +198,21 @@ POSTGRES_PASSWORD=supersecret
 ## Important Files to Understand
 
 **CLI Core Logic**:
+
 - `packages/cli/src/commands/deploy.ts` - Main deployment orchestration
 - `packages/cli/src/commands/blue-green.ts` - Zero-downtime deployment logic
 - `packages/cli/src/commands/setup.ts` - Server bootstrapping and infrastructure setup
 - `packages/cli/src/config/types.ts` - Configuration schemas and validation
 
 **Proxy Core Logic**:
-- `packages/proxy/cmd/lightform-proxy/main.go` - Main entry point and workers
+
+- `packages/proxy/cmd/iop-proxy/main.go` - Main entry point and workers
 - `packages/proxy/internal/deployment/controller.go` - Deployment management
 - `packages/proxy/internal/proxy/proxy.go` - HTTP/HTTPS reverse proxy
 - `packages/proxy/internal/cert/manager.go` - SSL certificate management
 
 **Examples and Testing**:
+
 - `examples/basic/` - Simple Go app for testing
 - `examples/nextjs/` - Next.js app example
 - `DEBUG.md` - Comprehensive debugging and testing guide
@@ -217,29 +232,32 @@ POSTGRES_PASSWORD=supersecret
 **Primary Resource**: See [DEBUG.md](./DEBUG.md) for comprehensive debugging workflows, commands, and troubleshooting patterns.
 
 **Quick Debug Commands**:
+
 ```bash
 # Check proxy status
-ssh lightform@157.180.47.213 "docker logs --tail 50 lightform-proxy"
+ssh iop@157.180.47.213 "docker logs --tail 50 iop-proxy"
 
 # Check deployment status
-ssh lightform@157.180.47.213 "docker exec lightform-proxy /usr/local/bin/lightform-proxy list"
+ssh iop@157.180.47.213 "docker exec iop-proxy /usr/local/bin/iop-proxy list"
 
 # Test connectivity
 curl -k -I https://test.eliasson.me
 ```
 
 **Local Development Setup**:
+
 ```bash
 # Build the CLI and set up for local development
 bun run build            # Build everything from repo root
 cd packages/cli
-bun link                 # Make lightform command available globally
-# Now you can use `lightform` anywhere (e.g. in examples/)
+bun link                 # Make iop command available globally
+# Now you can use `iop` anywhere (e.g. in examples/)
 ```
 
 ## V1 Completion Status
 
 The project is feature-complete for V1 with:
+
 - ✅ Zero-downtime deployments
 - ✅ Automatic server setup and security
 - ✅ Auto-SSL with Let's Encrypt
@@ -248,6 +266,7 @@ The project is feature-complete for V1 with:
 - ✅ Registry-free deployment
 
 **Not needed for V1** (intentional design decisions):
+
 - ❌ Rollback commands (use git checkout + redeploy)
 - ❌ Built-in monitoring (operators can integrate external tools)
 - ❌ Database migrations (application responsibility)

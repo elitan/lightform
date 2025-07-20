@@ -1,7 +1,7 @@
 name: nextjs
 
 ssh:
-  username: lightform
+  username: iop
 
 apps:
   web:
@@ -18,5 +18,5 @@ apps:
         - NEXT_PUBLIC_API_URL=https://api.example.com
     proxy:
       #hosts:
-      #  - nextjs.example.mylightform.cloud
+      #  - nextjs.example.myiop.cloud
       app_port: 3000

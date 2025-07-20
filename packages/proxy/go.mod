@@ -1,4 +1,4 @@
-module github.com/elitan/lightform/proxy
+module github.com/elitan/iop/proxy
 
 go 1.21
 

@@ -2,23 +2,23 @@ import fs from "node:fs/promises";
 import path from "path";
 import yaml from "js-yaml";
 import {
-  LightformConfigSchema,
-  LightformSecretsSchema,
-  LightformConfig,
-  LightformSecrets,
+  IopConfigSchema,
+  IopSecretsSchema,
+  IopConfig,
+  IopSecrets,
 } from "./types";
 
-const LIGHTFORM_DIR = ".lightform";
-const CONFIG_FILE = "lightform.yml";
+const IOP_DIR = ".iop";
+const CONFIG_FILE = "iop.yml";
 const SECRETS_FILE = "secrets";
 
-export async function loadConfig(): Promise<LightformConfig> {
+export async function loadConfig(): Promise<IopConfig> {
   try {
     const configFile = await fs.readFile(CONFIG_FILE, "utf-8");
     const rawConfig = yaml.load(configFile);
 
     // Validate and parse using Zod schema
-    const validationResult = LightformConfigSchema.safeParse(rawConfig);
+    const validationResult = IopConfigSchema.safeParse(rawConfig);
     if (!validationResult.success) {
       console.error(`\nInvalid configuration in ${CONFIG_FILE}:`);
 
@@ -105,7 +105,7 @@ export async function loadConfig(): Promise<LightformConfig> {
         const showError = (description: string, yamlFix: string[]) => {
           console.error(`\n  Configuration Error in ${path}:`);
           console.error(`    ${description}`);
-          console.error(`    Fix in lightform.yml:`);
+          console.error(`    Fix in iop.yml:`);
           yamlFix.forEach(line => console.error(`    ${line}`));
         };
 
@@ -156,7 +156,7 @@ export async function loadConfig(): Promise<LightformConfig> {
           ]);
         } else if (path.includes("environment.secret")) {
           showError(`Found ${formatValue(currentValue)}, expected array of variable names`, [
-            `environment:`, `  secret:`, `    - DATABASE_URL           # References .lightform/secrets`, `    - API_KEY`
+            `environment:`, `  secret:`, `    - DATABASE_URL           # References .iop/secrets`, `    - API_KEY`
           ]);
         } else if (path.includes("ports")) {
           showError(`Found ${formatValue(currentValue)}, expected array of port mappings`, [
@@ -168,7 +168,7 @@ export async function loadConfig(): Promise<LightformConfig> {
           ]);
         } else if (path.includes("ssh.username")) {
           showError(`Found ${formatValue(currentValue)}, expected string`, [
-            `ssh:`, `  username: lightform        # Your SSH username`
+            `ssh:`, `  username: iop        # Your SSH username`
           ]);
         } else if (path.includes("ssh.port")) {
           showError(`Found ${formatValue(currentValue)}, expected number`, [
@@ -216,7 +216,7 @@ export async function loadConfig(): Promise<LightformConfig> {
           ]);
         } else if (path.includes("proxy.image")) {
           showError(`Found ${formatValue(currentValue)}, expected string`, [
-            `proxy:`, `  image: lightform-proxy:latest  # Custom proxy image`
+            `proxy:`, `  image: iop-proxy:latest  # Custom proxy image`
           ]);
         } else if (path.includes("registry.url")) {
           showError(`Found ${formatValue(currentValue)}, expected string`, [
@@ -228,7 +228,7 @@ export async function loadConfig(): Promise<LightformConfig> {
           ]);
         } else if (path.includes("registry.password_secret")) {
           showError(`Found ${formatValue(currentValue)}, expected string`, [
-            `${section}:`, `  ${entity}:`, `    registry:`, `      password_secret: REGISTRY_PASSWORD  # References .lightform/secrets`
+            `${section}:`, `  ${entity}:`, `    registry:`, `      password_secret: REGISTRY_PASSWORD  # References .iop/secrets`
           ]);
         } else if (code === "unrecognized_keys") {
           showError(`Unknown field: ${path}`, [
@@ -244,12 +244,12 @@ export async function loadConfig(): Promise<LightformConfig> {
             ? `Found ${formatValue(currentValue)}, expected ${expected}` 
             : `${message}`;
           showError(description, [
-            `# Run 'lightform init' for a valid configuration template`
+            `# Run 'iop init' for a valid configuration template`
           ]);
         }
       });
 
-      console.error(`\nNeed help? Run: lightform init --help`);
+      console.error(`\nNeed help? Run: iop init --help`);
 
       throw new Error(`Invalid configuration in ${CONFIG_FILE}.`);
     }
@@ -266,8 +266,8 @@ export async function loadConfig(): Promise<LightformConfig> {
   }
 }
 
-export async function loadSecrets(): Promise<LightformSecrets> {
-  const secretsPath = path.join(LIGHTFORM_DIR, SECRETS_FILE);
+export async function loadSecrets(): Promise<IopSecrets> {
+  const secretsPath = path.join(IOP_DIR, SECRETS_FILE);
   try {
     const secretsFile = await fs.readFile(secretsPath, "utf-8");
     const parsedSecrets: Record<string, string> = {};
@@ -287,7 +287,7 @@ export async function loadSecrets(): Promise<LightformSecrets> {
     });
 
     // Validate and parse secrets using Zod schema
-    const validationResult = LightformSecretsSchema.safeParse(parsedSecrets);
+    const validationResult = IopSecretsSchema.safeParse(parsedSecrets);
     if (!validationResult.success) {
       console.error(`Invalid secrets in ${secretsPath}:`);
       validationResult.error.errors.forEach((err) => {
@@ -300,7 +300,7 @@ export async function loadSecrets(): Promise<LightformSecrets> {
     const nodeError = error as NodeJS.ErrnoException;
     if (nodeError.code === "ENOENT") {
       console.warn(`${secretsPath} not found. Proceeding with empty secrets.`);
-      return LightformSecretsSchema.parse({}); // Return validated empty secrets
+      return IopSecretsSchema.parse({}); // Return validated empty secrets
     }
     if (error instanceof Error && error.message.startsWith("Invalid secrets")) {
       throw error; // Re-throw Zod validation error for secrets

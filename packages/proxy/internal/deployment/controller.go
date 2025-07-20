@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/elitan/lightform/proxy/internal/core"
+	"github.com/elitan/iop/proxy/internal/core"
 )
 
 // ProxyUpdater interface to update proxy routes

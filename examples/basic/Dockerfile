@@ -1,7 +1,7 @@
 # Start from the official Golang image
 FROM golang:1.22-alpine
 
-# Accept build arguments from lightform build.env
+# Accept build arguments from iop build.env
 ARG EXAMPLE_VAR
 
 # Set the Current Working Directory inside the container

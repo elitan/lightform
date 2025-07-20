@@ -12,9 +12,9 @@ describe("Proxy Integration Tests", () => {
       projectAlias: "gmail-web",
     },
     nextjs: {
-      domain: "nextjs.example.mylightform.cloud",
+      domain: "nextjs.example.myiop.cloud",
       expectedContent: "<!DOCTYPE html>",
-      projectAlias: "lightform-example-nextjs-web",
+      projectAlias: "iop-example-nextjs-web",
     },
   };
 
@@ -35,7 +35,7 @@ describe("Proxy Integration Tests", () => {
   test.skip("Proxy should use project-specific DNS targets", async () => {
     try {
       const { stdout, stderr } = await execAsync(
-        `ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy list"`
+        `ssh iop@157.180.25.101 "docker exec iop-proxy /usr/local/bin/iop-proxy list"`
       );
       // Combine stdout and stderr since proxy output might go to stderr
       const proxyConfig = stdout + stderr;
@@ -52,7 +52,7 @@ describe("Proxy Integration Tests", () => {
       expect(proxyConfig).toContain(
         `Target: ${testTargets.nextjs.projectAlias}:3000`
       );
-      expect(proxyConfig).toContain(`Project: lightform-example-nextjs`);
+      expect(proxyConfig).toContain(`Project: iop-example-nextjs`);
     } catch (error) {
       // Handle SSH execution error by checking stderr
       const errorOutput = String(error);
@@ -63,13 +63,13 @@ describe("Proxy Integration Tests", () => {
   test.skip("Internal DNS resolution should work via project-specific aliases", async () => {
     // Test Gmail project-specific alias from proxy
     const { stdout: gmailInternal } = await execAsync(
-      `ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -s http://${testTargets.gmail.projectAlias}:3000"`
+      `ssh iop@157.180.25.101 "docker exec iop-proxy curl -s http://${testTargets.gmail.projectAlias}:3000"`
     );
     expect(gmailInternal.trim()).toBe(testTargets.gmail.expectedContent);
 
     // Test NextJS project-specific alias from proxy
     const { stdout: nextjsInternal } = await execAsync(
-      `ssh lightform@157.180.25.101 "docker exec lightform-proxy curl -s http://${testTargets.nextjs.projectAlias}:3000"`
+      `ssh iop@157.180.25.101 "docker exec iop-proxy curl -s http://${testTargets.nextjs.projectAlias}:3000"`
     );
     expect(nextjsInternal).toContain(testTargets.nextjs.expectedContent);
   });
@@ -77,7 +77,7 @@ describe("Proxy Integration Tests", () => {
   test.skip("Both projects should be healthy", async () => {
     try {
       const { stdout, stderr } = await execAsync(
-        `ssh lightform@157.180.25.101 "docker exec lightform-proxy /usr/local/bin/lightform-proxy list"`
+        `ssh iop@157.180.25.101 "docker exec iop-proxy /usr/local/bin/iop-proxy list"`
       );
       const proxyConfig = stdout + stderr;
 

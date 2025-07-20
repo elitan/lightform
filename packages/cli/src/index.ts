@@ -6,46 +6,46 @@ import { statusCommand } from "./commands/status";
 import { proxyCommand } from "./commands/proxy";
 
 /**
- * Shows comprehensive help for the Lightform CLI
+ * Shows comprehensive help for the iop CLI
  */
 function showMainHelp(): void {
-  console.log("Lightform CLI - Zero-downtime Docker deployments");
+  console.log("iop CLI - Zero-downtime Docker deployments");
   console.log("================================================");
   console.log("");
   console.log("USAGE:");
-  console.log("  lightform [flags]                 # Deploy (default action)");
-  console.log("  lightform <command> [flags]       # Run specific command");
+  console.log("  iop [flags]                 # Deploy (default action)");
+  console.log("  iop <command> [flags]       # Run specific command");
   console.log("");
   console.log("COMMANDS:");
-  console.log("  init      Initialize lightform.yml config and secrets file");
+  console.log("  init      Initialize iop.yml config and secrets file");
   console.log("  status    Check deployment status across all servers");
-  console.log("  proxy     Manage Lightform proxy (status, update)");
+  console.log("  proxy     Manage iop proxy (status, update)");
   console.log("");
   console.log("GLOBAL FLAGS:");
   console.log("  --help     Show command help");
   console.log("  --verbose  Show detailed output");
   console.log("");
   console.log("EXAMPLES:");
-  console.log("  lightform init                    # Initialize new project");
+  console.log("  iop init                    # Initialize new project");
   console.log(
-    "  lightform                         # Deploy all apps and services"
+    "  iop                         # Deploy all apps and services"
   );
   console.log(
-    "  lightform --verbose               # Deploy with detailed output"
+    "  iop --verbose               # Deploy with detailed output"
   );
-  console.log("  lightform status                  # Check all deployments");
-  console.log("  lightform proxy status            # Check proxy status");
+  console.log("  iop status                  # Check all deployments");
+  console.log("  iop proxy status            # Check proxy status");
   console.log("");
   console.log("GETTING STARTED:");
-  console.log("  1. lightform init                 # Create config files");
+  console.log("  1. iop init                 # Create config files");
   console.log(
-    "  2. Edit lightform.yml             # Configure your apps and servers"
+    "  2. Edit iop.yml             # Configure your apps and servers"
   );
   console.log(
-    "  3. lightform                      # Deploy your apps and services"
+    "  3. iop                      # Deploy your apps and services"
   );
   console.log("");
-  console.log("For command-specific help: lightform <command> --help");
+  console.log("For command-specific help: iop <command> --help");
 }
 
 /**
@@ -54,15 +54,15 @@ function showMainHelp(): void {
 function showCommandHelp(command: string): void {
   switch (command) {
     case "init":
-      console.log("Initialize Lightform project");
+      console.log("Initialize iop project");
       console.log("============================");
       console.log("");
       console.log("USAGE:");
-      console.log("  lightform init [flags]");
+      console.log("  iop init [flags]");
       console.log("");
       console.log("DESCRIPTION:");
       console.log(
-        "  Creates lightform.yml configuration file and .lightform/secrets file."
+        "  Creates iop.yml configuration file and .iop/secrets file."
       );
       console.log(
         "  Automatically adds secrets file to .gitignore for security."
@@ -72,7 +72,7 @@ function showCommandHelp(command: string): void {
       console.log("  --help     Show this help message");
       console.log("");
       console.log("EXAMPLES:");
-      console.log("  lightform init                    # Interactive setup");
+      console.log("  iop init                    # Interactive setup");
       break;
 
     case "deploy":
@@ -81,10 +81,10 @@ function showCommandHelp(command: string): void {
       console.log("");
       console.log("USAGE:");
       console.log(
-        "  lightform [entry-names...] [flags]       # Default - no 'deploy' needed"
+        "  iop [entry-names...] [flags]       # Default - no 'deploy' needed"
       );
       console.log(
-        "  lightform deploy [entry-names...] [flags] # Explicit command"
+        "  iop deploy [entry-names...] [flags] # Explicit command"
       );
       console.log("");
       console.log("DESCRIPTION:");
@@ -104,14 +104,14 @@ function showCommandHelp(command: string): void {
       console.log("");
       console.log("EXAMPLES:");
       console.log(
-        "  lightform                         # Deploy all apps and services"
+        "  iop                         # Deploy all apps and services"
       );
       console.log(
-        "  lightform web api                 # Deploy specific apps/services"
+        "  iop web api                 # Deploy specific apps/services"
       );
-      console.log("  lightform --services              # Deploy only services");
+      console.log("  iop --services              # Deploy only services");
       console.log(
-        "  lightform --verbose               # Deploy with detailed output"
+        "  iop --verbose               # Deploy with detailed output"
       );
       console.log("");
       console.log("NOTES:");
@@ -132,7 +132,7 @@ function showCommandHelp(command: string): void {
       console.log("=======================");
       console.log("");
       console.log("USAGE:");
-      console.log("  lightform status [entry-names...] [flags]");
+      console.log("  iop status [entry-names...] [flags]");
       console.log("");
       console.log("DESCRIPTION:");
       console.log(
@@ -148,22 +148,22 @@ function showCommandHelp(command: string): void {
       console.log("");
       console.log("EXAMPLES:");
       console.log(
-        "  lightform status                  # Check all deployments"
+        "  iop status                  # Check all deployments"
       );
-      console.log("  lightform status web              # Check specific app");
-      console.log("  lightform status --verbose        # Detailed status info");
+      console.log("  iop status web              # Check specific app");
+      console.log("  iop status --verbose        # Detailed status info");
       break;
 
     case "proxy":
-      console.log("Manage Lightform proxy");
+      console.log("Manage iop proxy");
       console.log("======================");
       console.log("");
       console.log("USAGE:");
-      console.log("  lightform proxy <subcommand> [flags]");
+      console.log("  iop proxy <subcommand> [flags]");
       console.log("");
       console.log("DESCRIPTION:");
       console.log(
-        "  Manage the Lightform reverse proxy that handles SSL and routing."
+        "  Manage the iop reverse proxy that handles SSL and routing."
       );
       console.log("");
       console.log("SUBCOMMANDS:");
@@ -177,7 +177,7 @@ function showCommandHelp(command: string): void {
 
     default:
       console.log(`Unknown command: ${command}`);
-      console.log("Use 'lightform --help' to see available commands.");
+      console.log("Use 'iop --help' to see available commands.");
   }
 }
 
@@ -208,22 +208,22 @@ function handleCliError(error: Error): void {
   // Provide specific suggestions based on error type
   if (
     error.message.includes("ENOENT") ||
-    error.message.includes("lightform.yml")
+    error.message.includes("iop.yml")
   ) {
     console.error("\nSuggestion:");
-    console.error("   Run 'lightform init' to create configuration files");
+    console.error("   Run 'iop init' to create configuration files");
   } else if (
     error.message.includes("SSH") ||
     error.message.includes("connection")
   ) {
     console.error("\nSuggestions:");
-    console.error("   - Check server hostname in lightform.yml");
+    console.error("   - Check server hostname in iop.yml");
     console.error("   - Verify SSH access to your servers");
     console.error("   - Use --verbose flag for detailed connection info");
   } else if (error.message.includes("Docker")) {
     console.error("\nSuggestions:");
     console.error("   - Ensure Docker is running locally");
-    console.error("   - Run 'lightform setup' to install Docker on servers");
+    console.error("   - Run 'iop setup' to install Docker on servers");
   } else if (
     error.message.includes("git") ||
     error.message.includes("uncommitted")
@@ -235,7 +235,7 @@ function handleCliError(error: Error): void {
   }
 
   console.error(
-    "\nNeed help? Use 'lightform --help' or 'lightform <command> --help'"
+    "\nNeed help? Use 'iop --help' or 'iop <command> --help'"
   );
 }
 
@@ -245,10 +245,10 @@ async function main() {
   // Handle help flags and no arguments
   if (args.includes("--help") || args.includes("-h")) {
     if (args[0] && !args[0].startsWith("-")) {
-      // Command-specific help: lightform deploy --help
+      // Command-specific help: iop deploy --help
       showCommandHelp(args[0]);
     } else {
-      // Global help: lightform --help
+      // Global help: iop --help
       showMainHelp();
     }
     return;
@@ -283,7 +283,7 @@ async function main() {
       console.error(`   ${cmd}`);
     });
     console.error("");
-    console.error("Use 'lightform --help' for more information.");
+    console.error("Use 'iop --help' for more information.");
     process.exit(1);
   }
 
@@ -315,7 +315,7 @@ async function main() {
 main().catch((error) => {
   if (error instanceof Error) {
     console.error("Fatal error:", error.message);
-    console.error("\nUse 'lightform --help' for usage information.");
+    console.error("\nUse 'iop --help' for usage information.");
   } else {
     console.error("An unexpected error occurred:", error);
   }

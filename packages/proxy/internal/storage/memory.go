@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/elitan/lightform/proxy/internal/core"
+	"github.com/elitan/iop/proxy/internal/core"
 )
 
 // MemoryStore is a simple in-memory deployment store

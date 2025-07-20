@@ -1,9 +1,9 @@
 import { loadConfig, loadSecrets } from "../config";
 import {
-  LightformConfig,
+  IopConfig,
   AppEntry,
   ServiceEntry,
-  LightformSecrets,
+  IopSecrets,
 } from "../config/types";
 import { DockerClient } from "../docker";
 import { SSHClient, getSSHCredentials, SSHClientOptions } from "../ssh";
@@ -18,8 +18,8 @@ import {
 let logger: Logger;
 
 interface StatusContext {
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
   verboseFlag: boolean;
   verboseMessages: string[]; // Store verbose messages for later display
   projectName: string;
@@ -158,11 +158,11 @@ function parseStatusArgs(
 }
 
 /**
- * Loads and validates Lightform configuration and secrets files
+ * Loads and validates iop configuration and secrets files
  */
 async function loadConfigurationAndSecrets(): Promise<{
-  config: LightformConfig;
-  secrets: LightformSecrets;
+  config: IopConfig;
+  secrets: IopSecrets;
 }> {
   try {
     const config = await loadConfig();
@@ -173,9 +173,9 @@ async function loadConfigurationAndSecrets(): Promise<{
       logger.error("Configuration files not found.");
       logger.error("");
       logger.error("To fix this:");
-      logger.error("   lightform init                    # Create configuration files");
-      logger.error("   # Edit lightform.yml with your settings");
-      logger.error("   lightform status                  # Check status again");
+      logger.error("   iop init                         # Create configuration files");
+      logger.error("   # Edit iop.yml with your settings");
+      logger.error("   iop status                       # Check status again");
     } else if (error instanceof Error && error.message.includes("Invalid configuration")) {
       // Validation errors are already displayed by loadConfig, just exit
       throw error;
@@ -239,7 +239,7 @@ async function getEntryContainersOnServer(
   dockerClient: DockerClient,
   projectName: string
 ): Promise<ServerEntryStatus> {
-  const labelKey = entryType === "app" ? "lightform.app" : "lightform.service";
+  const labelKey = entryType === "app" ? "iop.app" : "iop.service";
   const allContainers = await dockerClient.findContainersByLabelAndProject(
     `${labelKey}=${entry.name}`,
     projectName
@@ -265,7 +265,7 @@ async function getEntryContainersOnServer(
     // Only check for color labels for apps (services don't use blue/green deployment)
     if (entryType === "app") {
       const labels = await dockerClient.getContainerLabels(containerName);
-      const color = labels["lightform.color"];
+      const color = labels["iop.color"];
 
       if (color === "blue") {
         blueContainers.push(containerName);
@@ -337,7 +337,7 @@ async function getProxyStatusSummary(
       // Add error status for this server
       proxyStatuses.push({
         running: false,
-        containerName: "lightform-proxy",
+        containerName: "iop-proxy",
         serverId: serverHostname,
         ports: [],
         error: `Failed to connect to server: ${error}`,

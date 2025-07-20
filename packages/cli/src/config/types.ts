@@ -134,8 +134,8 @@ export const ServiceEntrySchema = ServiceEntryWithoutNameSchema.extend({
 });
 export type ServiceEntry = z.infer<typeof ServiceEntrySchema>;
 
-// Zod schema for LightformConfig - allowing both object and array formats for apps and services
-export const LightformConfigSchema = z.object({
+// Zod schema for IopConfig - allowing both object and array formats for apps and services
+export const IopConfigSchema = z.object({
   name: z.string().min(1, "Project name is required"), // Used for network naming etc.
   apps: z
     .union([
@@ -158,7 +158,7 @@ export const LightformConfigSchema = z.object({
           "Global Docker registry (optional - only needed for services using private registries)"
         ), // Global Docker registry
       username: z.string().optional().describe("Global registry username"), // Global username
-      // Global password_secret should be defined in LightformSecrets and referenced
+      // Global password_secret should be defined in IopSecrets and referenced
       // e.g. global_docker_password_secret: "DOCKER_REGISTRY_PASSWORD"
     })
     .optional()
@@ -176,13 +176,13 @@ export const LightformConfigSchema = z.object({
     .object({
       image: z
         .string()
-        .describe("Custom Docker image for the Lightform proxy")
+        .describe("Custom Docker image for the iop proxy")
         .optional(),
     })
     .optional(),
 });
-export type LightformConfig = z.infer<typeof LightformConfigSchema>;
+export type IopConfig = z.infer<typeof IopConfigSchema>;
 
-// Zod schema for LightformSecrets (simple key-value)
-export const LightformSecretsSchema = z.record(z.string());
-export type LightformSecrets = z.infer<typeof LightformSecretsSchema>;
+// Zod schema for IopSecrets (simple key-value)
+export const IopSecretsSchema = z.record(z.string());
+export type IopSecrets = z.infer<typeof IopSecretsSchema>;

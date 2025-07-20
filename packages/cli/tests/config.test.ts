@@ -26,7 +26,7 @@ describe("config module", () => {
     }
 
     await mkdir(TEST_DIR, { recursive: true });
-    await mkdir(join(TEST_DIR, ".lightform"), { recursive: true });
+    await mkdir(join(TEST_DIR, ".iop"), { recursive: true });
     process.chdir(TEST_DIR);
   });
 
@@ -59,7 +59,7 @@ services:
       secret:
         - API_KEY
 `;
-      await Bun.write("lightform.yml", validConfig);
+      await Bun.write("iop.yml", validConfig);
 
       // Load the config
       const config = await loadConfig();
@@ -89,7 +89,7 @@ services:
     # Missing required 'image' field
     server: server1.example.com
 `;
-      await Bun.write("lightform.yml", invalidConfig);
+      await Bun.write("iop.yml", invalidConfig);
 
       // Expect loadConfig to throw
       await expect(loadConfig()).rejects.toThrow();
@@ -110,7 +110,7 @@ API_KEY=1234567890
 DATABASE_URL=postgres://user:pass@host:5432/db
 SECRET_WITH_EQUALS=value=with=equals
 `;
-      await Bun.write(join(".lightform", "secrets"), secretsContent);
+      await Bun.write(join(".iop", "secrets"), secretsContent);
 
       // Load secrets
       const secrets = await loadSecrets();
@@ -136,7 +136,7 @@ SECRET_WITH_EQUALS=value=with=equals
 QUOTED_VALUE_1="this is a quoted value"
 QUOTED_VALUE_2='another quoted value'
 `;
-      await Bun.write(join(".lightform", "secrets"), secretsContent);
+      await Bun.write(join(".iop", "secrets"), secretsContent);
 
       // Load secrets
       const secrets = await loadSecrets();

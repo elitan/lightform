@@ -1,4 +1,4 @@
-import { LightformConfig, LightformSecrets } from "../config/types";
+import { IopConfig, IopSecrets } from "../config/types";
 import { SSHClientOptions } from "./index";
 import * as fs from "fs";
 import * as os from "os";
@@ -9,8 +9,8 @@ import * as os from "os";
  */
 export async function getSSHCredentials(
   serverHostname: string,
-  config: LightformConfig,
-  secrets: LightformSecrets,
+  config: IopConfig,
+  secrets: IopSecrets,
   verbose: boolean = false
 ): Promise<Partial<SSHClientOptions>> {
   const sshUser = config.ssh?.username || "root"; // Default to root, though setup warns against it
@@ -130,7 +130,7 @@ export async function getSSHCredentials(
 
   if (verbose) {
     console.log(
-      `[${serverHostname}] No specific SSH key or password found in Lightform secrets. Attempting agent-based authentication or found key file.`
+      `[${serverHostname}] No specific SSH key or password found in iop secrets. Attempting agent-based authentication or found key file.`
     );
   }
 

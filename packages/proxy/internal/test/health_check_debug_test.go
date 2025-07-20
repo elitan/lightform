@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/elitan/lightform/proxy/internal/health"
-	"github.com/elitan/lightform/proxy/internal/state"
+	"github.com/elitan/iop/proxy/internal/health"
+	"github.com/elitan/iop/proxy/internal/state"
 )
 
 // TestHealthCheckDebug reproduces the exact health check issues we're seeing with the CLI

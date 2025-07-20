@@ -10,10 +10,10 @@ describe("Proxy State Persistence Tests", () => {
   describe("Volume Mount Configuration", () => {
     test("should use correct volume mount for state persistence", () => {
       // Test that the volume mount points to the correct directory
-      const expectedStateMount = "./.lightform/lightform-proxy-state:/var/lib/lightform-proxy";
-      const expectedCertsMount = "./.lightform/lightform-proxy-certs:/var/lib/lightform-proxy/certs";
+      const expectedStateMount = "./.iop/iop-proxy-state:/var/lib/iop-proxy";
+      const expectedCertsMount = "./.iop/iop-proxy-certs:/var/lib/iop-proxy/certs";
       
-      // These are the volume mounts that should be used in setupLightformProxy
+      // These are the volume mounts that should be used in setupIopProxy
       const volumeMounts = [
         expectedCertsMount,
         expectedStateMount,
@@ -27,28 +27,28 @@ describe("Proxy State Persistence Tests", () => {
     test("should create correct directory structure", () => {
       // Test the directory creation commands
       const expectedDirs = [
-        "~/.lightform/lightform-proxy-certs",
-        "~/.lightform/lightform-proxy-state"
+        "~/.iop/iop-proxy-certs",
+        "~/.iop/iop-proxy-state"
       ];
       
       const createDirCmd = `mkdir -p ${expectedDirs.join(' ')}`;
-      expect(createDirCmd).toContain("lightform-proxy-state");
-      expect(createDirCmd).toContain("lightform-proxy-certs");
+      expect(createDirCmd).toContain("iop-proxy-state");
+      expect(createDirCmd).toContain("iop-proxy-certs");
     });
   });
 
   describe("State Backup Logic", () => {
     test("should construct correct backup commands", () => {
-      const containerName = "lightform-proxy";
-      const stateFile = "/var/lib/lightform-proxy/state.json";
-      const backupPath = "~/.lightform/lightform-proxy-state/state.json";
+      const containerName = "iop-proxy";
+      const stateFile = "/var/lib/iop-proxy/state.json";
+      const backupPath = "~/.iop/iop-proxy-state/state.json";
       
       // Test backup command construction
       const backupCmd = `docker cp ${containerName}:${stateFile} ${backupPath} 2>/dev/null || echo "No existing state to backup"`;
       
       expect(backupCmd).toContain("docker cp");
-      expect(backupCmd).toContain("lightform-proxy:/var/lib/lightform-proxy/state.json");
-      expect(backupCmd).toContain("~/.lightform/lightform-proxy-state/state.json");
+      expect(backupCmd).toContain("iop-proxy:/var/lib/iop-proxy/state.json");
+      expect(backupCmd).toContain("~/.iop/iop-proxy-state/state.json");
       expect(backupCmd).toContain("2>/dev/null"); // Error suppression
       expect(backupCmd).toContain("|| echo"); // Fallback message
     });
@@ -66,19 +66,19 @@ describe("Proxy State Persistence Tests", () => {
   describe("Container Options", () => {
     test("should include restart policy for availability", () => {
       const containerOptions = {
-        name: "lightform-proxy",
-        image: "elitan/lightform-proxy:latest", 
+        name: "iop-proxy",
+        image: "elitan/iop-proxy:latest", 
         ports: ["80:80", "443:443"],
         volumes: [
-          "./.lightform/lightform-proxy-certs:/var/lib/lightform-proxy/certs",
-          "./.lightform/lightform-proxy-state:/var/lib/lightform-proxy",
+          "./.iop/iop-proxy-certs:/var/lib/iop-proxy/certs",
+          "./.iop/iop-proxy-state:/var/lib/iop-proxy",
           "/var/run/docker.sock:/var/run/docker.sock",
         ],
         restart: "always",
       };
 
       expect(containerOptions.restart).toBe("always");
-      expect(containerOptions.volumes).toContain("./.lightform/lightform-proxy-state:/var/lib/lightform-proxy");
+      expect(containerOptions.volumes).toContain("./.iop/iop-proxy-state:/var/lib/iop-proxy");
     });
 
     test("should expose correct ports for HTTP/HTTPS", () => {
@@ -109,15 +109,15 @@ describe("Proxy State Persistence Tests", () => {
                   status: "active",
                   acquired_at: "2025-01-01T00:00:00Z",
                   expires_at: "2025-04-01T00:00:00Z",
-                  cert_file: "/var/lib/lightform-proxy/certs/example.com/cert.pem",
-                  key_file: "/var/lib/lightform-proxy/certs/example.com/key.pem"
+                  cert_file: "/var/lib/iop-proxy/certs/example.com/cert.pem",
+                  key_file: "/var/lib/iop-proxy/certs/example.com/key.pem"
                 }
               }
             }
           }
         },
         lets_encrypt: {
-          account_key_file: "/var/lib/lightform-proxy/certs/account.key",
+          account_key_file: "/var/lib/iop-proxy/certs/account.key",
           directory_url: "https://acme-v02.api.letsencrypt.org/directory",
           email: "admin@example.com",
           staging: false
@@ -159,7 +159,7 @@ describe("Proxy State Persistence Tests", () => {
 
     test("should handle missing directories gracefully", () => {
       // Test directory creation handles existing directories
-      const mkdirCmd = "mkdir -p ~/.lightform/lightform-proxy-state";
+      const mkdirCmd = "mkdir -p ~/.iop/iop-proxy-state";
       expect(mkdirCmd).toContain("-p"); // -p flag prevents errors if dir exists
     });
   });

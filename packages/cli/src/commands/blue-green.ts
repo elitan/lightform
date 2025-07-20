@@ -1,4 +1,4 @@
-import { AppEntry, LightformSecrets } from "../config/types";
+import { AppEntry, IopSecrets } from "../config/types";
 import { DockerClient, DockerContainerOptions } from "../docker";
 import {
   appNeedsBuilding,
@@ -10,7 +10,7 @@ import { processVolumes } from "../utils";
 export interface BlueGreenDeploymentOptions {
   appEntry: AppEntry;
   releaseId: string;
-  secrets: LightformSecrets;
+  secrets: IopSecrets;
   projectName: string;
   networkName: string;
   dockerClient: DockerClient;
@@ -51,7 +51,7 @@ function generateContainerNames(
 function createBlueGreenContainerOptions(
   appEntry: AppEntry,
   releaseId: string,
-  secrets: LightformSecrets,
+  secrets: IopSecrets,
   projectName: string,
   containerName: string
 ): DockerContainerOptions {
@@ -75,10 +75,10 @@ function createBlueGreenContainerOptions(
     restart: "unless-stopped",
     command: appEntry.command,
     labels: {
-      "lightform.managed": "true",
-      "lightform.project": projectName,
-      "lightform.type": "app",
-      "lightform.app": appEntry.name,
+      "iop.managed": "true",
+      "iop.project": projectName,
+      "iop.type": "app",
+      "iop.app": appEntry.name,
     },
   };
 }
@@ -88,7 +88,7 @@ function createBlueGreenContainerOptions(
  */
 function resolveEnvironmentVariables(
   entry: AppEntry,
-  secrets: LightformSecrets
+  secrets: IopSecrets
 ): Record<string, string> {
   const envVars: Record<string, string> = {};
 
@@ -138,8 +138,8 @@ async function performBlueGreenHealthChecks(
   const healthPromises = containerNames.map(async (containerName) => {
     try {
       const healthCheckPassed =
-        await dockerClient.checkHealthWithLightformProxy(
-          "lightform-proxy",
+        await dockerClient.checkHealthWithIopProxy(
+          "iop-proxy",
           appEntry.name,
           containerName,
           projectName,
@@ -419,14 +419,14 @@ export async function performBlueGreenDeployment(
     // Step 7: Graceful shutdown of old containers
     if (currentActiveColor) {
       const oldContainers = await dockerClient.findContainersByLabelAndProject(
-        `lightform.app=${appEntry.name}`,
+        `iop.app=${appEntry.name}`,
         projectName
       );
 
       const oldActiveContainers = [];
       for (const containerName of oldContainers) {
         const labels = await dockerClient.getContainerLabels(containerName);
-        if (labels["lightform.color"] === currentActiveColor) {
+        if (labels["iop.color"] === currentActiveColor) {
           oldActiveContainers.push(containerName);
         }
       }

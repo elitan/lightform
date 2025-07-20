@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/elitan/lightform/proxy/internal/core"
+	"github.com/elitan/iop/proxy/internal/core"
 )
 
 // Proxy is a clean HTTP proxy that only handles routing
