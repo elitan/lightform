@@ -1,7 +1,7 @@
 {
   "name": "iop",
   "description": "Ship Docker Anywhere",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "author": "elitan",
   "license": "MIT",
   "repository": {
@@ -29,7 +29,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "bun run build",
+    "prepublishOnly": "cp ../../README.md . && bun run build",
     "start": "bun run src/index.ts",
     "test": "bun test"
   },
