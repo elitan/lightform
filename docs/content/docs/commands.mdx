@@ -1,40 +1,40 @@
 ---
 title: Commands
-description: Complete reference for all Lightform CLI commands
+description: Complete reference for all iop CLI commands
 ---
 
 # Commands
 
-Complete reference for all available Lightform CLI commands.
+Complete reference for all available iop CLI commands.
 
-## `lightform init`
+## `iop init`
 
-Initialize a new Lightform project with configuration files.
+Initialize a new iop project with configuration files.
 
 ### Usage
 
 ```bash
-lightform init
+iop init
 ```
 
 ### What it does
 
-- Creates `lightform.yml` with basic configuration template
-- Creates `.lightform/secrets` file for sensitive environment variables
-- Prompts you to add `.lightform/secrets` to `.gitignore`
+- Creates `iop.yml` with basic configuration template
+- Creates `.iop/secrets` file for sensitive environment variables
+- Prompts you to add `.iop/secrets` to `.gitignore`
 
 ### Example Output
 
 ```bash
-❯ lightform init
-✓ Created lightform.yml
-✓ Created .lightform/secrets
-! Add .lightform/secrets to your .gitignore file
+❯ iop init
+✓ Created iop.yml
+✓ Created .iop/secrets
+! Add .iop/secrets to your .gitignore file
 ```
 
 ### Generated Files
 
-**`lightform.yml`**:
+**`iop.yml`**:
 
 ```yaml
 name: my-project
@@ -56,7 +56,7 @@ apps:
       app_port: 3000
 ```
 
-**`.lightform/secrets`**:
+**`.iop/secrets`**:
 
 ```bash
 # Add your secrets here
@@ -66,24 +66,24 @@ apps:
 
 ---
 
-## `lightform setup`
+## `iop setup`
 
 Prepare servers for deployment by installing Docker and setting up infrastructure.
 
 ### Usage
 
 ```bash
-lightform setup [service...]               # Set up servers for specific services
-lightform setup                           # Set up all servers
-lightform setup --verbose                 # Show detailed output
+iop setup [service...]               # Set up servers for specific services
+iop setup                           # Set up all servers
+iop setup --verbose                 # Show detailed output
 ```
 
 ### Examples
 
 ```bash
-lightform setup                           # Set up all servers
-lightform setup web api                   # Set up only servers for web and api
-lightform setup --verbose                 # Detailed logging
+iop setup                           # Set up all servers
+iop setup web api                   # Set up only servers for web and api
+iop setup --verbose                 # Detailed logging
 ```
 
 ### What it does
@@ -98,20 +98,20 @@ lightform setup --verbose                 # Detailed logging
 ### Example Output
 
 ```bash
-❯ lightform setup
+❯ iop setup
 Setting up servers for deployment...
 
 [✓] server1.com
     ├─ [✓] SSH connection verified
     ├─ [✓] Docker installed and running
-    ├─ [✓] Lightform network created
+    ├─ [✓] iop network created
     ├─ [✓] Reverse proxy configured
     └─ [✓] SSL automation enabled
 
 [✓] server2.com
     ├─ [✓] SSH connection verified
     ├─ [✓] Docker installed and running
-    ├─ [✓] Lightform network created
+    ├─ [✓] iop network created
     ├─ [✓] Reverse proxy configured
     └─ [✓] SSL automation enabled
 
@@ -120,36 +120,36 @@ Setting up servers for deployment...
 
 ---
 
-## `lightform deploy`
+## `iop deploy`
 
 Deploy applications or services with zero downtime.
 
 ### Usage
 
 ```bash
-lightform deploy [app...]                 # Deploy specific apps
-lightform deploy                          # Deploy all apps
-lightform deploy --services               # Deploy services instead of apps
-lightform deploy --force                  # Skip git status checks
-lightform deploy --verbose                # Show detailed output
-lightform deploy -c config.yml            # Use specific config file
+iop deploy [app...]                 # Deploy specific apps
+iop deploy                          # Deploy all apps
+iop deploy --services               # Deploy services instead of apps
+iop deploy --force                  # Skip git status checks
+iop deploy --verbose                # Show detailed output
+iop deploy -c config.yml            # Use specific config file
 ```
 
 ### Examples
 
 ```bash
-lightform deploy                          # Deploy all apps
-lightform deploy web                      # Deploy only the web app
-lightform deploy web api                  # Deploy web and api apps
-lightform deploy --services               # Deploy all services
-lightform deploy backend --force          # Force deploy (skip git checks)
-lightform deploy --verbose                # Detailed logging
-lightform deploy -c lightform.staging.yml      # Use staging configuration
+iop deploy                          # Deploy all apps
+iop deploy web                      # Deploy only the web app
+iop deploy web api                  # Deploy web and api apps
+iop deploy --services               # Deploy all services
+iop deploy backend --force          # Force deploy (skip git checks)
+iop deploy --verbose                # Detailed logging
+iop deploy -c iop.staging.yml      # Use staging configuration
 ```
 
 ### Deployment Process
 
-1. **Configuration validation** - Verify lightform.yml syntax
+1. **Configuration validation** - Verify iop.yml syntax
 2. **Git status check** - Ensure working directory is clean (unless `--force`)
 3. **Infrastructure verification** - Check servers are ready
 4. **Image building** - Build Docker images locally
@@ -162,7 +162,7 @@ lightform deploy -c lightform.staging.yml      # Use staging configuration
 ### Example Output
 
 ```bash
-❯ lightform deploy
+❯ iop deploy
 Using Git SHA for release ID: a1b2c3d
 Starting deployment with release a1b2c3d
 
@@ -198,31 +198,31 @@ Your apps are live at:
 
 ---
 
-## `lightform status`
+## `iop status`
 
 Check the status of your deployments.
 
 ### Usage
 
 ```bash
-lightform status [app...]                 # Status of specific apps
-lightform status                          # Status of all apps
-lightform status --verbose                # Show detailed status
+iop status [app...]                 # Status of specific apps
+iop status                          # Status of all apps
+iop status --verbose                # Show detailed status
 ```
 
 ### Examples
 
 ```bash
-lightform status                          # All apps status
-lightform status web                      # Status of web app only
-lightform status web api                  # Status of web and api apps
-lightform status --verbose                # Detailed status information
+iop status                          # All apps status
+iop status web                      # Status of web app only
+iop status web api                  # Status of web and api apps
+iop status --verbose                # Detailed status information
 ```
 
 ### Example Output
 
 ```bash
-❯ lightform status
+❯ iop status
 📱 App: web
    Status: ✅ RUNNING (green active)
    Replicas: 2/2 running
@@ -285,19 +285,19 @@ Show detailed output including:
 - Error diagnostics
 
 ```bash
-lightform deploy --verbose
-lightform setup --verbose
-lightform status --verbose
+iop deploy --verbose
+iop setup --verbose
+iop status --verbose
 ```
 
 ### `--config` / `-c`
 
-Use a specific configuration file instead of `lightform.yml`:
+Use a specific configuration file instead of `iop.yml`:
 
 ```bash
-lightform deploy -c lightform.staging.yml
-lightform deploy -c lightform.production.yml
-lightform setup -c environments/prod.yml
+iop deploy -c iop.staging.yml
+iop deploy -c iop.production.yml
+iop setup -c environments/prod.yml
 ```
 
 This enables multi-environment deployments with different configurations.
@@ -311,56 +311,56 @@ Common command sequences for different workflows:
 ### First Deployment
 
 ```bash
-lightform init                            # Initialize project
-# Edit lightform.yml and .lightform/secrets
-lightform setup                           # Prepare servers
-lightform deploy                          # Deploy apps
-lightform status                          # Verify deployment
+iop init                            # Initialize project
+# Edit iop.yml and .iop/secrets
+iop setup                           # Prepare servers
+iop deploy                          # Deploy apps
+iop status                          # Verify deployment
 ```
 
 ### Regular Deployments
 
 ```bash
-lightform deploy                          # Deploy latest changes
-lightform status                          # Check status
+iop deploy                          # Deploy latest changes
+iop status                          # Check status
 ```
 
 ### Multi-Environment Workflow
 
 ```bash
 # Deploy to staging
-lightform deploy -c lightform.staging.yml
+iop deploy -c iop.staging.yml
 
 # Deploy to production
-lightform deploy -c lightform.production.yml
+iop deploy -c iop.production.yml
 
 # Check production status
-lightform status -c lightform.production.yml
+iop status -c iop.production.yml
 ```
 
 ### Service Management
 
 ```bash
-lightform deploy --services               # Deploy/update services
-lightform status --verbose                # Check all services
+iop deploy --services               # Deploy/update services
+iop status --verbose                # Check all services
 ```
 
 ---
 
 ## Exit Codes
 
-Lightform commands return standard exit codes:
+iop commands return standard exit codes:
 
 - **0** - Success
 - **1** - General error (configuration, network, etc.)
 - **2** - Command line usage error
 - **130** - Interrupted by user (Ctrl+C)
 
-This makes Lightform suitable for use in CI/CD pipelines:
+This makes iop suitable for use in CI/CD pipelines:
 
 ```bash
 #!/bin/bash
-lightform deploy -c lightform.production.yml
+iop deploy -c iop.production.yml
 if [ $? -eq 0 ]; then
     echo "✅ Deployment successful"
 else

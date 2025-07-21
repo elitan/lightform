@@ -1,11 +1,11 @@
 ---
 title: Examples
-description: Real-world examples and configurations for Lightform deployments
+description: Real-world examples and configurations for iop deployments
 ---
 
 # Examples
 
-Real-world examples showing how to deploy different types of applications with Lightform.
+Real-world examples showing how to deploy different types of applications with iop.
 
 ## Basic Web Application
 
@@ -74,7 +74,7 @@ EXPOSE 3000
 CMD ["./main"]
 ```
 
-**lightform.yml**:
+**iop.yml**:
 
 ```yaml
 name: my-go-app
@@ -105,10 +105,10 @@ apps:
 ### Deployment
 
 ```bash
-lightform init                  # Creates configuration files
-# Edit lightform.yml with your settings
-lightform setup                 # Prepare server
-lightform deploy                # Deploy app
+iop init                  # Creates configuration files
+# Edit iop.yml with your settings
+iop setup                 # Prepare server
+iop deploy                # Deploy app
 ```
 
 ---
@@ -187,7 +187,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 CMD ["node", "server.js"]
 ```
 
-**lightform.yml**:
+**iop.yml**:
 
 ```yaml
 name: my-nextjs-app
@@ -229,7 +229,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
 Deploy a complete application with frontend, API, and PostgreSQL database.
 
-**lightform.yml**:
+**iop.yml**:
 
 ```yaml
 name: ecommerce-app
@@ -320,7 +320,7 @@ services:
       retries: 3
 ```
 
-**.lightform/secrets**:
+**.iop/secrets**:
 
 ```bash
 DATABASE_URL=postgres://ecommerce:secure_password@db.mysite.com:5432/ecommerce
@@ -334,13 +334,13 @@ STRIPE_SECRET_KEY=sk_live_...
 
 ```bash
 # Deploy services first (database, cache)
-lightform deploy --services
+iop deploy --services
 
 # Then deploy applications
-lightform deploy
+iop deploy
 
 # Check everything is running
-lightform status
+iop status
 ```
 
 ---
@@ -349,7 +349,7 @@ lightform status
 
 Deploy multiple microservices with load balancing and service discovery.
 
-**lightform.yml**:
+**iop.yml**:
 
 ```yaml
 name: microservices-platform
@@ -458,7 +458,7 @@ services:
 
 Deploy the same application to different environments with environment-specific configurations.
 
-**lightform.staging.yml**:
+**iop.staging.yml**:
 
 ```yaml
 name: myapp-staging
@@ -514,7 +514,7 @@ services:
       - postgres_staging_data:/var/lib/postgresql/data
 ```
 
-**lightform.production.yml**:
+**iop.production.yml**:
 
 ```yaml
 name: myapp-production
@@ -582,16 +582,16 @@ services:
 
 ```bash
 # Deploy to staging
-lightform deploy -c lightform.staging.yml
+iop deploy -c iop.staging.yml
 
 # Test staging environment
 curl https://staging.myapp.com/health
 
 # Deploy to production
-lightform deploy -c lightform.production.yml
+iop deploy -c iop.production.yml
 
 # Monitor production
-lightform status -c lightform.production.yml
+iop status -c iop.production.yml
 ```
 
 ---
@@ -621,8 +621,8 @@ jobs:
         with:
           node-version: "18"
 
-      - name: Install Lightform
-        run: npm install -g lightform
+      - name: Install iop
+        run: npm install -g iop
 
       - name: Setup SSH
         run: |
@@ -633,12 +633,12 @@ jobs:
 
       - name: Create secrets file
         run: |
-          mkdir -p .lightform
-          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .lightform/secrets
-          echo "API_KEY=${{ secrets.API_KEY }}" >> .lightform/secrets
+          mkdir -p .iop
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> .iop/secrets
+          echo "API_KEY=${{ secrets.API_KEY }}" >> .iop/secrets
 
       - name: Deploy to production
-        run: lightform deploy -c lightform.production.yml
+        run: iop deploy -c iop.production.yml
 ```
 
 ### GitLab CI
@@ -653,15 +653,15 @@ deploy:
   stage: deploy
   image: node:18
   before_script:
-    - npm install -g lightform
+    - npm install -g iop
     - mkdir -p ~/.ssh
     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
     - chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -H $SERVER_HOST >> ~/.ssh/known_hosts
-    - mkdir -p .lightform
-    - echo "DATABASE_URL=$DATABASE_URL" >> .lightform/secrets
+    - mkdir -p .iop
+    - echo "DATABASE_URL=$DATABASE_URL" >> .iop/secrets
   script:
-    - lightform deploy -c lightform.production.yml
+    - iop deploy -c iop.production.yml
   only:
     - main
 ```
@@ -682,10 +682,10 @@ ssh:
 2. **Separate environment secrets**:
 
 ```bash
-# .lightform/secrets.staging
+# .iop/secrets.staging
 DATABASE_URL=postgres://...staging...
 
-# .lightform/secrets.production
+# .iop/secrets.production
 DATABASE_URL=postgres://...production...
 ```
 
@@ -747,8 +747,8 @@ app.get("/health", async (req, res) => {
 
 ```bash
 # Check all environments
-lightform status -c lightform.staging.yml
-lightform status -c lightform.production.yml
+iop status -c iop.staging.yml
+iop status -c iop.production.yml
 ```
 
-These examples provide a solid foundation for deploying various types of applications with Lightform. Adapt them to your specific needs and infrastructure requirements.
+These examples provide a solid foundation for deploying various types of applications with iop. Adapt them to your specific needs and infrastructure requirements.
