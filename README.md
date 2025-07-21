@@ -26,7 +26,7 @@ apps:
   web:
     build:
       context: .
-    server: your-server.com
+    server: 157.180.47.213
     proxy:
       app_port: 3000
     environment:
@@ -108,7 +108,7 @@ apps:
     build:
       context: .
       dockerfile: Dockerfile
-    server: your-server.com
+    server: 157.180.47.213
     proxy:
       hosts:
         - myapp.com #- optional, auto-generated if not provided
@@ -120,7 +120,7 @@ apps:
 services:
   postgres:
     image: postgres:15
-    server: your-server.com
+    server: 157.180.47.213
     environment:
       secret:
         - POSTGRES_PASSWORD
@@ -166,7 +166,7 @@ apps:
   web:
     build:
       context: .
-    server: your-server.com
+    server: 157.180.47.213
     proxy:
       hosts:
         - myapp.com
@@ -188,7 +188,7 @@ apps:
   web:
     build:
       context: .
-    server: your-server.com
+    server: 157.180.47.213
     proxy:
       app_port: 3000
     environment:
@@ -198,7 +198,7 @@ apps:
 services:
   postgres:
     image: postgres:15
-    server: your-server.com
+    server: 157.180.47.213
     ports:
       - "5433:5432"
     environment:
