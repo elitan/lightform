@@ -120,12 +120,13 @@ export class Logger {
   }
 
   // New method for app-specific deployment logging
-  appDeployment(appName: string, servers: string[]) {
+  appDeployment(appName: string, servers: string[], isLast: boolean = false) {
     this.clearSpinner();
+    const symbol = isLast ? "└─" : "├─";
     if (servers.length === 1) {
-      console.log(`  └─ ${appName} → ${servers[0]}`);
+      console.log(`  ${symbol} ${appName} → ${servers[0]}`);
     } else {
-      console.log(`  └─ ${appName} → ${servers.join(", ")}`);
+      console.log(`  ${symbol} ${appName} → ${servers.join(", ")}`);
     }
     this.currentOutputLine++;
   }
@@ -140,7 +141,7 @@ export class Logger {
     }
 
     const symbol = isLast ? "└─" : "├─";
-    this.startSpinnerAtPosition(`     ${symbol} `, message, 2);
+    this.startSpinnerAtPosition(`  ${symbol} `, message, 2);
   }
 
   buildStepComplete(
@@ -152,7 +153,7 @@ export class Logger {
     const symbol = isLast ? "└─" : "├─";
     const elapsed = duration || Date.now() - this.stepStartTime;
     console.log(
-      `     ${symbol} [✓] ${message} (${this.formatDuration(elapsed)})`
+      `  ${symbol} [✓] ${message} (${this.formatDuration(elapsed)})`
     );
     this.currentOutputLine++;
 
@@ -178,45 +179,51 @@ export class Logger {
     }
   }
 
-  serverStep(message: string, isLast: boolean = false) {
+  serverStep(message: string, isLast: boolean = false, isLastParent: boolean = false) {
     this.clearSpinner();
     const symbol = isLast ? "└─" : "├─";
-    this.startSpinnerAtPosition(`     ${symbol} `, message, 2);
+    const prefix = isLastParent ? "     " : "  │  ";
+    this.startSpinnerAtPosition(`${prefix}${symbol} `, message, 2);
   }
 
   serverStepComplete(
     message: string,
     duration?: number,
-    isLast: boolean = false
+    isLast: boolean = false,
+    isLastParent: boolean = false
   ) {
     this.clearSpinner();
     const symbol = isLast ? "└─" : "├─";
+    const prefix = isLastParent ? "     " : "  │  ";
     const elapsed = duration || Date.now() - this.stepStartTime;
     console.log(
-      `     ${symbol} [✓] ${message} (${this.formatDuration(elapsed)})`
+      `${prefix}${symbol} [✓] ${message} (${this.formatDuration(elapsed)})`
     );
     this.currentOutputLine++;
   }
 
-  serverStepError(message: string, error?: any, isLast: boolean = false) {
+  serverStepError(message: string, error?: any, isLast: boolean = false, isLastParent: boolean = false) {
     this.clearSpinner();
     const symbol = isLast ? "└─" : "├─";
-    console.log(`     ${symbol} [✗] ${message}`);
+    const prefix = isLastParent ? "     " : "  │  ";
+    console.log(`${prefix}${symbol} [✗] ${message}`);
     if (error && this.isVerbose) {
-      console.error(`        Error: ${error}`);
+      console.error(`${prefix}   Error: ${error}`);
     }
   }
 
   // Final results
-  deploymentComplete(urls: string[] = []) {
+  deploymentComplete(appUrls: Array<{appName: string, url: string}> = []) {
     this.clearSpinner();
 
-    if (urls.length > 0) {
-      console.log(`\nYour app is live at:`);
-      urls.forEach((url, index) => {
-        const isLast = index === urls.length - 1;
+    if (appUrls.length > 0) {
+      const isPlural = appUrls.length > 1;
+      const appText = isPlural ? "apps are" : "app is";
+      console.log(`\nYour ${appText} live at:`);
+      appUrls.forEach((appUrl, index) => {
+        const isLast = index === appUrls.length - 1;
         const symbol = isLast ? "└─" : "├─";
-        console.log(`  ${symbol} ${url}`);
+        console.log(`  ${symbol} ${appUrl.appName} → ${appUrl.url}`);
       });
     }
   }

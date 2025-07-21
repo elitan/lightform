@@ -745,8 +745,10 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
     const deploymentStartTime = Date.now();
 
     // Deployment phase: Deploy each app to their servers
-    for (const appEntry of apps) {
-      await deployAppToServers(appEntry, context);
+    for (let i = 0; i < apps.length; i++) {
+      const appEntry = apps[i];
+      const isLastApp = i === apps.length - 1;
+      await deployAppToServers(appEntry, context, isLastApp);
     }
 
     const deploymentDuration = Date.now() - deploymentStartTime;
@@ -808,11 +810,12 @@ async function buildAndSaveApp(
  */
 async function deployAppToServers(
   appEntry: AppEntry,
-  context: DeploymentContext
+  context: DeploymentContext,
+  isLastApp: boolean = false
 ): Promise<void> {
-  logger.appDeployment(appEntry.name, [appEntry.server]);
+  logger.appDeployment(appEntry.name, [appEntry.server], isLastApp);
 
-  await deployAppToServer(appEntry, appEntry.server, context, true);
+  await deployAppToServer(appEntry, appEntry.server, context, true, isLastApp);
 }
 
 /**
@@ -923,7 +926,8 @@ async function deployAppToServer(
   appEntry: AppEntry,
   serverHostname: string,
   context: DeploymentContext,
-  isLastServer: boolean = false
+  isLastServer: boolean = false,
+  isLastApp: boolean = false
 ): Promise<void> {
   try {
     logger.verboseLog(`Deploying ${appEntry.name} to ${serverHostname}`);
@@ -946,7 +950,7 @@ async function deployAppToServer(
     // Step 1: Ensure image is available
     if (appNeedsBuilding(appEntry)) {
       // For built apps, transfer and load the image
-      logger.serverStep("Transfer image");
+      logger.serverStep("Transfer image", false, isLastApp);
       await transferAndLoadImage(
         appEntry,
         sshClient,
@@ -954,21 +958,21 @@ async function deployAppToServer(
         context,
         imageNameWithRelease
       );
-      logger.serverStepComplete("Transfer image");
+      logger.serverStepComplete("Transfer image", undefined, false, isLastApp);
     } else {
       // For pre-built apps, pull the image from registry
-      logger.serverStep(`Pull ${appEntry.name} image`);
+      logger.serverStep(`Pull ${appEntry.name} image`, false, isLastApp);
       await authenticateAndPullImage(
         appEntry,
         dockerClient,
         context,
         imageNameWithRelease
       );
-      logger.serverStepComplete(`Pull ${appEntry.name} image`);
+      logger.serverStepComplete(`Pull ${appEntry.name} image`, undefined, false, isLastApp);
     }
 
     // Step 2: Zero-downtime deployment
-    logger.serverStep("Zero-downtime deployment");
+    logger.serverStep("Zero-downtime deployment", false, isLastApp);
     const deploymentResult = await performBlueGreenDeployment({
       appEntry,
       releaseId: context.releaseId,
@@ -984,10 +988,10 @@ async function deployAppToServer(
       await sshClient.close();
       throw new Error(deploymentResult.error || "Deployment failed");
     }
-    logger.serverStepComplete("Zero-downtime deployment");
+    logger.serverStepComplete("Zero-downtime deployment", undefined, false, isLastApp);
 
     // Step 3: Configure proxy
-    logger.serverStep("Configure proxy", isLastServer);
+    logger.serverStep("Configure proxy", isLastServer, isLastApp);
     await configureProxyForApp(
       appEntry,
       dockerClient,
@@ -999,7 +1003,8 @@ async function deployAppToServer(
     logger.serverStepComplete(
       "Configure proxy",
       undefined,
-      isLastServer
+      isLastServer,
+      isLastApp
     );
 
     await sshClient.close();
@@ -1007,7 +1012,8 @@ async function deployAppToServer(
     logger.serverStepError(
       `${appEntry.name} deployment to ${serverHostname}`,
       error,
-      isLastServer
+      isLastServer,
+      isLastApp
     );
     throw error;
   }
@@ -2139,7 +2145,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     await deployEntries(context);
 
     // Collect URLs for final output
-    const urls: string[] = [];
+    const appUrls: Array<{appName: string, url: string}> = [];
     if (!deployServicesFlag) {
       for (const entry of targetApps) {
         const appEntry = entry;
@@ -2158,13 +2164,16 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
           }
 
           for (const host of hosts) {
-            urls.push(`https://${host}`);
+            appUrls.push({
+              appName: appEntry.name,
+              url: `https://${host}`
+            });
           }
         }
       }
     }
 
-    logger.deploymentComplete(urls);
+    logger.deploymentComplete(appUrls);
   } catch (error) {
     logger.deploymentFailed(error);
     process.exit(1);
