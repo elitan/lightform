@@ -1,5 +1,7 @@
 # iop
 
+> **⚠️ Warning**: This project is in rapid development and should not yet be used seriously. [Join our Discord server](https://discord.gg/t4KetSPhWu) to keep up to date.
+
 Zero-downtime Docker deployments with automatic HTTPS. Build locally, deploy to your servers.
 
 ```bash
