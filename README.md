@@ -6,11 +6,14 @@
 
 Zero-downtime Docker deployments with automatic HTTPS. Build locally, deploy to your servers.
 
+**Install and configure:**
+
 ```bash
 npm install -g iop
 iop init
-iop       # Deploys with automatic setup - that's it!
 ```
+
+This creates your `iop.yml` configuration:
 
 ```yaml
 # iop.yml
@@ -23,42 +26,35 @@ apps:
   web:
     build:
       context: .
-      dockerfile: Dockerfile
     server: your-server.com
     proxy:
       app_port: 3000
-      # hosts:
-      #   - myapp.com # optional, auto-generated if not provided
     environment:
       secret:
         - DATABASE_URL
 ```
+
+**Deploy everything:**
 
 ```bash
 ❯ iop
 [✓] Loading configuration (6ms)
 [✓] Preparing infrastructure (1.1s)
 [✓] Building locally
-  ├─ [✓] Build web1 image (1.3s)
-  ├─ [✓] Package for transfer (2.2s)
-  ├─ [✓] Build web2 image (1.0s)
+  ├─ [✓] Build web image (1.3s)
   └─ [✓] Package for transfer (2.2s)
 [✓] Reconciling state (703ms)
-[✓] Deploying services (886ms)
 [✓] Deploying applications
-  ├─ web1 → 157.180.47.213
-  │  ├─ [✓] Transfer image (6.1s)
-  │  ├─ [✓] Zero-downtime deployment (3.0s)
-  │  └─ [✓] Configure proxy (645ms)
-  └─ web2 → 157.180.47.213
+  └─ web → 157.180.47.213
      ├─ [✓] Transfer image (6.1s)
-     ├─ [✓] Zero-downtime deployment (2.8s)
-     └─ [✓] Configure proxy (513ms)
+     ├─ [✓] Zero-downtime deployment (3.0s)
+     └─ [✓] Configure proxy (645ms)
 
-Your apps are live at:
-  ├─ web1 → https://cce26bae-web1-iop-157-180-47-213.app.iop.run
-  └─ web2 → https://76da4d03-web2-iop-157-180-47-213.app.iop.run
+Your app is live at:
+  └─ web → https://a1b2c3d4-web-iop-157-180-47-213.app.iop.run
 ```
+
+**That's it!** Fresh servers are automatically set up with Docker, SSL certificates, and security hardening.
 
 ## Features
 
@@ -158,10 +154,32 @@ iop proxy logs --lines 100  # Show proxy logs (default: 50 lines)
 
 ## Examples
 
-**Simple app:**
+**With custom domain:**
 
 ```yaml
-name: blog
+name: my-app
+
+ssh:
+  username: iop
+
+apps:
+  web:
+    build:
+      context: .
+    server: your-server.com
+    proxy:
+      hosts:
+        - myapp.com
+      app_port: 3000
+    environment:
+      secret:
+        - DATABASE_URL
+```
+
+**With database service:**
+
+```yaml
+name: my-app
 
 ssh:
   username: iop
@@ -176,42 +194,6 @@ apps:
     environment:
       secret:
         - DATABASE_URL
-```
-
-**Multiple apps with services:**
-
-```yaml
-name: my-app
-
-ssh:
-  username: iop
-
-apps:
-  web1:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    server: your-server.com
-    proxy:
-      app_port: 3000
-    environment:
-      secret:
-        - DATABASE_URL
-    health_check:
-      path: /health
-
-  web2:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    server: your-server.com
-    proxy:
-      app_port: 3001
-    environment:
-      secret:
-        - DATABASE_URL
-    health_check:
-      path: /health
 
 services:
   postgres:
@@ -224,29 +206,6 @@ services:
         - POSTGRES_PASSWORD
     volumes:
       - postgres_data:/var/lib/postgresql/data
-```
-
-**Next.js with custom domain:**
-
-```yaml
-name: my-nextjs-app
-
-ssh:
-  username: iop
-
-apps:
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    server: your-server.com
-    proxy:
-      hosts:
-        - myapp.com
-      app_port: 3000
-    environment:
-      secret:
-        - DATABASE_URL
 ```
 
 ## How it works
