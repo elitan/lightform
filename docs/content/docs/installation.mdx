@@ -11,29 +11,22 @@ Get iop up and running on your system.
 
 ### Local Machine
 
-- **Bun** or **Node.js 18+** - For running the iop CLI
+- **Node.js 18+** - For running the iop CLI
 - **Git** - For version tracking and release IDs
-- **Docker** (optional) - Only needed if you want to test builds locally
+- **Docker** - Required for building app images locally
 
 ### Target Servers
 
 - **Ubuntu/Debian Linux** - iop supports Ubuntu and Debian-based distributions
-- **SSH access with sudo privileges** - iop needs to install Docker and configure services
-- **Ports 80 and 443 open** - For HTTP/HTTPS traffic
-- **Git** (installed automatically during setup)
+- **SSH access** - iop needs to connect and set up infrastructure
+- **Ports 22, 80, and 443 open** - For SSH, HTTP, and HTTPS traffic
 
 ## Install iop CLI
 
 ### Using npm (Recommended)
 
 ```bash
-npm install -g @elitan/iop
-```
-
-### Using Bun
-
-```bash
-bun install -g @elitan/iop
+npm install -g iop
 ```
 
 ### Using npx (No Installation)
@@ -41,8 +34,8 @@ bun install -g @elitan/iop
 You can run iop without installing it globally:
 
 ```bash
-npx @elitan/iop init
-npx @elitan/iop deploy
+npx iop init
+npx iop
 ```
 
 ## Verify Installation
@@ -56,18 +49,33 @@ iop --help
 You should see output similar to:
 
 ```
-iop CLI - Please provide a command.
-Available commands: init, setup, deploy, status, redeploy, rollback
+iop CLI - Zero-downtime Docker deployments
+================================================
 
-Flags:
-  --verbose    Show detailed output
-  --force      Force operation (deploy only)
-  --services   Deploy services instead of apps (deploy only)
+USAGE:
+  iop [flags]                 # Deploy (default action)
+  iop <command> [flags]       # Run specific command
+
+COMMANDS:
+  init      Initialize iop.yml config and secrets file
+  status    Check deployment status across all servers
+  proxy     Manage iop proxy (status, update)
+
+GLOBAL FLAGS:
+  --help     Show command help
+  --verbose  Show detailed output
+
+EXAMPLES:
+  iop init                    # Initialize new project
+  iop                         # Deploy all apps and services
+  iop --verbose               # Deploy with detailed output
+  iop status                  # Check all deployments
+  iop proxy status            # Check proxy status
 ```
 
-## Server Setup
+## Server Preparation (Optional)
 
-iop will automatically install and configure Docker on your servers when you run `iop setup`. However, you may want to prepare your servers in advance:
+iop automatically sets up servers during deployment, but you can prepare them in advance:
 
 ### Create a Deployment User (Recommended)
 
@@ -75,11 +83,11 @@ For better security, create a dedicated user for deployments:
 
 ```bash
 # On your server
-sudo useradd -m -s /bin/bash deploy
-sudo usermod -aG docker,sudo deploy
+sudo useradd -m -s /bin/bash iop
+sudo usermod -aG docker,sudo iop
 
 # Set up SSH key access
-ssh-copy-id deploy@your-server.com
+ssh-copy-id iop@your-server.com
 ```
 
 Then configure iop to use this user:
@@ -87,12 +95,12 @@ Then configure iop to use this user:
 ```yaml
 # iop.yml
 ssh:
-  username: deploy
+  username: iop
 ```
 
 ### Manual Docker Installation (Optional)
 
-If you prefer to install Docker manually:
+iop will install Docker automatically, but you can install it manually:
 
 ```bash
 # On Ubuntu/Debian
@@ -108,15 +116,61 @@ Ensure your servers have the required ports open:
 - **Port 22** - SSH access for iop
 - **Port 80** - HTTP traffic (redirected to HTTPS)
 - **Port 443** - HTTPS traffic
-- **Custom ports** - Any ports specified in your `iop.yml` configuration
+- **Port 8080** - iop proxy API (localhost only)
+
+### Firewall Configuration
+
+iop automatically configures firewall rules, but you can set them up manually:
+
+```bash
+# On Ubuntu/Debian with ufw
+sudo ufw allow 22/tcp   # SSH
+sudo ufw allow 80/tcp   # HTTP
+sudo ufw allow 443/tcp  # HTTPS
+sudo ufw enable
+```
+
+## Docker Configuration
+
+iop requires Docker to be running locally for building images:
+
+### macOS (Docker Desktop)
+
+1. Download and install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+2. Start Docker Desktop
+3. Verify: `docker --version`
+
+### Linux
+
+```bash
+# Install Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sh get-docker.sh
+
+# Add your user to docker group (avoid sudo)
+sudo usermod -aG docker $USER
+
+# Start Docker service
+sudo systemctl start docker
+sudo systemctl enable docker
+
+# Verify installation
+docker --version
+```
+
+### Windows
+
+1. Install [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/)
+2. Enable WSL 2 backend if prompted
+3. Verify: `docker --version`
 
 ## Next Steps
 
 With iop installed, you're ready to:
 
-1. [Initialize your first project](/quick-start)
-2. [Configure your deployment](/configuration)
-3. [Deploy your application](/commands/deploy)
+1. [Initialize your first project](/quick-start) - `iop init`
+2. [Configure your deployment](/configuration) - Edit `iop.yml`  
+3. [Deploy your application](/quick-start) - `iop`
 
 ## Troubleshooting
 
@@ -124,20 +178,98 @@ With iop installed, you're ready to:
 
 If you get `command not found` after installation:
 
-1. **Check your PATH** - Make sure npm/bun global bin directory is in your PATH
-2. **Restart your terminal** - Close and reopen your terminal
-3. **Use npx** - Run `npx @elitan/iop` as an alternative
+1. **Restart your terminal** - Close and reopen your terminal
+2. **Check your PATH** - Make sure npm global bin directory is in your PATH:
+
+```bash
+npm config get prefix
+# Add the bin directory to your PATH if needed
+export PATH=$(npm config get prefix)/bin:$PATH
+```
+
+3. **Use npx** - Run `npx iop` as an alternative
 
 ### Permission Issues
 
-If you encounter permission issues:
+If you encounter permission issues during installation:
 
 1. **Don't use sudo with npm install** - This can cause permission problems
-2. **Use a Node version manager** - Consider using nvm, fnm, or volta
-3. **Configure npm prefix** - Set up npm to install globally without sudo
+2. **Configure npm to avoid sudo**:
 
 ```bash
 mkdir ~/.npm-global
 npm config set prefix '~/.npm-global'
-export PATH=~/.npm-global/bin:$PATH
+echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
 ```
+
+3. **Use a Node version manager** - Consider using nvm, fnm, or volta
+
+### Docker Issues
+
+If Docker is not working:
+
+1. **Verify Docker is running**: `docker --version`
+2. **Check Docker daemon**: `docker ps`
+3. **Add to docker group**: `sudo usermod -aG docker $USER` (then logout/login)
+
+### SSH Connection Issues
+
+If iop cannot connect to your servers:
+
+1. **Test SSH manually**: `ssh user@your-server.com`
+2. **Check SSH key authentication**: `ssh -i ~/.ssh/id_rsa user@your-server.com`  
+3. **Verify server hostname/IP** in `iop.yml`
+4. **Use verbose mode**: `iop --verbose` for detailed connection info
+
+### Node.js Version Issues
+
+iop requires Node.js 18+. Check your version:
+
+```bash
+node --version
+```
+
+If you need to upgrade:
+
+**Using nvm (recommended):**
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+nvm install 18
+nvm use 18
+```
+
+**Using package manager:**
+```bash
+# Ubuntu/Debian
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# macOS with Homebrew
+brew install node@18
+```
+
+## Development Setup
+
+If you want to contribute to iop or run it from source:
+
+```bash
+# Clone the repository
+git clone https://github.com/elitan/iop.git
+cd iop
+
+# Install dependencies
+bun install
+
+# Build the CLI
+bun run build
+
+# Link for local development
+cd packages/cli
+bun link
+
+# Now you can use `iop` anywhere
+iop --help
+```
+
+This will build the CLI from source and make it available globally on your system.

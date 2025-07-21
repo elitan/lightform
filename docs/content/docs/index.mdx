@@ -1,24 +1,25 @@
 ---
 title: Welcome to iop
-description: Zero-downtime deployments for your own servers
+description: Zero-downtime Docker deployments to your own servers
 ---
 
 # iop: Ship Docker Anywhere ⚡
 
-iop is a TypeScript CLI tool that provides **zero-downtime deployments** and **automatic HTTPS** on your own servers. Deploy any Docker application with blue-green deployments, automatic SSL certificates, health checks, and multi-server support.
+iop is a zero-downtime Docker deployment tool that lets you deploy any Docker application to your own servers with automatic HTTPS and no configuration complexity.
 
-## Key Features
+## Core Features
 
-- ✅ **Zero-downtime blue-green deployments** - No service interruption during updates
-- ✅ **Automatic SSL certificates** via Let's Encrypt - HTTPS out of the box
-- ✅ **Health checks and automatic rollbacks** - Reliability built-in
-- ✅ **Docker image building and secure transfer** - No registry required
-- ✅ **Multi-server deployments** - Scale across multiple machines
-- ✅ **Registry-free operation** - Images transferred directly via SSH
+- ✅ **Zero-downtime blue-green deployments** - Apps deploy with no service interruption
+- ✅ **Registry-free deployment** - Build locally, transfer via SSH (no Docker registry needed)
+- ✅ **Automatic server setup** - Fresh server bootstrap with security hardening
+- ✅ **Auto-SSL with Let's Encrypt** - HTTPS certificates managed automatically
+- ✅ **Multi-server support** - Deploy across multiple servers with load balancing
+- ✅ **Git-based releases** - Easy rollbacks by checking out previous commits
+- ✅ **Health checks and automatic rollbacks** - Built-in reliability
 
 ## Quick Start
 
-Get started with iop in just a few minutes:
+Get started with iop in just a few steps:
 
 <Cards>
   <Card title='Installation' href='/installation' />
@@ -27,18 +28,23 @@ Get started with iop in just a few minutes:
   <Card title='Examples' href='/examples' />
 </Cards>
 
+## Philosophy
+
+**No rollback commands needed** - just checkout the git commit you want and run `iop` again.
+
 ## Why Choose iop?
 
 ### vs Kamal (37signals)
 
-- **TypeScript/Bun** instead of Ruby
-- **Registry-less deployments** - no need for external Docker registries
+- **TypeScript/Bun** instead of Ruby for better performance
+- **Registry-free deployments** - no need for external Docker registries
+- **Automatic server hardening** - security built-in from day one
 
 ### vs Vercel/Netlify
 
 - **Your own servers** - full control, no vendor lock-in
 - **Any Docker app** - not limited to specific frameworks
-- **Cost-effective** - pay only for your servers
+- **Cost-effective** - pay only for your servers, not per deployment
 - **No cold starts** - your containers are always running
 
 ### vs Docker Compose
@@ -48,18 +54,46 @@ Get started with iop in just a few minutes:
 - **Automatic SSL** and reverse proxy included
 - **Git-based releases** and rollback capabilities
 
+## Key Concepts
+
+### Apps vs Services
+
+iop distinguishes between two types of deployments:
+
+- **Apps** - User-facing applications that get **zero-downtime blue-green deployments**
+- **Services** - Infrastructure components (databases, caches) that get **direct replacement**
+
+### Deployment Architecture
+
+```mermaid
+graph LR
+    A[Local Build] --> B[SSH Transfer]
+    B --> C[Blue-Green Deploy]
+    C --> D[Health Check]
+    D --> E[Traffic Switch]
+    E --> F[Cleanup Old]
+```
+
+1. **Local Build** - Docker images built on your machine
+2. **SSH Transfer** - Images compressed and sent via SSH (no registry)
+3. **Blue-Green Deploy** - New version starts alongside old version
+4. **Health Check** - New version validated before traffic switch
+5. **Traffic Switch** - Atomic switch via network aliases
+6. **Cleanup** - Old version containers removed
+
 ## Example Deployment
 
 ```bash
-❯ iop deploy
+❯ iop
 Using Git SHA for release ID: 9d8209a
 Starting deployment with release 9d8209a
 
 [✓] Configuration loaded (0ms)
 [✓] Git status verified (3ms)
 [✓] Infrastructure ready (1.2s)
-[✓] web → elitan/iop-test-web:9d8209a (3.3s)
 [✓] Building Images (3.3s)
+  └─ web → my-app/web:9d8209a
+[✓] Deploying to Servers (4.2s)
   └─ 157.180.25.101
      ├─ [✓] Loading image (2.5s)
      ├─ [✓] Zero-downtime deployment (1.4s)
@@ -70,6 +104,13 @@ Your app is live at:
   └─ https://test.eliasson.me
 ```
 
+## Commands Overview
+
+- **`iop init`** - Initialize iop.yml config and secrets file
+- **`iop`** - Deploy apps and services (default command, auto-sets up infrastructure)
+- **`iop status`** - Check deployment status across all servers
+- **`iop proxy`** - Manage the reverse proxy (status, update, logs, delete-host)
+
 ## Get Started
 
-Ready to deploy? Follow our [Quick Start guide](/docs/quick-start) to deploy your first application with iop.
+Ready to deploy? Follow our [Quick Start guide](/quick-start) to deploy your first application with iop.
