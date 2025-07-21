@@ -676,7 +676,7 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
     const buildStartTime = Date.now();
 
     // Create build header
-    logger.info("Local Build");
+    logger.phaseStart("Building locally");
 
     for (let i = 0; i < appsNeedingBuild.length; i++) {
       const appEntry = appsNeedingBuild[i];
@@ -686,7 +686,8 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
       context.imageArchives.set(appEntry.name, archivePath);
     }
 
-    // Build complete - sub-steps already show individual timings
+    // Build complete - show checkmark
+    logger.phaseEnd("Building locally");
   }
 
   // Skip build phase for pre-built apps and show info
@@ -700,7 +701,7 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   }
 
   // Clean up removed apps with reconciliation
-  logger.phase("App State Reconciliation");
+  logger.phase("Reconciling state");
   const allAppServers = new Set<string>();
   context.targetApps.forEach((entry) => {
     allAppServers.add(entry.server);
@@ -717,11 +718,11 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   for (const serverHostname of Array.from(allAppServers)) {
     await reconcileAppsOnServer(context, serverHostname);
   }
-  logger.phaseComplete("App State Reconciliation");
+  logger.phaseComplete("Reconciling state");
 
   // Deploy phase for services with reconciliation
   if (services.length > 0) {
-    logger.phase("Deploying Services");
+    logger.phase("Deploying services");
 
     // Get all unique servers that need service deployment
     const allServiceServers = new Set<string>();
@@ -735,12 +736,12 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
       await deployServicesWithReconciliation(context, serverHostname);
     }
 
-    logger.phaseComplete("Service deployment complete");
+    logger.phaseComplete("Deploying services");
   }
 
   // Deploy phase for apps
   if (apps.length > 0) {
-    logger.phase("Deploying Apps");
+    logger.phaseStart("Deploying applications");
     const deploymentStartTime = Date.now();
 
     // Deployment phase: Deploy each app to their servers
@@ -749,7 +750,7 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
     }
 
     const deploymentDuration = Date.now() - deploymentStartTime;
-    logger.phaseComplete("Deploying Apps", deploymentDuration);
+    logger.phaseEnd("Deploying applications");
   }
 }
 
@@ -779,7 +780,7 @@ async function buildAndSaveApp(
     logger.buildStepComplete(`Build ${appEntry.name} image`, buildDuration);
 
     // Step 2: Prepare for transfer
-    logger.buildStep(`Prepare ${appEntry.name} image for transfer`, isLastApp);
+    logger.buildStep(`Package for transfer`, isLastApp);
     const saveStartTime = Date.now();
 
     const archivePath = await saveAppImage(
@@ -790,7 +791,7 @@ async function buildAndSaveApp(
 
     const saveDuration = Date.now() - saveStartTime;
     logger.buildStepComplete(
-      `Prepare ${appEntry.name} image for transfer`,
+      "Package for transfer",
       saveDuration,
       isLastApp
     );
@@ -945,7 +946,7 @@ async function deployAppToServer(
     // Step 1: Ensure image is available
     if (appNeedsBuilding(appEntry)) {
       // For built apps, transfer and load the image
-      logger.serverStep(`Transfer & load ${appEntry.name} image`);
+      logger.serverStep("Transfer image");
       await transferAndLoadImage(
         appEntry,
         sshClient,
@@ -953,7 +954,7 @@ async function deployAppToServer(
         context,
         imageNameWithRelease
       );
-      logger.serverStepComplete(`Transfer & load ${appEntry.name} image`);
+      logger.serverStepComplete("Transfer image");
     } else {
       // For pre-built apps, pull the image from registry
       logger.serverStep(`Pull ${appEntry.name} image`);
@@ -967,7 +968,7 @@ async function deployAppToServer(
     }
 
     // Step 2: Zero-downtime deployment
-    logger.serverStep(`Zero-downtime deployment of ${appEntry.name}`);
+    logger.serverStep("Zero-downtime deployment");
     const deploymentResult = await performBlueGreenDeployment({
       appEntry,
       releaseId: context.releaseId,
@@ -983,10 +984,10 @@ async function deployAppToServer(
       await sshClient.close();
       throw new Error(deploymentResult.error || "Deployment failed");
     }
-    logger.serverStepComplete(`Zero-downtime deployment of ${appEntry.name}`);
+    logger.serverStepComplete("Zero-downtime deployment");
 
     // Step 3: Configure proxy
-    logger.serverStep(`Configuring proxy for ${appEntry.name}`, isLastServer);
+    logger.serverStep("Configure proxy", isLastServer);
     await configureProxyForApp(
       appEntry,
       dockerClient,
@@ -996,7 +997,7 @@ async function deployAppToServer(
       context.verboseFlag
     );
     logger.serverStepComplete(
-      `Configuring proxy for ${appEntry.name}`,
+      "Configure proxy",
       undefined,
       isLastServer
     );
@@ -1944,7 +1945,7 @@ async function ensureInfrastructureReady(
   servers: string[],
   verbose: boolean = false
 ): Promise<void> {
-  logger.step("Ensuring infrastructure is ready");
+  logger.step("Preparing infrastructure");
 
   const startTime = Date.now();
 
@@ -2062,7 +2063,7 @@ async function ensureInfrastructureReady(
   }
 
   const elapsed = Date.now() - startTime;
-  logger.stepComplete(`Infrastructure ready (${elapsed}ms)`);
+  logger.stepComplete("Preparing infrastructure", elapsed);
 }
 
 async function checkProjectDirectoriesExist(
@@ -2095,10 +2096,10 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     logger.deploymentStart(releaseId);
 
     // Load configuration
-    logger.phase("Configuration loading");
+    logger.phase("Loading configuration");
 
     const { config, secrets } = await loadConfigurationAndSecrets();
-    logger.phaseComplete("Configuration loaded");
+    logger.phaseComplete("Loading configuration");
 
     const { apps: targetApps, services: targetServices } =
       identifyTargetEntries(entryNames, deployServicesFlag, config);

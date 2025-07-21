@@ -16,6 +16,10 @@ export class Logger {
   private activeSpinner: ActiveSpinner | null = null;
   private spinnerChars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   private spinnerIndex = 0;
+  
+  // Track phase lines for in-place updates
+  private phaseLines = new Map<string, number>();
+  private currentOutputLine = 0;
 
   constructor(options: LoggerOptions = {}) {
     this.isVerbose = options.verbose || false;
@@ -55,7 +59,6 @@ export class Logger {
 
   // Main phase headers
   deploymentStart(releaseId: string) {
-    console.log(`Starting deployment with release ${releaseId}\n`);
     this.startTime = Date.now();
   }
 
@@ -64,16 +67,12 @@ export class Logger {
     this.startSpinner(message, 0);
   }
 
-  phaseStart(message: string) {
-    this.clearSpinner();
-    console.log(`[⠿] ${message}`);
-    this.stepStartTime = Date.now();
-  }
 
   phaseComplete(message: string, duration?: number) {
     this.clearSpinner();
     const elapsed = duration || Date.now() - this.stepStartTime;
     console.log(`[✓] ${message} (${this.formatDuration(elapsed)})`);
+    this.currentOutputLine++;
   }
 
   phaseError(message: string, error?: any) {
@@ -128,6 +127,7 @@ export class Logger {
     } else {
       console.log(`  └─ ${appName} → ${servers.join(", ")}`);
     }
+    this.currentOutputLine++;
   }
 
   // Build steps that work within a phase
@@ -154,6 +154,7 @@ export class Logger {
     console.log(
       `     ${symbol} [✓] ${message} (${this.formatDuration(elapsed)})`
     );
+    this.currentOutputLine++;
 
     // If this was the last step, don't restart the main spinner
     // The main phase will complete and show its own checkmark
@@ -194,6 +195,7 @@ export class Logger {
     console.log(
       `     ${symbol} [✓] ${message} (${this.formatDuration(elapsed)})`
     );
+    this.currentOutputLine++;
   }
 
   serverStepError(message: string, error?: any, isLast: boolean = false) {
@@ -208,15 +210,9 @@ export class Logger {
   // Final results
   deploymentComplete(urls: string[] = []) {
     this.clearSpinner();
-    const totalDuration = Date.now() - this.startTime;
-    console.log(
-      `[✓] Deployment completed successfully in ${this.formatDuration(
-        totalDuration
-      )}\n`
-    );
 
     if (urls.length > 0) {
-      console.log(`Your app is live at:`);
+      console.log(`\nYour app is live at:`);
       urls.forEach((url, index) => {
         const isLast = index === urls.length - 1;
         const symbol = isLast ? "└─" : "├─";
@@ -267,6 +263,44 @@ export class Logger {
   info(message: string) {
     this.clearSpinner();
     console.log(`[i] ${message}`);
+  }
+
+  // Simple parent phase (shows [ ] initially, then [✓] when complete)
+  phaseStart(message: string) {
+    this.clearSpinner();
+    console.log(`[ ] ${message}`);
+    this.phaseLines.set(message, this.currentOutputLine);
+    this.currentOutputLine++;
+  }
+
+  phaseEnd(message: string) {
+    this.clearSpinner();
+    const phaseLineNumber = this.phaseLines.get(message);
+    
+    if (phaseLineNumber !== undefined) {
+      // Calculate how many lines to move up
+      const linesToMoveUp = this.currentOutputLine - phaseLineNumber;
+      
+      if (linesToMoveUp > 0) {
+        // Move cursor up to the phase line
+        process.stdout.write(`\u001b[${linesToMoveUp}A`);
+        // Clear the line and write new content
+        process.stdout.write('\u001b[2K\r');
+        process.stdout.write(`[✓] ${message}`);
+        // Move cursor back down to current position and to start of line
+        process.stdout.write(`\u001b[${linesToMoveUp}B\r`);
+      } else {
+        // If we're on the same line, just update it
+        process.stdout.write('\u001b[2K\r');
+        process.stdout.write(`[✓] ${message}\n`);
+      }
+      
+      // Clean up
+      this.phaseLines.delete(message);
+    } else {
+      // Fallback to regular output
+      console.log(`[✓] ${message}`);
+    }
   }
 
   // Spinner management

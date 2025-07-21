@@ -20,7 +20,6 @@ export async function generateReleaseId(): Promise<string> {
     const { stdout: shaStdout } = await execAsync("git rev-parse --short HEAD");
     const sha = shaStdout.trim();
     if (sha) {
-      console.log(`Using Git SHA for release ID: ${sha}`);
       return sha;
     }
     // This part should ideally not be reached if git rev-parse fails after a clean status, but as a safeguard:

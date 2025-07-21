@@ -331,29 +331,10 @@ export class SSHClient {
       }
 
       // Execute rsync or scp command directly
-      const { exec } = await import("child_process");
-      const { promisify } = await import("util");
-      const execPromise = promisify(exec);
-
-      let progressInterval: NodeJS.Timeout | undefined;
-
-      if (onProgress) {
-        // Monitor progress by checking remote file size during transfer
-        progressInterval = setInterval(async () => {
-          try {
-            const result = await this.ssh.exec(
-              `stat -c%s "${remotePath}" 2>/dev/null || echo 0`
-            );
-            const transferred = parseInt(result.trim()) || 0;
-            onProgress(Math.min(transferred, totalSize), totalSize);
-          } catch (e) {
-            // Ignore errors during progress monitoring
-          }
-        }, 200); // Check every 200ms for smoother progress
-      }
+      const { spawn } = await import("child_process");
 
       try {
-        // Try rsync first
+        // Try rsync first with progress monitoring
         try {
           if (this.verbose) {
             console.log(
@@ -363,7 +344,53 @@ export class SSHClient {
               )}`
             );
           }
-          await execPromise(rsyncCommand);
+          
+          await new Promise<void>((resolve, reject) => {
+            const rsyncArgs = ['-avz', '--progress', localPath, `${this.connectOptions.username}@${this.host}:${remotePath}`];
+            const rsyncProcess = spawn('rsync', rsyncArgs);
+
+            let lastProgress = 0;
+            
+            rsyncProcess.stdout?.on('data', (data) => {
+              const output = data.toString();
+              if (this.verbose) {
+                console.log(`[${this.host}] rsync stdout:`, output.trim());
+              }
+              
+              if (onProgress) {
+                // Parse rsync progress output
+                const progressMatch = output.match(/(\d+)\s+(\d+)%\s+(\d+\.\d+[kMG]B\/s)/);
+                if (progressMatch) {
+                  const percentage = parseInt(progressMatch[2]);
+                  const transferred = Math.floor((percentage / 100) * totalSize);
+                  if (transferred > lastProgress) {
+                    lastProgress = transferred;
+                    onProgress(transferred, totalSize);
+                  }
+                }
+              }
+            });
+
+            rsyncProcess.stderr?.on('data', (data) => {
+              if (this.verbose) {
+                console.log(`[${this.host}] rsync stderr:`, data.toString().trim());
+              }
+            });
+
+            rsyncProcess.on('close', (code) => {
+              if (code === 0) {
+                onProgress?.(totalSize, totalSize); // Final progress update
+                resolve();
+              } else {
+                reject(new Error(`rsync exited with code ${code}`));
+              }
+            });
+
+            rsyncProcess.on('error', (err) => {
+              reject(err);
+            });
+          });
+          
           if (this.verbose) {
             console.log(`[${this.host}] rsync upload completed: ${remotePath}`);
           }
@@ -373,28 +400,63 @@ export class SSHClient {
             console.log(
               `[${this.host}] rsync failed, falling back to SCP: ${rsyncError}`
             );
-            console.log(
-              `[${this.host}] Executing SCP: ${scpCommand.replace(
-                localPath,
-                "***"
-              )}`
-            );
           }
-          await execPromise(scpCommand);
+          
+          await new Promise<void>((resolve, reject) => {
+            const scpArgs = ['-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-C', localPath, `${this.connectOptions.username}@${this.host}:${remotePath}`];
+            const scpProcess = spawn('scp', scpArgs);
+
+            // For SCP, simulate progress based on time (not ideal but better than nothing)
+            let progressInterval: NodeJS.Timeout | undefined;
+            if (onProgress) {
+              const startTime = Date.now();
+              const estimatedDurationMs = Math.max(1000, totalSize / (1024 * 1024) * 1000); // Rough estimate: 1MB/s
+              
+              progressInterval = setInterval(() => {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(0.9, elapsed / estimatedDurationMs); // Cap at 90% until complete
+                const transferred = Math.floor(progress * totalSize);
+                onProgress(transferred, totalSize);
+              }, 200);
+            }
+
+            scpProcess.stdout?.on('data', (data) => {
+              if (this.verbose) {
+                console.log(`[${this.host}] scp stdout:`, data.toString().trim());
+              }
+            });
+
+            scpProcess.stderr?.on('data', (data) => {
+              if (this.verbose) {
+                console.log(`[${this.host}] scp stderr:`, data.toString().trim());
+              }
+            });
+
+            scpProcess.on('close', (code) => {
+              if (progressInterval) {
+                clearInterval(progressInterval);
+              }
+              if (code === 0) {
+                onProgress?.(totalSize, totalSize); // Final progress update
+                resolve();
+              } else {
+                reject(new Error(`scp exited with code ${code}`));
+              }
+            });
+
+            scpProcess.on('error', (err) => {
+              if (progressInterval) {
+                clearInterval(progressInterval);
+              }
+              reject(err);
+            });
+          });
+          
           if (this.verbose) {
             console.log(`[${this.host}] SCP upload completed: ${remotePath}`);
           }
         }
-
-        if (progressInterval) {
-          clearInterval(progressInterval);
-          // Final progress update
-          onProgress?.(totalSize, totalSize);
-        }
       } catch (transferError) {
-        if (progressInterval) {
-          clearInterval(progressInterval);
-        }
         throw transferError;
       }
     } catch (err) {

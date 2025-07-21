@@ -4,16 +4,34 @@ ssh:
   username: iop
 
 apps:
-  web:
+  web1:
     build:
       context: .
       dockerfile: Dockerfile
-      args: # Build arguments from environment variables
+      args:
         - EXAMPLE_VAR
     server: 157.180.47.213
     environment:
       plain:
-        - EXAMPLE_VAR=test
+        - EXAMPLE_VAR=web1
+      secret:
+        - SECRET_VAR
+        - POSTGRES_PASSWORD
+    proxy:
+      app_port: 3000
+    health_check:
+      path: /up
+
+  web2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - EXAMPLE_VAR
+    server: 157.180.47.213
+    environment:
+      plain:
+        - EXAMPLE_VAR=web2
       secret:
         - SECRET_VAR
         - POSTGRES_PASSWORD
