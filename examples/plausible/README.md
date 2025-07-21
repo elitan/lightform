@@ -44,8 +44,7 @@ This setup includes:
 
 4. **Deploy to your server:**
    ```bash
-   iop setup    # First time only - sets up server
-   iop deploy   # Deploy the application
+   iop
    ```
 
 ## Configuration

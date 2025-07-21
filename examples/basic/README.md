@@ -15,16 +15,19 @@ go run main.go
 
 The server will start on port 3000. Visit [http://localhost:3000](http://localhost:3000) to see "Hello World 2".
 
-### 2. Deploy with iop
+### 2. Configure Your Server
+
+**Important**: If you cloned this example, you need to update the server configuration:
+
+1. Edit `iop.yml` and replace `157.180.47.213` with your actual server IP or domain
+2. Update any domain references in `.iop/secrets` if applicable
+
+### 3. Deploy with iop
 
 This example includes a complete iop configuration for zero-downtime deployment:
 
 ```bash
-# Set up your servers
-iop setup
-
-# Deploy with zero downtime!
-iop deploy
+iop
 ```
 
 ## 🆚 Why This Example?

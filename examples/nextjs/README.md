@@ -20,16 +20,19 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-### 2. Deploy with `iop`
+### 2. Configure Your Server
+
+**Important**: If you cloned this example, you need to update the server configuration:
+
+1. Edit `iop.yml` and replace `157.180.25.101` with your actual server IP or domain
+2. Update any domain references if you're using custom hosts
+
+### 3. Deploy with `iop`
 
 This example includes a complete `iop` configuration for zero-downtime deployment:
 
 ```bash
-# Set up your servers
-iop setup
-
-# Deploy with zero downtime!
-iop deploy
+iop
 ```
 
 ## 🐳 Docker Configuration
