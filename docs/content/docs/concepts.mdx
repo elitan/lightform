@@ -1,15 +1,15 @@
 ---
 title: Core Concepts
-description: Understanding the fundamental concepts of Lightform deployments
+description: Understanding the fundamental concepts of iop deployments
 ---
 
 # Core Concepts
 
-Understanding these core concepts will help you get the most out of Lightform.
+Understanding these core concepts will help you get the most out of iop.
 
 ## Apps vs Services
 
-Lightform distinguishes between two types of deployments:
+iop distinguishes between two types of deployments:
 
 ### Apps
 
@@ -57,12 +57,12 @@ services:
 
 ## Zero-Downtime Deployments
 
-Lightform automatically provides zero-downtime deployments for apps using a blue-green deployment strategy.
+iop automatically provides zero-downtime deployments for apps using a blue-green deployment strategy.
 
 ### How It Works
 
 1. **Current State**: Your app is running (let's say in "blue" state)
-2. **New Deployment**: Lightform deploys the new version alongside the current one ("green" state)
+2. **New Deployment**: iop deploys the new version alongside the current one ("green" state)
 3. **Health Checks**: The new version is health checked to ensure it's working properly
 4. **Traffic Switch**: Traffic is atomically switched from blue to green (sub-millisecond)
 5. **Cleanup**: The old version (blue) is stopped and removed
@@ -77,7 +77,7 @@ Lightform automatically provides zero-downtime deployments for apps using a blue
 ### Example Flow
 
 ```bash
-❯ lightform deploy
+❯ iop deploy
 [✓] Building new version (green)
 [✓] Health checking green version
 [✓] Switching traffic: blue → green
@@ -86,7 +86,7 @@ Lightform automatically provides zero-downtime deployments for apps using a blue
 
 ## Registry-Free Operation
 
-One of Lightform's key features is that it doesn't require a Docker registry for your apps.
+One of iop's key features is that it doesn't require a Docker registry for your apps.
 
 ### Traditional Approach (with Registry)
 
@@ -101,7 +101,7 @@ Problems:
 - Security concerns with registry access
 - Additional infrastructure cost
 
-### Lightform's Approach (Registry-Free)
+### iop's Approach (Registry-Free)
 
 ```
 Developer → Build → Transfer directly to Server → Deploy
@@ -123,7 +123,7 @@ Benefits:
 4. **Load remotely** - Servers load images using `docker load`
 
 ```bash
-# What Lightform does internally:
+# What iop does internally:
 docker build -t my-app:v1.0.0 .
 docker save my-app:v1.0.0 | ssh user@server 'docker load'
 ```
@@ -143,7 +143,7 @@ services:
 
 ## Health Checks
 
-Lightform provides automatic health checking for reliable deployments.
+iop provides automatic health checking for reliable deployments.
 
 ### App Health Checks
 
@@ -201,11 +201,11 @@ services:
 
 ## Automatic SSL and Proxy
 
-Lightform includes a built-in reverse proxy with automatic SSL certificate management.
+iop includes a built-in reverse proxy with automatic SSL certificate management.
 
 ### How It Works
 
-1. **Traefik Proxy** - Lightform deploys Traefik as the reverse proxy
+1. **Traefik Proxy** - iop deploys Traefik as the reverse proxy
 2. **Automatic Discovery** - Apps are automatically discovered and routed
 3. **Let's Encrypt** - SSL certificates are obtained automatically
 4. **HTTP → HTTPS** - All HTTP traffic is redirected to HTTPS
@@ -232,7 +232,7 @@ apps:
 
 ## Multi-Server Deployments
 
-Lightform supports deploying across multiple servers for high availability and load distribution.
+iop supports deploying across multiple servers for high availability and load distribution.
 
 ### Configuration
 
@@ -265,14 +265,14 @@ When deploying to multiple servers:
 
 ## Release Management
 
-Lightform uses Git SHAs for release tracking and identification.
+iop uses Git SHAs for release tracking and identification.
 
 ### Release IDs
 
 Every deployment gets a unique release ID based on your Git commit:
 
 ```bash
-❯ lightform deploy
+❯ iop deploy
 Using Git SHA for release ID: a1b2c3d
 ```
 
@@ -294,21 +294,21 @@ my-app/api:a1b2c3d
 
 ## Environment Management
 
-Lightform supports multiple environments through configuration files.
+iop supports multiple environments through configuration files.
 
 ### Environment-Specific Configs
 
 ```bash
-lightform.staging.yml     # Staging environment
-lightform.production.yml  # Production environment
-lightform.dev.yml         # Development environment
+iop.staging.yml     # Staging environment
+iop.production.yml  # Production environment
+iop.dev.yml         # Development environment
 ```
 
 ### Usage
 
 ```bash
-lightform deploy -c lightform.staging.yml     # Deploy to staging
-lightform deploy -c lightform.production.yml  # Deploy to production
+iop deploy -c iop.staging.yml     # Deploy to staging
+iop deploy -c iop.production.yml  # Deploy to production
 ```
 
 ### Benefits
@@ -319,7 +319,7 @@ lightform deploy -c lightform.production.yml  # Deploy to production
 
 ## Security Model
 
-Lightform's security is based on SSH and existing server security practices.
+iop's security is based on SSH and existing server security practices.
 
 ### SSH-Based Security
 
@@ -331,12 +331,12 @@ Lightform's security is based on SSH and existing server security practices.
 ### Secrets Management
 
 ```bash
-# .lightform/secrets - stored locally, never transmitted
+# .iop/secrets - stored locally, never transmitted
 DATABASE_URL=postgres://...
 API_KEY=secret-key
 ```
 
-- Secrets stored locally in `.lightform/secrets`
+- Secrets stored locally in `.iop/secrets`
 - Transmitted securely over SSH
 - Available as environment variables in containers
 - Never stored in logs or configuration files
@@ -350,12 +350,12 @@ API_KEY=secret-key
 
 ## Networking
 
-Lightform creates isolated Docker networks for secure communication between containers.
+iop creates isolated Docker networks for secure communication between containers.
 
 ### Network Architecture
 
 ```
-Internet → Traefik Proxy → Lightform Network → Your Apps
+Internet → Traefik Proxy → iop Network → Your Apps
                         → Services (Database, Cache)
 ```
 
@@ -366,15 +366,15 @@ Apps and services can communicate using their names:
 ```javascript
 // In your app, connect to database service
 const db = new Client({
-  host: "postgres", // Service name from lightform.yml
+  host: "postgres", // Service name from iop.yml
   port: 5432,
 });
 ```
 
 ### Port Management
 
-- **Automatic port assignment** - Lightform handles internal port mapping
+- **Automatic port assignment** - iop handles internal port mapping
 - **External ports** - Only Traefik proxy exposed (80, 443)
 - **Service ports** - Optional external access for databases, etc.
 
-Understanding these concepts will help you design and deploy robust applications with Lightform. Each concept builds on the others to provide a complete, reliable deployment solution.
+Understanding these concepts will help you design and deploy robust applications with iop. Each concept builds on the others to provide a complete, reliable deployment solution.

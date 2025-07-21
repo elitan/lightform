@@ -19,11 +19,11 @@ export const baseOptions: BaseLayoutProps = {
         >
           <circle cx={12} cy={12} r={12} fill='currentColor' />
         </svg>
-        Lightform
+        iop
       </>
     ),
   },
   // see https://fumadocs.dev/docs/ui/navigation/links
   links: [],
-  githubUrl: "https://github.com/elitan/lightform",
+  githubUrl: "https://github.com/elitan/iop",
 };
