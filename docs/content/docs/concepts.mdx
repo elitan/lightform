@@ -1,284 +1,329 @@
 ---
 title: Core Concepts
-description: Understanding the fundamental concepts of iop deployments
+description: Understanding how iop works under the hood
 ---
 
 # Core Concepts
 
-Understanding these core concepts will help you get the most out of iop.
+Understanding the key concepts behind iop will help you deploy with confidence and troubleshoot issues effectively.
+
+## Philosophy
+
+iop is built on a simple philosophy: **own your infrastructure without the complexity**. 
+
+### No Rollback Commands Needed
+
+Instead of complex rollback mechanisms, iop embraces Git as the source of truth:
+
+- Want to rollback? Just `git checkout` the commit you want and run `iop` again
+- Every deployment is tagged with the Git SHA for easy identification
+- Rollbacks are just another deployment, using the same reliable process
+
+## Architecture Overview
+
+```mermaid
+graph TB
+    A[Your Machine] -->|SSH + Docker Save/Load| B[Your Servers]
+    
+    subgraph "Local (Your Machine)"
+        A1[iop CLI]
+        A2[Docker Build]
+        A3[Git SHA]
+    end
+    
+    subgraph "Server"
+        B1[iop Proxy]
+        B2[Blue Container]
+        B3[Green Container]
+        B4[Services]
+    end
+    
+    A1 --> A2
+    A2 --> A3
+    B1 --> B2
+    B1 --> B3
+    B --> B4
+```
+
+### Components
+
+1. **iop CLI** (TypeScript) - Your local command-line tool
+2. **iop Proxy** (Go) - Reverse proxy running on your servers
+3. **Docker** - Container runtime (installed automatically if needed)
 
 ## Apps vs Services
 
-iop distinguishes between two types of deployments:
+iop treats different types of workloads differently to optimize for their use cases:
 
-### Apps
+### Apps (Zero-Downtime)
 
-**Apps** are your main applications that you build and deploy with zero-downtime:
+**Apps** are user-facing applications that need zero-downtime deployments:
 
-- Built from your source code using Dockerfiles
-- Support zero-downtime blue-green deployments
-- Include automatic health checks
-- Can be load balanced across multiple servers
-- Have automatic SSL and reverse proxy configuration
+- ✅ Built locally and transferred via SSH
+- ✅ Blue-green deployment strategy
+- ✅ Health checks before traffic switching
+- ✅ Automatic rollback on failure
+- ✅ SSL termination and routing via proxy
+
+**Examples**: Web applications, APIs, microservices
 
 ```yaml
 apps:
   web:
-    image: my-app/web
+    server: your-server.com # Single server per app
     build:
       context: .
       dockerfile: Dockerfile
     proxy:
+      app_port: 3000
       hosts:
         - example.com
-      app_port: 3000
     health_check:
-      path: /health
+      path: /up
 ```
 
-### Services
+### Services (Direct Replacement)
 
-**Services** are supporting infrastructure that use pre-built images:
+**Services** are infrastructure components that can tolerate brief downtime:
 
-- Use existing Docker images (postgres, redis, etc.)
-- Deployed normally without blue-green strategy
-- Focused on data persistence and supporting functionality
-- Can have health checks but no automatic proxy configuration
+- ✅ Use pre-built Docker images
+- ✅ Direct container replacement
+- ✅ Persistent volumes preserved
+- ✅ Quick restart for updates
+
+**Examples**: Databases, message queues, caches, monitoring tools
 
 ```yaml
 services:
   postgres:
-    image: postgres:15
+    image: postgres:17
+    server: db.example.com
+    ports:
+      - "5432:5432"
     environment:
-      secret: [POSTGRES_PASSWORD]
+      secret:
+        - POSTGRES_PASSWORD
     volumes:
       - postgres_data:/var/lib/postgresql/data
 ```
 
-## Zero-Downtime Deployments
+## Zero-Downtime Deployments (Blue-Green)
 
-iop automatically provides zero-downtime deployments for apps using a blue-green deployment strategy.
+iop achieves zero-downtime deployments using a blue-green strategy with Docker network aliases:
 
 ### How It Works
 
-1. **Current State**: Your app is running (let's say in "blue" state)
-2. **New Deployment**: iop deploys the new version alongside the current one ("green" state)
-3. **Health Checks**: The new version is health checked to ensure it's working properly
-4. **Traffic Switch**: Traffic is atomically switched from blue to green (sub-millisecond)
-5. **Cleanup**: The old version (blue) is stopped and removed
+1. **Current State**: Traffic flows to "blue" container via network alias
+2. **New Deployment**: Start "green" container with new version
+3. **Health Check**: Verify green container is healthy
+4. **Atomic Switch**: Change network alias from blue to green
+5. **Cleanup**: Remove old blue container
 
-### Benefits
+```mermaid
+sequenceDiagram
+    participant P as Proxy
+    participant A as App Alias
+    participant B as Blue Container
+    participant G as Green Container
+    
+    P->>A: Traffic
+    A->>B: Forward to Blue
+    
+    Note over G: Deploy Green
+    G->>G: Start & Health Check
+    
+    Note over A: Atomic Switch
+    A->>G: Forward to Green
+    
+    Note over B: Cleanup
+    B->>B: Remove Blue
+```
 
-- **No service interruption** - Users never experience downtime
-- **Instant rollback** - If something goes wrong, traffic can be instantly switched back
-- **Risk mitigation** - New version is fully tested before receiving traffic
-- **Graceful updates** - No abrupt connection drops
+### Network Aliases
+
+The magic happens with Docker network aliases:
+
+- Both blue and green containers join the same Docker network
+- Traffic is routed via a shared alias (e.g., `myapp-web`)
+- Switching the alias is atomic and instant
+- No external load balancer configuration needed
 
 ### Example Flow
 
 ```bash
-❯ iop deploy
+❯ iop
+Using Git SHA for release ID: a1b2c3d
 [✓] Building new version (green)
 [✓] Health checking green version
 [✓] Switching traffic: blue → green
 [✓] Stopping old version (blue)
 ```
 
-## Registry-Free Operation
+## Registry-Free Deployment
 
-One of iop's key features is that it doesn't require a Docker registry for your apps.
+Unlike most deployment tools, iop doesn't require Docker registries:
 
 ### Traditional Approach (with Registry)
-
-```
-Developer → Build → Push to Registry → Server pulls from Registry → Deploy
-```
-
-Problems:
-
-- Need to set up and maintain a registry
-- Network dependency on registry during deployment
-- Security concerns with registry access
-- Additional infrastructure cost
-
-### iop's Approach (Registry-Free)
-
-```
-Developer → Build → Transfer directly to Server → Deploy
+```mermaid
+graph LR
+    A[Local Build] --> B[Push to Registry]
+    B --> C[Server Pull from Registry]
+    C --> D[Deploy]
 ```
 
-Benefits:
+### iop Approach (Registry-Free)
+```mermaid
+graph LR
+    A[Local Build] --> B[Docker Save]
+    B --> C[SSH Transfer]
+    C --> D[Docker Load]
+    D --> E[Deploy]
+```
 
-- **No registry needed** - One less piece of infrastructure
-- **Direct transfer** - Images go straight from your machine to servers
-- **Secure** - Uses your existing SSH connection
-- **Faster** - No intermediate registry step
-- **Offline capable** - Works without internet once images are built
+### Benefits
+
+- **No registry costs** - Save money on Docker Hub Pro, ECR, etc.
+- **No registry complexity** - No authentication, access control, or availability concerns
+- **Better security** - Images never leave your control
+- **Faster for small teams** - No registry bottlenecks
 
 ### How It Works
 
-1. **Build locally** - Docker images are built on your development machine
-2. **Save as archive** - Images are saved as tar archives using `docker save`
-3. **Transfer via SSH** - Archives are securely uploaded to servers
-4. **Load remotely** - Servers load images using `docker load`
+1. **Build locally**: `docker build -t myapp:sha123 .`
+2. **Save to tar**: `docker save myapp:sha123 | gzip`
+3. **Transfer via SSH**: `scp` or `rsync` over existing SSH connection
+4. **Load on server**: `docker load` from the transferred tar
+5. **Deploy**: Start containers using the loaded image
 
-```bash
-# What iop does internally:
-docker build -t my-app:v1.0.0 .
-docker save my-app:v1.0.0 | ssh user@server 'docker load'
-```
+## Automatic Infrastructure Setup
 
-### Services Can Still Use Registries
+iop automatically prepares your servers without separate "setup" commands:
 
-Services (like databases) can still pull from public or private registries:
+### Fresh Server Bootstrap
 
-```yaml
-services:
-  postgres:
-    image: postgres:15 # Pulled from Docker Hub
+When you run `iop` for the first time on a server, it automatically:
 
-  private-service:
-    image: ghcr.io/company/private:latest # Private registry
-```
+1. **Installs Docker** (if not present)
+2. **Creates Docker networks** for app communication
+3. **Deploys iop proxy** for SSL and routing
+4. **Configures security hardening** (firewall, fail2ban)
+5. **Sets up SSL automation** with Let's Encrypt
 
-## Health Checks
+### No Separate Setup Command
 
-iop provides automatic health checking for reliable deployments.
+Unlike other tools, iop doesn't require a separate `iop setup` command:
 
-### App Health Checks
+- Infrastructure setup happens automatically during deployment
+- Servers are configured on first deployment
+- Updates and changes are applied incrementally
 
-For apps, health checks are automatic and highly opinionated for reliability:
+## Proxy and SSL Management
 
-```yaml
-apps:
-  web:
-    health_check:
-      path: /health # Only configurable option (default: /up)
-```
+The iop proxy is a lightweight Go application that handles:
 
-**Automatic behavior:**
+### Reverse Proxy
 
-- **Method**: HTTP GET
-- **Success**: HTTP 200 response
-- **Timeout**: 5 seconds
-- **Retries**: 3 attempts
-- **Port**: Uses the configured `app_port`
+- Routes incoming requests to the correct application containers
+- Load balances between multiple replicas
+- Handles SSL termination
+- Provides health check endpoints
 
-### Implementation
+### SSL Certificate Management
 
-Your app needs to implement the health check endpoint:
+- **Automatic certificate acquisition** via Let's Encrypt
+- **Certificate renewal** (happens automatically before expiration)
+- **Multiple domains** supported per application
+- **Staging mode** available for development/testing
 
-```javascript
-// Express.js example
-app.get("/health", (req, res) => {
-  // Check database connectivity, external services, etc.
-  res.status(200).send("OK");
-});
-```
+### HTTP to HTTPS Redirect
 
-```go
-// Go example
-http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-    w.WriteHeader(http.StatusOK)
-    fmt.Fprint(w, "OK")
-})
-```
-
-### Service Health Checks
-
-For services, use Docker's standard healthcheck format:
-
-```yaml
-services:
-  postgres:
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-```
-
-## Automatic SSL and Proxy
-
-iop includes a built-in reverse proxy with automatic SSL certificate management.
-
-### How It Works
-
-1. **Traefik Proxy** - iop deploys Traefik as the reverse proxy
-2. **Automatic Discovery** - Apps are automatically discovered and routed
-3. **Let's Encrypt** - SSL certificates are obtained automatically
-4. **HTTP → HTTPS** - All HTTP traffic is redirected to HTTPS
-
-### Configuration
-
-Simply specify which domains should route to your app:
+- Automatic HTTP to HTTPS redirects (configurable)
+- HSTS headers for enhanced security
+- Support for custom SSL configurations
 
 ```yaml
 apps:
   web:
     proxy:
       hosts:
-        - example.com
-        - www.example.com
-      app_port: 3000
+        - myapp.com
+        - www.myapp.com
+      ssl: true # Automatic HTTPS (default)
+      ssl_redirect: true # HTTP to HTTPS redirect
 ```
 
-### What Happens
+## State Management
 
-- `example.com` → SSL certificate obtained → routes to your app on port 3000
-- `www.example.com` → SSL certificate obtained → routes to your app on port 3000
-- HTTP requests → automatically redirected to HTTPS
+### Local State (Your Machine)
 
-## Multi-Server Deployments
+- **Configuration**: `iop.yml` and `.iop/secrets`
+- **Git repository**: Source of truth for deployments
+- **Docker images**: Built locally before deployment
 
-iop supports deploying across multiple servers for high availability and load distribution.
+### Server State
 
-### Configuration
+- **iop proxy state**: Stored in `/var/lib/iop-proxy/state.json`
+- **Container state**: Managed by Docker
+- **Volume data**: Persisted in Docker volumes
+- **SSL certificates**: Stored by Let's Encrypt/proxy
+
+### No Central Database
+
+iop doesn't require a central database or control plane:
+
+- Each server maintains its own state
+- Configuration is distributed via SSH
+- Git serves as the coordination mechanism
+- Simpler architecture, fewer failure points
+
+## Multi-Server Support
+
+iop supports deploying across multiple servers:
+
+### Deployment Strategy
+
+- Each app/service instance targets a single server
+- Multiple instances can target different servers
+- Load balancing happens at the DNS/CDN level
+- Each server runs independently
+
+### Example Multi-Server Setup
 
 ```yaml
 apps:
-  web:
-    servers:
-      - web1.example.com
-      - web2.example.com
-      - web3.example.com
-    replicas: 2 # Deploy 2 instances per server
+  web-us-east:
+    server: us-east.example.com
+    proxy:
+      hosts:
+        - us-east.myapp.com
+  
+  web-eu-west:
+    server: eu-west.example.com
+    proxy:
+      hosts:
+        - eu-west.myapp.com
+
+  web-primary:
+    server: primary.example.com
+    proxy:
+      hosts:
+        - myapp.com
+        - www.myapp.com
 ```
 
-### Load Balancing
+## Git-Based Releases
 
-Traffic is automatically load balanced across:
+iop uses Git SHAs as release identifiers:
 
-- Multiple servers
-- Multiple replicas per server
-- Different apps on the same domain (if configured)
+### Release ID Generation
 
-### Rolling Deployments
+- **Clean working directory**: Uses current Git SHA
+- **Uncommitted changes**: Prompts to commit first
+- **No Git repository**: Generates timestamp-based ID
 
-When deploying to multiple servers:
+### Docker Image Tagging
 
-1. Deploys to servers one at a time
-2. Health checks each server before moving to the next
-3. If any server fails, deployment stops
-4. Maintains availability throughout the process
-
-## Release Management
-
-iop uses Git SHAs for release tracking and identification.
-
-### Release IDs
-
-Every deployment gets a unique release ID based on your Git commit:
-
-```bash
-❯ iop deploy
-Using Git SHA for release ID: a1b2c3d
-```
-
-### Image Tagging
-
-Docker images are tagged with the release ID:
+Images are tagged with the Git SHA:
 
 ```
 my-app/web:a1b2c3d
@@ -287,76 +332,111 @@ my-app/api:a1b2c3d
 
 ### Benefits
 
-- **Traceability** - Know exactly which code is deployed
-- **Reproducibility** - Can rebuild the exact same image
-- **Rollback capability** - Can identify and rollback to specific versions
-- **Debugging** - Easy to correlate issues with specific deployments
+- **Traceability** - Every deployment linked to specific code
+- **Rollbacks** - Easy to identify and return to previous versions
+- **Debugging** - Know exactly what code is running in production
+- **Collaboration** - Team can see what's deployed via Git history
 
-## Environment Management
+## Health Checks
 
-iop supports multiple environments through configuration files.
+Health checks are fundamental to zero-downtime deployments:
 
-### Environment-Specific Configs
+### How They Work
 
-```bash
-iop.staging.yml     # Staging environment
-iop.production.yml  # Production environment
-iop.dev.yml         # Development environment
+1. **New container starts** with your application
+2. **Health check begins** (default: HTTP GET /up)
+3. **Retries until healthy** (or timeout)
+4. **Traffic switches** only after health check passes
+5. **Old container removed** after successful switch
+
+### Default Configuration
+
+```yaml
+apps:
+  web:
+    health_check:
+      path: /up # Default endpoint
 ```
 
-### Usage
+### Implementation Examples
 
-```bash
-iop deploy -c iop.staging.yml     # Deploy to staging
-iop deploy -c iop.production.yml  # Deploy to production
+```javascript
+// Express.js health check
+app.get('/up', async (req, res) => {
+  try {
+    // Check database connectivity
+    await db.ping();
+    
+    // Check external dependencies
+    await redis.ping();
+    
+    // All good!
+    res.status(200).send('OK');
+  } catch (error) {
+    // Something's wrong, don't switch traffic
+    res.status(503).send('Not ready');
+  }
+});
 ```
+
+```go
+// Go health check
+http.HandleFunc("/up", func(w http.ResponseWriter, r *http.Request) {
+    // Check dependencies
+    if err := db.Ping(); err != nil {
+        w.WriteHeader(http.StatusServiceUnavailable)
+        return
+    }
+    
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("OK"))
+})
+```
+
+### Health Check Failures
+
+If health checks fail:
+
+- **No traffic switch** occurs
+- **Old container keeps running** (zero downtime maintained)
+- **New container is removed** automatically
+- **Deployment marked as failed**
+- **Detailed logs available** for debugging
+
+## Scaling and Replicas
+
+iop supports horizontal scaling via replicas:
+
+### How Replicas Work
+
+```yaml
+apps:
+  web:
+    replicas: 3
+    # ... other config
+```
+
+This creates:
+- `myapp-web-blue-1`, `myapp-web-blue-2`, `myapp-web-blue-3`
+- All containers share the same network alias
+- Docker's built-in load balancing distributes requests
+- Blue-green deployments work across all replicas
 
 ### Benefits
 
-- **Environment isolation** - Different servers, domains, and secrets
-- **Promotion workflow** - Test in staging before production
-- **Configuration drift prevention** - Environments are explicitly defined
-
-## Security Model
-
-iop's security is based on SSH and existing server security practices.
-
-### SSH-Based Security
-
-- Uses your existing SSH keys and access
-- No additional authentication required
-- Leverages proven SSH security model
-- Works with SSH jump hosts, bastion servers, etc.
-
-### Secrets Management
-
-```bash
-# .iop/secrets - stored locally, never transmitted
-DATABASE_URL=postgres://...
-API_KEY=secret-key
-```
-
-- Secrets stored locally in `.iop/secrets`
-- Transmitted securely over SSH
-- Available as environment variables in containers
-- Never stored in logs or configuration files
-
-### Principle of Least Privilege
-
-- Use dedicated deployment users (not root)
-- Minimal required permissions (Docker, file system)
-- SSH key-based authentication only
-- No persistent tokens or credentials
+- **Higher throughput** - Multiple containers handle requests
+- **Better reliability** - If one container fails, others continue
+- **Rolling updates** - Can deploy one replica at a time
+- **No external load balancer needed** - Docker handles it
 
 ## Networking
 
-iop creates isolated Docker networks for secure communication between containers.
+iop creates isolated Docker networks for container communication:
 
 ### Network Architecture
 
 ```
-Internet → Traefik Proxy → iop Network → Your Apps
-                        → Services (Database, Cache)
+Internet → iop Proxy → Project Network → Your Apps & Services
 ```
 
 ### Automatic Service Discovery
@@ -371,10 +451,115 @@ const db = new Client({
 });
 ```
 
-### Port Management
+### Network Naming
 
-- **Automatic port assignment** - iop handles internal port mapping
-- **External ports** - Only Traefik proxy exposed (80, 443)
-- **Service ports** - Optional external access for databases, etc.
+- **Project network**: `{project-name}-network`
+- **Container names**: `{project-name}-{app-name}-{color}` (for apps)
+- **Service containers**: `{project-name}-{service-name}` (for services)
+
+## Volume Management
+
+iop handles volumes intelligently:
+
+### Named Volumes
+
+```yaml
+volumes:
+  - postgres_data:/var/lib/postgresql/data
+```
+
+- **Persistent across deployments** - Data survives container restarts
+- **Managed by Docker** - No manual cleanup needed
+- **Shared across replicas** - Multiple containers can access same volume
+
+### Bind Mounts
+
+```yaml
+volumes:
+  - ./config:/app/config:ro
+```
+
+- **Direct access to host filesystem** - Good for configuration files
+- **Real-time updates** - Changes on host immediately visible in container
+- **Use sparingly** - Can break containerization benefits
+
+## Security Model
+
+iop follows security best practices:
+
+### SSH-Based Security
+
+- Uses your existing SSH keys and access
+- No additional authentication required
+- Leverages proven SSH security model
+- Works with SSH jump hosts, bastion servers, etc.
+
+### Secrets Management
+
+```bash
+# .iop/secrets - stored locally, never transmitted in plain text
+DATABASE_URL=postgres://...
+API_KEY=secret-key
+```
+
+- Secrets stored locally in `.iop/secrets`
+- Transmitted securely over SSH
+- Available as environment variables in containers
+- Never stored in logs or configuration files
+- Automatically added to `.gitignore`
+
+### Network Security
+
+- **Minimal ports open** - Only 22 (SSH), 80/443 (HTTP/S), 8080 (proxy API)
+- **Internal networks** - Containers communicate via private Docker networks
+- **No external database** - All state stored locally on servers
+
+### Automatic Security Hardening
+
+When setting up fresh servers, iop automatically:
+
+- Configures firewall rules
+- Sets up fail2ban for SSH protection
+- Configures non-root container execution
+- Sets up automatic security updates
+
+## Error Handling and Recovery
+
+iop is designed to fail safely:
+
+### Deployment Failures
+
+- **Health check fails**: Old container keeps running
+- **Build fails**: No deployment attempted
+- **SSH fails**: Clear error message with suggestions
+- **Resource constraints**: Graceful handling and cleanup
+
+### Automatic Recovery
+
+- **Proxy restarts**: Automatic container restart on failure  
+- **Certificate renewal**: Automatic renewal before expiration
+- **Container crashes**: Docker restart policies handle recovery
+
+### Manual Recovery
+
+- **Check status**: `iop status --verbose`
+- **View logs**: `iop proxy logs`
+- **Rollback**: `git checkout <previous-sha> && iop`
+
+## Command Overview
+
+iop provides four main commands:
+
+### `iop init`
+Initialize project configuration files (`iop.yml` and `.iop/secrets`)
+
+### `iop` (Default: Deploy)
+Deploy apps and services with automatic infrastructure setup
+
+### `iop status`
+Check deployment status across all servers with detailed information
+
+### `iop proxy`
+Manage the reverse proxy (status, update, logs, delete-host)
 
 Understanding these concepts will help you design and deploy robust applications with iop. Each concept builds on the others to provide a complete, reliable deployment solution.

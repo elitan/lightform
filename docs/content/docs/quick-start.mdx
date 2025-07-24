@@ -7,6 +7,14 @@ description: Deploy your first application with iop in minutes
 
 Get your first application deployed with iop in just a few minutes. This guide will walk you through creating a simple web application and deploying it to your server.
 
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- **A server** with SSH access (Ubuntu/Debian recommended)
+- **Docker installed locally** for building images
+- **A domain name** pointing to your server (optional, but recommended for SSL)
+
 ## Step 1: Initialize Your Project
 
 Navigate to your project directory and initialize iop:
@@ -16,10 +24,16 @@ cd your-project
 iop init
 ```
 
+You'll be prompted for a project name, or you can use non-interactive mode:
+
+```bash
+iop init --name my-app --non-interactive
+```
+
 This creates two files:
 
 - **`iop.yml`** - Your deployment configuration
-- **`.iop/secrets`** - Secure credentials storage (add to `.gitignore`)
+- **`.iop/secrets`** - Secure credentials storage (automatically added to `.gitignore`)
 
 ## Step 2: Configure Your Deployment
 
@@ -29,35 +43,48 @@ Edit the generated `iop.yml` file:
 name: my-app
 
 ssh:
-  username: root # or your deployment user
+  username: iop # or root, or your deployment user
 
 apps:
   web:
-    image: my-app/web
-    servers:
-      - your-server.com # Replace with your server
     build:
       context: .
       dockerfile: Dockerfile
-    proxy:
-      hosts:
-        - myapp.com # Replace with your domain
-      app_port: 3000
+    server: your-server.com # Replace with your server IP or domain
     environment:
       plain:
         - NODE_ENV=production
-        - PORT=3000
       secret:
         - DATABASE_URL # Optional: from .iop/secrets
+    proxy:
+      app_port: 3000 # Port your app runs on inside the container
+    health_check:
+      path: /up # Health check endpoint (default: /up)
+
+# Optional: Add a database service
+# services:
+#   db:
+#     image: postgres:17
+#     server: your-server.com
+#     ports:
+#       - "5432:5432"
+#     environment:
+#       plain:
+#         - POSTGRES_USER=postgres
+#         - POSTGRES_DB=my-app
+#       secret:
+#         - POSTGRES_PASSWORD
+#     volumes:
+#       - ./pgdata:/var/lib/postgresql/data
 ```
 
 ### Key Configuration Options
 
-- **`name`** - Your project name
-- **`servers`** - List of your server IPs or domains
-- **`proxy.hosts`** - Domains that should route to your app
-- **`app_port`** - Port your application runs on inside the container
+- **`name`** - Your project name (used for Docker networks and container naming)
+- **`server`** - Your server IP or domain name
+- **`proxy.app_port`** - Port your application runs on inside the container
 - **`build.context`** - Docker build context (usually `.`)
+- **`health_check.path`** - Health check endpoint (default: `/up`)
 
 ## Step 3: Add Secrets (Optional)
 
@@ -67,9 +94,10 @@ If your app needs environment variables with sensitive values, add them to `.iop
 # .iop/secrets
 DATABASE_URL=postgres://user:pass@localhost:5432/myapp
 API_KEY=your-secret-api-key
+POSTGRES_PASSWORD=supersecret
 ```
 
-**Important**: Add `.iop/secrets` to your `.gitignore` file!
+**Important**: `.iop/secrets` is automatically added to your `.gitignore` file for security.
 
 ## Step 4: Prepare Your Dockerfile
 
@@ -90,18 +118,15 @@ COPY . .
 # Build the app (if needed)
 RUN npm run build
 
-# Health check endpoint
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/up || exit 1
-
 EXPOSE 3000
 
+# Start the application
 CMD ["npm", "start"]
 ```
 
-### Health Check Endpoint
+### Important: Health Check Endpoint
 
-Your app should implement a health check endpoint (default: `/up`) that returns HTTP 200 when healthy:
+Your app **must** implement a health check endpoint. By default, iop expects `/up`:
 
 ```javascript
 // Express.js example
@@ -110,52 +135,57 @@ app.get("/up", (req, res) => {
 });
 ```
 
-## Step 5: Set Up Your Server
+You can customize the health check path in `iop.yml`:
 
-Prepare your server for deployments:
+```yaml
+health_check:
+  path: /api/health # Custom health check endpoint
+```
+
+## Step 5: Deploy!
+
+Deploy your application with a single command:
 
 ```bash
-iop setup
+iop
 ```
 
-This will:
+That's it! iop will automatically:
 
-- ✅ Install Docker (if not present)
-- ✅ Create necessary networks
-- ✅ Set up the reverse proxy
-- ✅ Configure SSL certificate automation
+1. ✅ **Build your Docker image** locally
+2. ✅ **Set up your server** if needed (install Docker, create networks, set up proxy)
+3. ✅ **Transfer the image** securely via SSH (no registry required)
+4. ✅ **Deploy with zero downtime** using blue-green deployment
+5. ✅ **Configure the reverse proxy** for routing and SSL
+6. ✅ **Verify health checks** before switching traffic
 
-## Step 6: Deploy!
-
-Deploy your application:
+### Example Output
 
 ```bash
-iop deploy
-```
-
-You'll see output like this:
-
-```
-❯ iop deploy
+❯ iop
 Using Git SHA for release ID: a1b2c3d
 Starting deployment with release a1b2c3d
 
 [✓] Configuration loaded (0ms)
 [✓] Git status verified (3ms)
 [✓] Infrastructure ready (1.2s)
-[✓] web → my-app/web:a1b2c3d (3.3s)
-[✓] Building Images (3.3s)
+
+Building Images
+  [✓] web → my-app/web:a1b2c3d (45.2s)
+
+Deploying to Servers
   └─ your-server.com
-     ├─ [✓] Loading image (2.5s)
-     ├─ [✓] Zero-downtime deployment (1.4s)
-     └─ [✓] Configuring proxy (319ms)
-[✓] Deployment completed successfully in 8.8s
+     ├─ [✓] Loading image (3.2s)
+     ├─ [✓] Zero-downtime deployment (2.8s)
+     └─ [✓] Configuring proxy (0.8s)
+
+[✓] Deployment completed successfully in 52.1s
 
 Your app is live at:
-  └─ https://myapp.com
+  └─ https://your-server.com (web)
 ```
 
-## Step 7: Verify Your Deployment
+## Step 6: Verify Your Deployment
 
 Check the status of your deployment:
 
@@ -165,65 +195,211 @@ iop status
 
 Output:
 
-```
+```bash
+❯ iop status
 📱 App: web
    Status: ✅ RUNNING (green active)
    Replicas: 1/1 running
+   Image: my-app/web:a1b2c3d
    Servers: your-server.com
+   Last Deployed: 2 minutes ago
+   Uptime: 2m 15s
+   Resource Usage: CPU 2.3%, Memory 125MB
+
+🔧 Proxy Status:
+   your-server.com: ✅ RUNNING (port 80, 443)
+   - Version: elitan/iop-proxy:latest
+   - Uptime: 2m 30s
+   - Active routes: 1
 ```
 
 Visit your domain - it should be live with automatic HTTPS!
 
-## What Happened?
+## What Happened Behind the Scenes?
 
 During deployment, iop:
 
-1. **Built your Docker image** locally using your Dockerfile
-2. **Transferred the image** securely to your server via SSH (no registry needed)
-3. **Performed zero-downtime deployment** using blue-green strategy
-4. **Configured the reverse proxy** to route traffic to your app
-5. **Obtained SSL certificate** automatically via Let's Encrypt
-6. **Verified health checks** before switching traffic
+1. **Validated configuration** and checked git status
+2. **Built your Docker image** locally using your Dockerfile
+3. **Set up the server** automatically:
+   - Installed Docker (if needed)
+   - Created Docker networks
+   - Deployed the iop reverse proxy for SSL and routing
+4. **Transferred the image** securely via SSH (compressed with docker save/load)
+5. **Performed zero-downtime deployment** using blue-green strategy:
+   - Started new container alongside old one
+   - Ran health checks on new container
+   - Switched traffic atomically via network aliases
+   - Removed old container
+6. **Configured SSL certificates** automatically via Let's Encrypt
+7. **Updated proxy routing** to direct traffic to your app
+
+## Adding Custom Domains
+
+To use a custom domain instead of your server IP:
+
+1. **Point your domain** to your server's IP address
+2. **Add the domain to your config**:
+
+```yaml
+apps:
+  web:
+    # ... other config
+    proxy:
+      hosts:
+        - myapp.com
+        - www.myapp.com
+      app_port: 3000
+      ssl: true # Automatic HTTPS (default: true)
+```
+
+3. **Redeploy**:
+
+```bash
+iop
+```
+
+iop will automatically:
+- Obtain SSL certificates from Let's Encrypt
+- Configure HTTPS redirect
+- Update proxy routing
 
 ## Next Steps
 
 Now that you have your first app deployed, explore more features:
 
-- [Add a database service](/configuration#services)
-- [Deploy to multiple servers](/guides/multi-server)
-- [Set up multiple environments](/guides/environments)
-- [Configure health checks](/configuration#health-checks)
+### Multi-Server Deployment
 
-## Common Issues
+Deploy the same app to multiple servers for load balancing:
+
+```yaml
+apps:
+  web:
+    # ... other config
+    server: server1.com # Just change to single server per app
+    # For multiple servers, deploy multiple apps:
+
+  web-backup:
+    # ... same config
+    server: server2.com
+```
+
+### Add a Database Service
+
+Add a PostgreSQL database to your deployment:
+
+```yaml
+services:
+  db:
+    image: postgres:17
+    server: your-server.com
+    ports:
+      - "5432:5432"
+    environment:
+      plain:
+        - POSTGRES_USER=postgres
+        - POSTGRES_DB=my-app
+      secret:
+        - POSTGRES_PASSWORD
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+```
+
+Don't forget to add the password to `.iop/secrets`:
+
+```bash
+POSTGRES_PASSWORD=your-secure-password
+```
+
+### Multiple Replicas
+
+Scale your app with multiple replicas:
+
+```yaml
+apps:
+  web:
+    # ... other config
+    replicas: 3 # Run 3 instances for load balancing
+```
+
+### Environment-Specific Deployments
+
+Create different config files for different environments:
+
+```bash
+# iop.staging.yml
+name: my-app-staging
+# ... staging config
+
+# iop.production.yml  
+name: my-app-production
+# ... production config
+```
+
+Deploy to specific environments:
+
+```bash
+iop -c iop.staging.yml    # Deploy to staging
+iop -c iop.production.yml # Deploy to production
+```
+
+## Common Issues and Solutions
 
 ### Build Failures
 
-If your Docker build fails:
+**Problem**: Docker build fails
 
-1. **Check your Dockerfile** - Make sure it builds locally with `docker build .`
-2. **Review build context** - Ensure all required files are included
-3. **Check dependencies** - Verify all packages can be installed
-
-### Connection Issues
-
-If iop can't connect to your server:
-
-1. **Verify SSH access** - Test with `ssh user@your-server.com`
-2. **Check SSH configuration** - Ensure the username in `iop.yml` matches your server
-3. **Firewall settings** - Make sure ports 22, 80, and 443 are open
+**Solutions**:
+1. Test locally: `docker build .`
+2. Check your Dockerfile syntax
+3. Ensure all files are included in build context
+4. Use `iop --verbose` for detailed build output
 
 ### Health Check Failures
 
-If health checks fail:
+**Problem**: Deployment fails with "Health check failed"
 
-1. **Implement health endpoint** - Add `/up` route that returns 200
-2. **Check app startup time** - Ensure your app starts within the timeout
-3. **Verify port configuration** - Make sure `app_port` matches your app's port
+**Solutions**:
+1. Ensure your app has a health check endpoint (default: `/up`)
+2. Make sure the endpoint returns HTTP 200
+3. Check that your app is listening on the correct port
+4. Verify `app_port` in config matches your app's port
+
+### SSH Connection Issues
+
+**Problem**: Cannot connect to server
+
+**Solutions**:
+1. Test SSH manually: `ssh user@your-server.com`
+2. Verify the username in `iop.yml` matches your server
+3. Check firewall settings (ports 22, 80, 443 should be open)
+4. Use `iop --verbose` for detailed connection info
+
+### SSL Certificate Issues
+
+**Problem**: HTTPS not working
+
+**Solutions**:
+1. Ensure your domain points to your server IP
+2. Check DNS propagation: `dig your-domain.com`
+3. Verify domain is correctly configured in `proxy.hosts`
+4. Wait a few minutes for certificate generation
 
 ## Example Projects
 
-Check out these example projects:
+Check out these complete examples:
 
-- [Basic Go Application](/examples/basic) - Simple HTTP server
-- [Next.js Application](/examples/nextjs) - Full-stack React app
-- [Full-Stack with Database](/examples/fullstack) - App + PostgreSQL
+- [**Basic Go Application**](https://github.com/elitan/iop/tree/main/examples/basic) - Simple HTTP server with database
+- [**Next.js Application**](https://github.com/elitan/iop/tree/main/examples/nextjs) - Full-stack React app
+- [**Plausible Analytics**](https://github.com/elitan/iop/tree/main/examples/plausible) - Real-world analytics deployment
+
+## Getting Help
+
+Need help? Here are your options:
+
+- **Use help commands**: `iop --help` or `iop <command> --help`
+- **Verbose output**: Add `--verbose` to any command for detailed logs
+- **Check status**: `iop status --verbose` shows detailed deployment info
+- **View proxy logs**: `iop proxy logs --lines 100`
+
+You're now ready to deploy with confidence! 🚀

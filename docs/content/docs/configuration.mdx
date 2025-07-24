@@ -10,61 +10,68 @@ Complete reference for all configuration options available in `iop.yml`.
 ## Basic Structure
 
 ```yaml
-name: my-project # Required: Project name
+name: my-project # Required: Project name used for Docker networks and container naming
 
 # Global settings
 ssh: # SSH connection settings
-  username: deploy # SSH username (default: root)
+  username: iop # SSH username (default from config)
   port: 22 # SSH port (default: 22)
+  key_file: ~/.ssh/id_rsa # Path to SSH private key (optional)
 
-docker: # Docker registry settings (optional)
-  registry: ghcr.io # Registry URL
-  username: myuser # Registry username
+proxy: # Global proxy settings
+  image: elitan/iop-proxy:latest # Custom proxy image (optional)
 
-apps: # Applications (built and deployed)
-  web:# App name
+apps: # Applications (zero-downtime deployments)
+  web: # App name
     # App configuration here
 
-services: # Services (pre-built images)
-  database:# Service name
+services: # Services (direct replacement deployments)
+  database: # Service name  
     # Service configuration here
 ```
 
 ## Apps Configuration
 
-Apps are your main applications that iop builds and deploys with zero-downtime.
+Apps are user-facing applications that get **zero-downtime blue-green deployments**. They are built locally and transferred via SSH.
 
 ### Basic App Configuration
 
 ```yaml
 apps:
   web:
-    image: my-app/web # Docker image name
-    servers: # Target servers
-      - server1.com
-      - server2.com
-
-    build: # Build configuration
+    server: server1.com # Target server (single server per app)
+    
+    build: # Build configuration (for local builds)
       context: . # Build context (default: .)
       dockerfile: Dockerfile # Dockerfile path (default: Dockerfile)
+      args: # Build arguments from environment
+        - NODE_ENV
+        - API_URL
+      target: production # Multi-stage build target (optional)
       platform: linux/amd64 # Target platform (optional)
 
     proxy: # Reverse proxy configuration
-      hosts: # Domains for this app
+      app_port: 3000 # Port your app runs on inside container
+      hosts: # Custom domains (optional)
         - example.com
         - www.example.com
-      app_port: 3000 # Port your app runs on
+      ssl: true # Enable HTTPS (default: true)
+      ssl_redirect: true # Redirect HTTP to HTTPS (optional)
+      forward_headers: false # Forward X-Forwarded-* headers (optional)
+      response_timeout: 30s # Request timeout (default: 30s)
 
     environment: # Environment variables
-      plain: # Plain text variables
+      plain: # Plain text variables (KEY=VALUE format)
         - NODE_ENV=production
         - PORT=3000
-      secret: # Variables from .iop/secrets
+      secret: # Variables from .iop/secrets (KEY format)
         - DATABASE_URL
         - API_KEY
 
     health_check: # Health check configuration
-      path: /health # Health endpoint (default: /up)
+      path: /up # Health endpoint (default: /up)
+
+    replicas: 2 # Number of replicas (default: 1)
 ```
 
 ### Advanced App Options
@@ -72,20 +79,13 @@ apps:
 ```yaml
 apps:
   api:
-    image: my-app/api
-    servers:
-      - api.example.com
-
-    # Multiple replicas (load balancing)
+    server: api.example.com
+    image: my-app/api # Docker image name (optional, auto-generated)
+    
+    # Multiple replicas for load balancing
     replicas: 3
 
-    # Custom registry for this app
-    registry:
-      url: ghcr.io
-      username: different-user
-      password_secret: GITHUB_TOKEN
-
-    # Port mapping (rarely needed)
+    # Port mapping (rarely needed since proxy handles routing)
     ports:
       - "8080:8080"
 
@@ -94,352 +94,301 @@ apps:
       - ./logs:/app/logs
       - app_data:/data
 
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: "0.5"
+    # Custom registry (for pre-built images instead of local build)
+    registry:
+      url: ghcr.io # Registry URL (optional)
+      username: myuser # Registry username
+      password_secret: REGISTRY_PASSWORD # Password from .iop/secrets
+
+    # Override default command
+    command: "npm start --production"
 ```
 
 ## Services Configuration
 
-Services are supporting infrastructure like databases and caches that use pre-built images.
+Services are infrastructure components (databases, caches, etc.) that get **direct replacement** during deployment. They use pre-built Docker images.
 
 ### Basic Service Configuration
 
 ```yaml
 services:
   postgres:
-    image: postgres:15 # Pre-built image
-    servers: # Target servers
-      - db.example.com
-
+    image: postgres:17 # Required: Docker image with tag
+    server: db.example.com # Target server
+    
+    ports: # Port mapping
+      - "5432:5432"
+    
+    volumes: # Persistent volumes
+      - ./pgdata:/var/lib/postgresql/data
+      - db_logs:/var/log/postgresql
+    
     environment: # Environment variables
       plain:
+        - POSTGRES_USER=postgres
         - POSTGRES_DB=myapp
       secret:
         - POSTGRES_PASSWORD # From .iop/secrets
-
-    ports: # Port mapping
-      - "5432:5432"
-
-    volumes: # Volume mounts
-      - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 ```
 
-### Service with Health Checks
+### Advanced Service Options
 
 ```yaml
 services:
   redis:
-    image: redis:7
-    servers:
-      - cache.example.com
-
-    # Health check for services
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
-
-    # Restart policy
-    restart: unless-stopped
+    image: redis:7-alpine
+    server: cache.example.com
+    
+    # Custom registry for private images
+    registry:
+      url: private-registry.com
+      username: myuser
+      password_secret: REGISTRY_TOKEN
+    
+    # Override default command
+    command: "redis-server --appendonly yes"
+    
+    # Multiple port mappings
+    ports:
+      - "6379:6379"
+      - "16379:16379" # Sentinel port
+    
+    # Named and bind volumes
+    volumes:
+      - redis_data:/data # Named volume
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro # Bind mount (read-only)
 ```
 
-## Global Settings
+## Global Configuration
 
 ### SSH Configuration
 
 ```yaml
 ssh:
-  username: deploy # SSH username (default: root)
-  port: 22 # SSH port (default: 22)
-  key_file: ~/.ssh/id_rsa # SSH key file (optional)
-
-  # Per-server SSH settings
-  servers:
-    server1.com:
-      username: ubuntu
-      port: 2222
-    server2.com:
-      username: debian
+  username: iop # Default SSH username for all servers
+  port: 22 # Default SSH port
+  key_file: ~/.ssh/id_rsa # Path to SSH private key
 ```
 
-### Docker Registry
+You can override SSH settings per server by using different usernames in your app/service server specifications.
 
-Registry configuration is only needed for services using private registries. Apps are always transferred directly via SSH and don't require registry configuration.
+### Proxy Configuration
 
 ```yaml
-# Only needed for services with private images
-docker:
-  registry: ghcr.io # Default registry for services
-  username: myuser # Registry username
+proxy:
+  image: elitan/iop-proxy:latest # Custom proxy Docker image
 ```
+
+The proxy handles:
+- SSL certificate management (Let's Encrypt)
+- HTTP to HTTPS redirects
+- Reverse proxy routing
+- Load balancing between app replicas
 
 ## Environment Variables
 
-iop supports both plain text and secret environment variables.
-
-### Plain Variables
+### Plain Environment Variables
 
 ```yaml
 environment:
   plain:
-    - NODE_ENV=production
+    - NODE_ENV=production # Simple key=value
+    - DEBUG=app:* # Can contain special characters
     - PORT=3000
-    - API_URL=https://api.example.com
 ```
 
-### Secret Variables
+### Secret Environment Variables
 
-Store sensitive values in `.iop/secrets`:
+Sensitive values are stored in `.iop/secrets` and referenced by key name:
 
-```bash
-# .iop/secrets
-DATABASE_URL=postgres://user:pass@localhost:5432/myapp
-JWT_SECRET=supersecretkey
-API_KEY=secret-api-key
-```
-
-Reference them in your configuration:
-
+**In `iop.yml`:**
 ```yaml
 environment:
   secret:
     - DATABASE_URL
     - JWT_SECRET
-    - API_KEY
+    - STRIPE_API_KEY
 ```
 
-### Variable Interpolation
+**In `.iop/secrets`:**
+```bash
+DATABASE_URL=postgres://user:password@localhost:5432/myapp
+JWT_SECRET=your-super-secret-jwt-key
+STRIPE_API_KEY=sk_live_...
+```
 
-Use environment variables from your local machine:
+### Build Arguments
+
+For apps with build configuration, you can pass environment variables as build arguments:
 
 ```yaml
-environment:
-  plain:
-    - BUILD_VERSION=${BUILD_VERSION:-latest}
-    - COMMIT_SHA=${GITHUB_SHA}
+apps:
+  web:
+    build:
+      context: .
+      args:
+        - NODE_ENV # Will pass NODE_ENV from environment section
+        - API_URL
+    environment:
+      plain:
+        - NODE_ENV=production
+        - API_URL=https://api.example.com
 ```
 
 ## Health Checks
 
-### App Health Checks
-
-Health checks are automatic for apps with configurable endpoint:
+Apps should implement health check endpoints for zero-downtime deployments:
 
 ```yaml
 apps:
   web:
     health_check:
-      path: /health # Health endpoint (default: /up)
-
-
-    # Health check behavior (automatic):
-    # - Method: GET
-    # - Success: HTTP 200
-    # - Timeout: 5 seconds
-    # - Retries: 3 attempts
-    # - Port: Uses app_port
+      path: /up # Default endpoint
 ```
 
-### Service Health Checks
+Your application must respond with HTTP 200 at this endpoint when healthy:
 
-For services, use Docker's healthcheck format:
-
-```yaml
-services:
-  postgres:
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+```javascript
+// Express.js example
+app.get('/up', (req, res) => {
+  // Check database connectivity, etc.
+  res.status(200).send('OK');
+});
 ```
 
-## Proxy Configuration
-
-### Basic Proxy Setup
-
-```yaml
-apps:
-  web:
-    proxy:
-      hosts: # Domains to route
-        - example.com
-        - www.example.com
-      app_port: 3000 # Port your app uses
+```go
+// Go example
+http.HandleFunc("/up", func(w http.ResponseWriter, r *http.Request) {
+    // Check dependencies
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("OK"))
+})
 ```
 
-### Advanced Proxy Options
-
-```yaml
-apps:
-  api:
-    proxy:
-      hosts:
-        - api.example.com
-      app_port: 8080
-
-      # Custom proxy settings
-      timeout: 60s
-      max_body_size: 10M
-
-      # Custom headers
-      headers:
-        X-Forwarded-Proto: https
-        X-Real-IP: $remote_addr
-```
-
-## Build Configuration
-
-### Basic Build
-
-```yaml
-apps:
-  web:
-    build:
-      context: . # Build context
-      dockerfile: Dockerfile # Dockerfile path
-```
-
-### Advanced Build Options
-
-```yaml
-apps:
-  web:
-    build:
-      context: ./frontend # Custom context
-      dockerfile: docker/Dockerfile.prod # Custom Dockerfile
-      platform: linux/amd64 # Target platform
-
-      # Build arguments
-      args:
-        NODE_VERSION: 18
-        BUILD_ENV: production
-
-      # Build secrets (from .iop/secrets)
-      secrets:
-        - PRIVATE_NPM_TOKEN
-```
-
-## Volume Management
+## Volumes
 
 ### Named Volumes
-
 ```yaml
-services:
-  postgres:
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  web:
-    volumes:
-      - app_uploads:/app/uploads
+volumes:
+  - postgres_data:/var/lib/postgresql/data
+  - app_logs:/app/logs
 ```
 
 ### Bind Mounts
-
 ```yaml
-services:
-  nginx:
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/ssl/certs:ro
+volumes:
+  - ./data:/app/data # Relative to iop.yml location
+  - /host/path:/container/path # Absolute paths
+  - ./config/nginx.conf:/etc/nginx/nginx.conf:ro # Read-only
 ```
 
-## Multi-Environment Configuration
+### Volume Best Practices
 
-### Environment-Specific Files
+- Use named volumes for database data
+- Use bind mounts for configuration files
+- Ensure host directories exist and have proper permissions
+- Use read-only (`:ro`) for configuration files
+
+## Multi-Server Deployment
+
+Each app/service can target a single server. For multi-server deployments, create multiple entries:
 
 ```yaml
-# iop.staging.yml
-name: myapp-staging
 apps:
-  web:
-    servers:
-      - staging.example.com
+  web-primary:
+    server: server1.com
+    # ... config
+    
+  web-secondary:
+    server: server2.com
+    # ... same config
+    
+  web-cdn:
+    server: cdn.server.com
+    # ... same config with different domains
     proxy:
       hosts:
-        - staging.myapp.com
+        - cdn.example.com
+```
 
-# iop.production.yml
-name: myapp-prod
+## Registry Configuration
+
+### Global Registry
+```yaml
+docker:
+  registry: ghcr.io
+  username: myuser
+  # Password should be in .iop/secrets as DOCKER_REGISTRY_PASSWORD
+```
+
+### Per-App/Service Registry
+```yaml
 apps:
   web:
-    servers:
-      - prod1.example.com
-      - prod2.example.com
+    registry:
+      url: private-registry.com
+      username: appuser
+      password_secret: APP_REGISTRY_TOKEN
+```
+
+Registry configuration is only needed for:
+- Services using private images
+- Apps using pre-built images (instead of local build)
+
+Apps with `build` configuration don't need registries (images are built locally and transferred via SSH).
+
+## Complete Example
+
+Here's a complete example showing all major features:
+
+```yaml
+name: my-fullstack-app
+
+ssh:
+  username: iop
+  key_file: ~/.ssh/deployment_key
+
+apps:
+  web:
+    server: web.example.com
+    replicas: 2
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        - NODE_ENV
+        - API_URL
     proxy:
       hosts:
         - myapp.com
         - www.myapp.com
-```
-
-Deploy with specific configuration:
-
-```bash
-iop deploy -c iop.staging.yml
-iop deploy -c iop.production.yml
-```
-
-## Complete Example
-
-Here's a complete example with multiple apps and services:
-
-```yaml
-name: ecommerce-platform
-
-ssh:
-  username: deploy
-  port: 22
-
-docker:
-  registry: ghcr.io
-  username: mycompany
-
-apps:
-  frontend:
-    image: ecommerce/frontend
-    servers:
-      - web1.example.com
-      - web2.example.com
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.prod
-    proxy:
-      hosts:
-        - shop.com
-        - www.shop.com
       app_port: 3000
+      ssl: true
     environment:
       plain:
         - NODE_ENV=production
-        - API_URL=https://api.shop.com
+        - API_URL=https://api.myapp.com
       secret:
-        - STRIPE_PUBLIC_KEY
+        - JWT_SECRET
+        - DATABASE_URL
     health_check:
       path: /health
+    volumes:
+      - ./logs:/app/logs
 
   api:
-    image: ecommerce/api
-    servers:
-      - api.example.com
+    server: api.example.com
     build:
-      context: ./backend
+      context: ./api
+      dockerfile: Dockerfile
     proxy:
       hosts:
-        - api.shop.com
-      app_port: 8080
+        - api.myapp.com
+      app_port: 8000
     environment:
       plain:
         - NODE_ENV=production
-        - PORT=8080
+        - CORS_ORIGIN=https://myapp.com
       secret:
         - DATABASE_URL
         - JWT_SECRET
@@ -449,36 +398,64 @@ apps:
 
 services:
   postgres:
-    image: postgres:15
-    servers:
-      - db.example.com
-    environment:
-      plain:
-        - POSTGRES_DB=ecommerce
-        - POSTGRES_USER=ecommerce
-      secret:
-        - POSTGRES_PASSWORD
+    image: postgres:17
+    server: db.example.com
     ports:
       - "5432:5432"
+    environment:
+      plain:
+        - POSTGRES_USER=postgres
+        - POSTGRES_DB=myapp
+      secret:
+        - POSTGRES_PASSWORD
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ecommerce"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   redis:
-    image: redis:7
-    servers:
-      - cache.example.com
+    image: redis:7-alpine
+    server: cache.example.com
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
+    command: "redis-server --appendonly yes"
 ```
+
+## Configuration Validation
+
+iop validates your configuration and provides helpful error messages:
+
+- **Missing required fields** - Clear error messages about what's missing
+- **Invalid formats** - Validation errors with suggestions
+- **Reserved names** - Apps/services cannot be named: `init`, `status`, `proxy`
+
+Use `iop --verbose` to see detailed configuration validation information.
+
+## Environment-Specific Configurations
+
+Create multiple configuration files for different environments:
+
+```bash
+# Development
+iop.development.yml
+
+# Staging  
+iop.staging.yml
+
+# Production
+iop.production.yml
+```
+
+Deploy with specific configurations:
+
+```bash
+iop -c iop.staging.yml    # Deploy to staging
+iop -c iop.production.yml # Deploy to production
+```
+
+This allows different:
+- Server targets
+- Environment variables
+- Replica counts
+- SSL settings
+- Domain configurations

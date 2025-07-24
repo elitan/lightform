@@ -14,23 +14,28 @@ Initialize a new iop project with configuration files.
 ### Usage
 
 ```bash
-iop init
+iop init [flags]
+```
+
+### Flags
+
+- `--help` - Show help message
+- `--non-interactive` - Skip prompts, use defaults
+- `--name <name>` - Set project name (non-interactive mode)
+
+### Examples
+
+```bash
+iop init                    # Interactive setup
+iop init --non-interactive  # Use defaults
+iop init --name my-app      # Set name non-interactively
 ```
 
 ### What it does
 
-- Creates `iop.yml` with basic configuration template
+- Creates `iop.yml` with configuration template
 - Creates `.iop/secrets` file for sensitive environment variables
-- Prompts you to add `.iop/secrets` to `.gitignore`
-
-### Example Output
-
-```bash
-❯ iop init
-✓ Created iop.yml
-✓ Created .iop/secrets
-! Add .iop/secrets to your .gitignore file
-```
+- Automatically adds `.iop/secrets` to `.gitignore` for security
 
 ### Generated Files
 
@@ -40,183 +45,146 @@ iop init
 name: my-project
 
 ssh:
-  username: root
+  username: iop
 
 apps:
   web:
-    image: my-project/web
-    servers:
-      - your-server.com
     build:
       context: .
       dockerfile: Dockerfile
+    server: your-server-ip
+    environment:
+      plain:
+        - NODE_ENV=production
+      secret:
+        - DATABASE_URL
     proxy:
-      hosts:
-        - example.com
       app_port: 3000
+    health_check:
+      path: /api/health
+
+# Example service (uncomment and configure as needed)
+# services:
+#   db:
+#     image: postgres:15
+#     server: your-server-ip
+#     ports:
+#       - "5432:5432"
+#     environment:
+#       plain:
+#         - POSTGRES_USER=postgres
+#         - POSTGRES_DB=my-project
+#       secret:
+#         - POSTGRES_PASSWORD
+#     volumes:
+#       - ./pgdata:/var/lib/postgresql/data
 ```
 
 **`.iop/secrets`**:
 
 ```bash
-# Add your secrets here
-# DATABASE_URL=postgres://...
-# API_KEY=your-secret-key
+# Add your secret environment variables here
+# Example:
+# DATABASE_URL=postgres://user:password@localhost:5432/mydb
+# POSTGRES_PASSWORD=supersecret
+# API_KEY=your-api-key
 ```
 
 ---
 
-## `iop setup`
+## `iop` (Deploy - Default Command)
 
-Prepare servers for deployment by installing Docker and setting up infrastructure.
-
-### Usage
-
-```bash
-iop setup [service...]               # Set up servers for specific services
-iop setup                           # Set up all servers
-iop setup --verbose                 # Show detailed output
-```
-
-### Examples
-
-```bash
-iop setup                           # Set up all servers
-iop setup web api                   # Set up only servers for web and api
-iop setup --verbose                 # Detailed logging
-```
-
-### What it does
-
-1. **Connects to servers** via SSH
-2. **Installs Docker** if not present
-3. **Creates Docker networks** for app communication
-4. **Sets up reverse proxy** (Traefik) for automatic HTTPS
-5. **Configures SSL** certificate automation via Let's Encrypt
-6. **Verifies connectivity** and reports status
-
-### Example Output
-
-```bash
-❯ iop setup
-Setting up servers for deployment...
-
-[✓] server1.com
-    ├─ [✓] SSH connection verified
-    ├─ [✓] Docker installed and running
-    ├─ [✓] iop network created
-    ├─ [✓] Reverse proxy configured
-    └─ [✓] SSL automation enabled
-
-[✓] server2.com
-    ├─ [✓] SSH connection verified
-    ├─ [✓] Docker installed and running
-    ├─ [✓] iop network created
-    ├─ [✓] Reverse proxy configured
-    └─ [✓] SSL automation enabled
-
-✓ All servers ready for deployment
-```
-
----
-
-## `iop deploy`
-
-Deploy applications or services with zero downtime.
+Deploy applications and services to configured servers. This is the default command when no command is specified.
 
 ### Usage
 
 ```bash
-iop deploy [app...]                 # Deploy specific apps
-iop deploy                          # Deploy all apps
-iop deploy --services               # Deploy services instead of apps
-iop deploy --force                  # Skip git status checks
-iop deploy --verbose                # Show detailed output
-iop deploy -c config.yml            # Use specific config file
+iop [entry-names...] [flags]       # Default - no 'deploy' needed
+iop deploy [entry-names...] [flags] # Explicit command
 ```
+
+### Flags
+
+- `--services` - Deploy services only (skip apps)
+- `--verbose` - Show detailed deployment progress
+- `--help` - Show help message
 
 ### Examples
 
 ```bash
-iop deploy                          # Deploy all apps
-iop deploy web                      # Deploy only the web app
-iop deploy web api                  # Deploy web and api apps
-iop deploy --services               # Deploy all services
-iop deploy backend --force          # Force deploy (skip git checks)
-iop deploy --verbose                # Detailed logging
-iop deploy -c iop.staging.yml      # Use staging configuration
+iop                         # Deploy all apps and services
+iop web api                 # Deploy specific apps/services
+iop --services              # Deploy only services
+iop --verbose               # Deploy with detailed output
 ```
 
 ### Deployment Process
 
-1. **Configuration validation** - Verify iop.yml syntax
-2. **Git status check** - Ensure working directory is clean (unless `--force`)
-3. **Infrastructure verification** - Check servers are ready
-4. **Image building** - Build Docker images locally
-5. **Image transfer** - Securely upload to servers via SSH
-6. **Zero-downtime deployment** - Blue-green deployment strategy
-7. **Health checks** - Verify new version is healthy
-8. **Traffic switching** - Atomically switch traffic to new version
-9. **Cleanup** - Remove old versions
+1. **Configuration validation** - Load and validate iop.yml
+2. **Git status check** - Ensure working directory is clean
+3. **Infrastructure setup** - Automatically sets up servers if needed (no separate setup command required)
+4. **Image building** - Build Docker images locally for apps with build configuration
+5. **Image transfer** - Compress and transfer images via SSH (no registry needed)
+6. **Zero-downtime deployment** - Blue-green deployment for apps, direct replacement for services
+7. **Health checks** - Verify new versions are healthy before switching traffic
+8. **Proxy configuration** - Update reverse proxy routing
 
 ### Example Output
 
 ```bash
-❯ iop deploy
+❯ iop
 Using Git SHA for release ID: a1b2c3d
 Starting deployment with release a1b2c3d
 
-[✓] Configuration loaded (2ms)
-[✓] Git status verified (15ms)
-[✓] Infrastructure ready (450ms)
+[✓] Configuration loaded (0ms)
+[✓] Git status verified (3ms)
+[✓] Infrastructure ready (1.2s)
 
 Building Images
   [✓] web → my-app/web:a1b2c3d (45.2s)
-  [✓] api → my-app/api:a1b2c3d (32.1s)
 
 Deploying to Servers
   └─ server1.com
-     ├─ [✓] Loading web image (3.2s)
+     ├─ [✓] Loading image (3.2s)
      ├─ [✓] Zero-downtime deployment (2.8s)
-     ├─ [✓] Loading api image (2.1s)
-     ├─ [✓] Zero-downtime deployment (1.9s)
-     └─ [✓] Configuring SSL proxy (0.8s)
+     └─ [✓] Configuring proxy (0.8s)
 
-[✓] Deployment completed successfully in 89.1s
+[✓] Deployment completed successfully in 52.1s
 
 Your apps are live at:
-  ├─ https://myapp.com (web)
-  └─ https://api.myapp.com (api)
+  └─ https://myapp.com (web)
 ```
 
-### Deploy Options
+### Notes
 
-- **`--services`** - Deploy services (databases, caches) instead of apps
-- **`--force`** - Skip git working directory checks
-- **`--verbose`** - Show detailed build and deployment logs
-- **`-c, --config`** - Use a specific configuration file
+- Infrastructure setup is automatic (no separate setup command needed)
+- Commit git changes before deploying
+- Requires Docker running locally for image builds
+- App/service names cannot be: `init`, `status`, `proxy` (reserved)
 
 ---
 
 ## `iop status`
 
-Check the status of your deployments.
+Check deployment status across all servers with comprehensive information.
 
 ### Usage
 
 ```bash
-iop status [app...]                 # Status of specific apps
-iop status                          # Status of all apps
-iop status --verbose                # Show detailed status
+iop status [entry-names...] [flags]
 ```
+
+### Flags
+
+- `--verbose` - Show detailed status information
+- `--help` - Show help message
 
 ### Examples
 
 ```bash
-iop status                          # All apps status
-iop status web                      # Status of web app only
-iop status web api                  # Status of web and api apps
-iop status --verbose                # Detailed status information
+iop status                  # Check all deployments
+iop status web              # Check specific app
+iop status --verbose        # Detailed status info
 ```
 
 ### Example Output
@@ -225,48 +193,156 @@ iop status --verbose                # Detailed status information
 ❯ iop status
 📱 App: web
    Status: ✅ RUNNING (green active)
-   Replicas: 2/2 running
-   Servers: server1.com, server2.com
-   Last deployed: 2 hours ago (release a1b2c3d)
-   Health: ✅ All replicas healthy
-   URL: https://myapp.com
-
-📱 App: api
-   Status: ✅ RUNNING (blue active)
    Replicas: 1/1 running
-   Servers: api.server.com
-   Last deployed: 30 minutes ago (release b2c3d4e)
-   Health: ✅ All replicas healthy
-   URL: https://api.myapp.com
+   Image: my-app/web:a1b2c3d
+   Servers: server1.com
+   Last Deployed: 2 hours ago
+   Uptime: 2h 15m
+   Resource Usage: CPU 2.3%, Memory 125MB
 
 🔧 Service: postgres
    Status: ✅ RUNNING
-   Servers: db.server.com
-   Image: postgres:15
-   Health: ✅ Ready
+   Image: postgres:17
+   Servers: server1.com
+   Uptime: 1d 5h
+   Resource Usage: CPU 0.8%, Memory 95MB
+
+🔧 Proxy Status:
+   server1.com: ✅ RUNNING (port 80, 443)
+   - Version: elitan/iop-proxy:latest
+   - Uptime: 1d 5h
+   - Active routes: 2
 ```
 
 ### Status Information
 
 For each app/service, status shows:
 
-- **Status** - Current state (RUNNING, STOPPED, ERROR, DEPLOYING)
-- **Active color** - Which deployment slot is active (blue/green)
+- **Status** - Current state (RUNNING, STOPPED, MIXED, UNKNOWN)
+- **Active color** - Which deployment slot is active (blue/green) for apps
 - **Replicas** - Number of running/desired replicas
-- **Servers** - Which servers are hosting the app
-- **Last deployed** - When and which release was last deployed
-- **Health** - Health check status
-- **URL** - Live application URLs
+- **Image** - Current deployed image
+- **Servers** - Which servers are hosting the deployment
+- **Last deployed** - When the deployment occurred
+- **Uptime** - How long containers have been running
+- **Resource usage** - CPU and memory consumption
 
-### Detailed Status
+### Detailed Status (`--verbose`)
 
 With `--verbose`, you get additional information:
 
-- Container IDs and detailed status
-- Resource usage (CPU, memory)
-- Network configuration
+- Exact image digests
+- Container restart counts
+- Exit codes (if applicable)
+- Port mappings
 - Volume mounts
-- Environment variables (non-sensitive)
+- Container health check details
+
+---
+
+## `iop proxy`
+
+Manage the iop reverse proxy that handles SSL and routing.
+
+### Usage
+
+```bash
+iop proxy <subcommand> [flags]
+```
+
+### Subcommands
+
+- **`status`** - Show proxy status on all servers (default)
+- **`update`** - Update proxy to latest version on all servers
+- **`delete-host`** - Remove a host from proxy configuration
+- **`logs`** - Show proxy logs from all servers
+
+### Flags
+
+- `--verbose` - Show detailed output
+- `--host <host>` - Target specific host (for delete-host)
+- `--lines <n>` - Number of log lines to show (for logs, default: 50)
+
+### Examples
+
+```bash
+iop proxy status                              # Check status on all servers
+iop proxy update --verbose                    # Update proxy with details
+iop proxy delete-host --host api.example.com # Remove specific host
+iop proxy logs --lines 100                   # Show last 100 log lines
+```
+
+### `iop proxy status`
+
+Shows the status of the iop proxy on all configured servers:
+
+```bash
+❯ iop proxy status
+
+Proxy Statuses (2):
+
+server1.com: ✅ RUNNING
+- Container: iop-proxy
+- Ports: 80, 443, 8080
+- Image: elitan/iop-proxy:latest
+- Uptime: 1d 5h
+- Routes: 3 active
+
+server2.com: ✅ RUNNING
+- Container: iop-proxy
+- Ports: 80, 443, 8080
+- Image: elitan/iop-proxy:latest
+- Uptime: 2h 30m
+- Routes: 1 active
+```
+
+### `iop proxy update`
+
+Updates the proxy to the latest version on all servers:
+
+```bash
+❯ iop proxy update
+
+server1.com
+├─ [✓] Checking for updates
+├─ [✓] Pulling latest image
+├─ [✓] Updating proxy container
+└─ [✓] Proxy updated successfully
+
+Update Summary:
+   Updated: 1 server(s)
+   Skipped: 0 server(s) (already up to date)
+```
+
+### `iop proxy delete-host`
+
+Removes a specific host from the proxy configuration:
+
+```bash
+❯ iop proxy delete-host --host api.example.com
+
+server1.com
+└─ [✓] Host api.example.com deleted successfully
+
+Deletion Summary:
+   Deleted: 1 server(s)
+   Not found: 0 server(s)
+```
+
+### `iop proxy logs`
+
+Shows recent logs from the proxy:
+
+```bash
+❯ iop proxy logs --lines 50
+
+=== Proxy Logs from server1.com ===
+2024-01-15 10:30:45 [INFO] Proxy server started on :80 and :443
+2024-01-15 10:30:45 [INFO] API server started on :8080
+2024-01-15 10:31:02 [INFO] Certificate obtained for myapp.com
+2024-01-15 10:31:02 [INFO] Route configured: myapp.com -> localhost:3000
+=== End logs from server1.com ===
+```
 
 ---
 
@@ -285,64 +361,19 @@ Show detailed output including:
 - Error diagnostics
 
 ```bash
-iop deploy --verbose
-iop setup --verbose
+iop --verbose
 iop status --verbose
+iop proxy status --verbose
 ```
 
-### `--config` / `-c`
+### `--help`
 
-Use a specific configuration file instead of `iop.yml`:
-
-```bash
-iop deploy -c iop.staging.yml
-iop deploy -c iop.production.yml
-iop setup -c environments/prod.yml
-```
-
-This enables multi-environment deployments with different configurations.
-
----
-
-## Command Chaining
-
-Common command sequences for different workflows:
-
-### First Deployment
+Show help information for any command:
 
 ```bash
-iop init                            # Initialize project
-# Edit iop.yml and .iop/secrets
-iop setup                           # Prepare servers
-iop deploy                          # Deploy apps
-iop status                          # Verify deployment
-```
-
-### Regular Deployments
-
-```bash
-iop deploy                          # Deploy latest changes
-iop status                          # Check status
-```
-
-### Multi-Environment Workflow
-
-```bash
-# Deploy to staging
-iop deploy -c iop.staging.yml
-
-# Deploy to production
-iop deploy -c iop.production.yml
-
-# Check production status
-iop status -c iop.production.yml
-```
-
-### Service Management
-
-```bash
-iop deploy --services               # Deploy/update services
-iop status --verbose                # Check all services
+iop --help              # Global help
+iop init --help         # Command-specific help
+iop proxy status --help # Subcommand help
 ```
 
 ---
@@ -352,15 +383,13 @@ iop status --verbose                # Check all services
 iop commands return standard exit codes:
 
 - **0** - Success
-- **1** - General error (configuration, network, etc.)
-- **2** - Command line usage error
-- **130** - Interrupted by user (Ctrl+C)
+- **1** - General error (configuration, network, deployment failure, etc.)
 
 This makes iop suitable for use in CI/CD pipelines:
 
 ```bash
 #!/bin/bash
-iop deploy -c iop.production.yml
+iop
 if [ $? -eq 0 ]; then
     echo "✅ Deployment successful"
 else
@@ -368,3 +397,51 @@ else
     exit 1
 fi
 ```
+
+---
+
+## Error Handling and Suggestions
+
+iop provides helpful error messages with specific suggestions:
+
+### Configuration Errors
+
+```bash
+Error: Could not find iop.yml file
+
+Suggestion:
+   Run 'iop init' to create configuration files
+```
+
+### SSH Connection Errors
+
+```bash
+Error: SSH connection failed to server.com
+
+Suggestions:
+   - Check server hostname in iop.yml
+   - Verify SSH access to your servers
+   - Use --verbose flag for detailed connection info
+```
+
+### Docker Errors
+
+```bash
+Error: Docker build failed
+
+Suggestions:
+   - Ensure Docker is running locally
+   - Check your Dockerfile syntax
+   - Use --verbose flag for detailed build output
+```
+
+### Git Status Errors
+
+```bash
+Error: Git working directory is not clean
+
+Suggestions:
+   - Commit your changes: git add . && git commit -m 'message'
+```
+
+For more help, use `iop --help` or `iop <command> --help` for command-specific information.
