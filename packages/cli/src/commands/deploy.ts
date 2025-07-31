@@ -11,6 +11,9 @@ import {
   appNeedsBuilding,
   getAppImageName,
   buildImageName,
+  serviceNeedsBuilding,
+  getServiceImageName,
+  buildServiceImageName,
 } from "../utils/image-utils";
 import {
   DockerClient,
@@ -100,16 +103,27 @@ function resolveEnvironmentVariables(
 function serviceEntryToContainerOptions(
   serviceEntry: ServiceEntry,
   secrets: IopSecrets,
-  projectName: string
+  projectName: string,
+  releaseId?: string
 ): DockerContainerOptions {
   const containerName = `${projectName}-${serviceEntry.name}`; // Project-prefixed names
   const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
   const configHash = createServiceConfigHash(serviceEntry);
 
+  // Determine the correct image name based on whether the service needs building
+  let imageName: string;
+  if (serviceNeedsBuilding(serviceEntry) && releaseId) {
+    // For built services, use the release-tagged image name
+    imageName = buildServiceImageName(serviceEntry, releaseId);
+  } else {
+    // For pre-built services, use the configured image
+    imageName = serviceEntry.image!;
+  }
+
   return {
     name: containerName,
-    image: serviceEntry.image,
+    image: imageName,
     ports: serviceEntry.ports,
     volumes: processVolumes(serviceEntry.volumes, projectName),
     envVars: envVars,
@@ -667,23 +681,39 @@ async function deployEntries(context: DeploymentContext): Promise<void> {
   const services = context.targetServices;
 
   const appsNeedingBuild = apps.filter((app) => appNeedsBuilding(app));
+  const servicesNeedingBuild = services.filter((service) => serviceNeedsBuilding(service));
 
   // Initialize image archives map
   context.imageArchives = new Map<string, string>();
 
-  // Build phase for apps that need building
-  if (appsNeedingBuild.length > 0) {
+  // Build phase for apps and services that need building
+  const totalBuilds = appsNeedingBuild.length + servicesNeedingBuild.length;
+  if (totalBuilds > 0) {
     const buildStartTime = Date.now();
 
     // Create build header
     logger.phaseStart("Building locally");
 
+    let buildIndex = 0;
+
+    // Build apps
     for (let i = 0; i < appsNeedingBuild.length; i++) {
       const appEntry = appsNeedingBuild[i];
-      const isLastApp = i === appsNeedingBuild.length - 1;
+      const isLastBuild = buildIndex === totalBuilds - 1;
 
-      const archivePath = await buildAndSaveApp(appEntry, context, isLastApp);
+      const archivePath = await buildAndSaveApp(appEntry, context, isLastBuild);
       context.imageArchives.set(appEntry.name, archivePath);
+      buildIndex++;
+    }
+
+    // Build services
+    for (let i = 0; i < servicesNeedingBuild.length; i++) {
+      const serviceEntry = servicesNeedingBuild[i];
+      const isLastBuild = buildIndex === totalBuilds - 1;
+
+      const archivePath = await buildAndSaveService(serviceEntry, context, isLastBuild);
+      context.imageArchives.set(serviceEntry.name, archivePath);
+      buildIndex++;
     }
 
     // Build complete - show checkmark
@@ -803,6 +833,226 @@ async function buildAndSaveApp(
     logger.error(`${appEntry.name} image preparation failed`, error);
     throw error;
   }
+}
+
+/**
+ * Builds a service and saves it to a tar archive for transfer
+ */
+async function buildAndSaveService(
+  serviceEntry: ServiceEntry,
+  context: DeploymentContext,
+  isLastService: boolean = false
+): Promise<string> {
+  const imageNameWithRelease = buildServiceImageName(serviceEntry, context.releaseId);
+
+  try {
+    // Step 1: Build the image
+    logger.buildStep(`Build ${serviceEntry.name} image`);
+    const buildStartTime = Date.now();
+
+    const imageReady = await buildOrTagServiceImage(
+      serviceEntry,
+      imageNameWithRelease,
+      context
+    );
+    if (!imageReady) throw new Error("Image build failed");
+
+    const buildDuration = Date.now() - buildStartTime;
+    logger.buildStepComplete(`Build ${serviceEntry.name} image`, buildDuration);
+
+    // Step 2: Prepare for transfer
+    logger.buildStep(`Package for transfer`, isLastService);
+    const saveStartTime = Date.now();
+
+    const archivePath = await saveServiceImage(
+      serviceEntry,
+      imageNameWithRelease,
+      context.verboseFlag
+    );
+
+    const saveDuration = Date.now() - saveStartTime;
+    logger.buildStepComplete(
+      "Package for transfer",
+      saveDuration,
+      isLastService
+    );
+
+    return archivePath;
+  } catch (error) {
+    logger.error(`${serviceEntry.name} image preparation failed`, error);
+    throw error;
+  }
+}
+
+/**
+ * Builds or tags a service image locally
+ */
+async function buildOrTagServiceImage(
+  serviceEntry: ServiceEntry,
+  imageNameWithRelease: string,
+  context: DeploymentContext
+): Promise<boolean> {
+  if (serviceNeedsBuilding(serviceEntry)) {
+    logger.verboseLog(`Building service ${serviceEntry.name}...`);
+    try {
+      const buildConfig = await getServiceBuildConfig(serviceEntry, context);
+
+      await DockerClient.build({
+        context: buildConfig.context,
+        dockerfile: buildConfig.dockerfile,
+        tags: [imageNameWithRelease],
+        buildArgs: buildConfig.args,
+        platform: buildConfig.platform,
+        target: buildConfig.target,
+        verbose: context.verboseFlag,
+      });
+      logger.verboseLog(
+        `Successfully built and tagged ${imageNameWithRelease} for platforms: ${buildConfig.platform}`
+      );
+      return true;
+    } catch (error) {
+      logger.error(`Failed to build service ${serviceEntry.name}`, error);
+      return false;
+    }
+  } else {
+    // For services that don't need building, tag the existing image
+    const baseImageName = getServiceImageName(serviceEntry);
+    logger.verboseLog(`Tagging ${baseImageName} as ${imageNameWithRelease}...`);
+    try {
+      await DockerClient.tag(
+        baseImageName,
+        imageNameWithRelease,
+        context.verboseFlag
+      );
+      logger.verboseLog(
+        `Successfully tagged ${baseImageName} as ${imageNameWithRelease}`
+      );
+      return true;
+    } catch (error) {
+      logger.error(`Failed to tag pre-built image ${baseImageName}`, error);
+      return false;
+    }
+  }
+}
+
+/**
+ * Saves a service image to a tar archive for transfer
+ */
+async function saveServiceImage(
+  serviceEntry: ServiceEntry,
+  imageNameWithRelease: string,
+  verbose: boolean = false
+): Promise<string> {
+  logger.verboseLog(`Saving image ${imageNameWithRelease} to archive...`);
+  try {
+    // Create a temporary directory for the archive
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "iop-"));
+    const compressedArchivePath = path.join(
+      tempDir,
+      `${serviceEntry.name}-${Date.now()}.tar.gz`
+    );
+    const uncompressedArchivePath = path.join(
+      tempDir,
+      `${serviceEntry.name}-${Date.now()}.tar`
+    );
+
+    // Try to use compression first
+    await DockerClient.saveCompressed(
+      imageNameWithRelease,
+      compressedArchivePath,
+      verbose
+    );
+
+    // Check which file was actually created (compressed or uncompressed)
+    if (fs.existsSync(compressedArchivePath)) {
+      logger.verboseLog(
+        `Successfully saved ${imageNameWithRelease} to compressed archive ${compressedArchivePath}`
+      );
+      return compressedArchivePath;
+    } else if (fs.existsSync(uncompressedArchivePath)) {
+      logger.verboseLog(
+        `Successfully saved ${imageNameWithRelease} to uncompressed archive ${uncompressedArchivePath}`
+      );
+      return uncompressedArchivePath;
+    } else {
+      throw new Error(
+        "Neither compressed nor uncompressed archive was created"
+      );
+    }
+  } catch (error) {
+    logger.error(`Failed to save image ${imageNameWithRelease}`, error);
+    throw error;
+  }
+}
+
+/**
+ * Gets the build configuration for a service, providing defaults if none specified
+ */
+async function getServiceBuildConfig(
+  serviceEntry: ServiceEntry,
+  context: DeploymentContext
+): Promise<{
+  context: string;
+  dockerfile: string;
+  platform: string;
+  args?: Record<string, string>;
+  target?: string;
+}> {
+  if (serviceEntry.build) {
+    const buildArgs: Record<string, string> = {};
+
+    // Handle build.args - resolve variable names from environment section
+    if (serviceEntry.build.args && serviceEntry.build.args.length > 0) {
+      const envVars = resolveEnvironmentVariables(serviceEntry, context.secrets);
+
+      for (const varName of serviceEntry.build.args) {
+        if (envVars[varName] !== undefined) {
+          buildArgs[varName] = envVars[varName];
+
+          // Warn about potentially sensitive variables being exposed to build context
+          const lowerCaseName = varName.toLowerCase();
+          if (
+            lowerCaseName.includes("secret") ||
+            lowerCaseName.includes("password") ||
+            lowerCaseName.includes("key") ||
+            lowerCaseName.includes("token")
+          ) {
+            logger.warn(
+              `Warning: Build argument "${varName}" appears to contain sensitive data and will be visible in Docker build context for service ${serviceEntry.name}`
+            );
+          }
+        } else {
+          throw new Error(
+            `Build argument '${varName}' is not defined in the 'environment' section for service '${serviceEntry.name}'`
+          );
+        }
+      }
+    }
+
+    // Detect platform if not explicitly set
+    let platform = serviceEntry.build.platform;
+    if (!platform) {
+      platform = await detectServerPlatform(serviceEntry.server, context);
+    }
+
+    return {
+      context: serviceEntry.build.context || ".",
+      dockerfile: serviceEntry.build.dockerfile || "Dockerfile",
+      platform,
+      args: buildArgs,
+      target: serviceEntry.build.target,
+    };
+  }
+
+  // Default build configuration for services without explicit build config
+  // Detect platform for the target server
+  const platform = await detectServerPlatform(serviceEntry.server, context);
+
+  return {
+    context: ".",
+    dockerfile: "Dockerfile",
+    platform,
+  };
 }
 
 /**
@@ -1149,16 +1399,31 @@ async function deployServiceDirectly(
       return;
     }
 
-    // Only pull image if service needs updating
-    logger.verboseLog(
-      `↻ Service ${serviceEntry.name} needs update, pulling image...`
-    );
-    await authenticateAndPullImage(
-      serviceEntry,
-      dockerClient,
-      context,
-      serviceEntry.image
-    );
+    // Handle image availability based on service type
+    if (serviceNeedsBuilding(serviceEntry)) {
+      // For built services, transfer and load the image
+      logger.verboseLog(
+        `↻ Service ${serviceEntry.name} needs update, transferring built image...`
+      );
+      const imageNameWithRelease = buildServiceImageName(serviceEntry, context.releaseId);
+      await transferAndLoadServiceImage(
+        serviceEntry,
+        dockerClient,
+        context,
+        imageNameWithRelease
+      );
+    } else {
+      // For pre-built services, pull the image from registry
+      logger.verboseLog(
+        `↻ Service ${serviceEntry.name} needs update, pulling image...`
+      );
+      await authenticateAndPullImage(
+        serviceEntry,
+        dockerClient,
+        context,
+        serviceEntry.image
+      );
+    }
 
     await replaceServiceContainer(
       serviceEntry,
@@ -1446,7 +1711,8 @@ export async function serviceNeedsUpdate(
     const desiredConfig = serviceEntryToContainerOptions(
       serviceEntry,
       context.secrets,
-      context.projectName
+      context.projectName,
+      context.releaseId
     );
 
     // Check for changes
@@ -1497,7 +1763,8 @@ async function replaceServiceContainer(
   const serviceContainerOptions = serviceEntryToContainerOptions(
     serviceEntry,
     context.secrets,
-    context.projectName
+    context.projectName,
+    context.releaseId
   );
 
   logger.verboseLog(
@@ -1843,6 +2110,86 @@ async function transferAndLoadImage(
     }
   } catch (error) {
     logger.error(`Failed to transfer and load image ${imageName}`, error);
+    throw error;
+  }
+}
+
+/**
+ * Transfers the service image archive to the remote server and loads it
+ */
+async function transferAndLoadServiceImage(
+  serviceEntry: ServiceEntry,
+  dockerClientRemote: DockerClient,
+  context: DeploymentContext,
+  imageName: string
+): Promise<void> {
+  const archivePath = context.imageArchives?.get(serviceEntry.name);
+  if (!archivePath) {
+    throw new Error(`No archive found for service ${serviceEntry.name}`);
+  }
+
+  try {
+    // Generate remote path for the archive, preserving the actual file extension
+    const isCompressed =
+      archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz");
+    const fileExt = isCompressed ? ".tar.gz" : ".tar";
+    const remoteArchivePath = `/tmp/iop-${serviceEntry.name}-${context.releaseId}${fileExt}`;
+
+    logger.verboseLog(
+      `Transferring ${
+        isCompressed ? "compressed" : "uncompressed"
+      } service image archive to server...`
+    );
+
+    // Get file size for progress tracking
+    const fileStat = await stat(archivePath);
+    const totalSizeMB = (fileStat.size / 1024 / 1024).toFixed(1);
+
+    logger.verboseLog(
+      `File size: ${totalSizeMB} MB (${
+        isCompressed ? "compressed" : "uncompressed"
+      })`
+    );
+
+    // For services, we can use a simpler upload approach since they're typically smaller
+    // Upload the archive
+    await dockerClientRemote.sshClient.uploadFile(archivePath, remoteArchivePath);
+
+    // Load the image from archive (automatically handles compression detection)
+    logger.verboseLog(
+      `Loading service image ${imageName} from ${
+        isCompressed ? "compressed" : "uncompressed"
+      } archive...`
+    );
+    const loadSuccess = await dockerClientRemote.loadImage(remoteArchivePath);
+
+    if (!loadSuccess) {
+      throw new Error(`Failed to load service image from archive ${remoteArchivePath}`);
+    }
+
+    logger.verboseLog(`✓ Service image loaded successfully`);
+
+    // Clean up remote archive
+    await dockerClientRemote.sshClient.exec(`rm -f ${remoteArchivePath}`);
+
+    // Clean up local archive
+    try {
+      fs.unlinkSync(archivePath);
+      // Also try to remove the temp directory if it's empty
+      const tempDir = path.dirname(archivePath);
+      try {
+        fs.rmdirSync(tempDir);
+      } catch (e) {
+        // Ignore if directory is not empty or already removed
+      }
+      logger.verboseLog(`Cleaned up local service archive ${archivePath}`);
+    } catch (cleanupError) {
+      logger.verboseLog(
+        `Warning: Failed to clean up local service archive: ${cleanupError}`
+      );
+    }
+  } catch (error) {
+    logger.error(`Failed to transfer and load service image ${imageName}`, error);
     throw error;
   }
 }
