@@ -359,29 +359,45 @@ export async function performBlueGreenDeployment(
       deployedContainers.push(containerName);
     }
 
-    // Step 4: Health check all new containers
-    const allHealthy = await performBlueGreenHealthChecks(
-      newContainerNames,
-      appEntry,
-      dockerClient,
-      serverHostname,
-      projectName,
-      verbose
-    );
-
-    if (!allHealthy) {
-      await cleanupFailedDeployment(
-        deployedContainers,
+    // Step 4: Health check all new containers (only if ports are exposed)
+    let allHealthy = true;
+    
+    if (appEntry.ports && appEntry.ports.length > 0) {
+      if (verbose) {
+        console.log(
+          `    [${serverHostname}] App exposes ports, performing health checks...`
+        );
+      }
+      
+      allHealthy = await performBlueGreenHealthChecks(
+        newContainerNames,
+        appEntry,
         dockerClient,
         serverHostname,
+        projectName,
         verbose
       );
-      return {
-        success: false,
-        newColor,
-        deployedContainers: [],
-        error: "Health checks failed for new containers",
-      };
+
+      if (!allHealthy) {
+        await cleanupFailedDeployment(
+          deployedContainers,
+          dockerClient,
+          serverHostname,
+          verbose
+        );
+        return {
+          success: false,
+          newColor,
+          deployedContainers: [],
+          error: "Health checks failed for new containers",
+        };
+      }
+    } else {
+      if (verbose) {
+        console.log(
+          `    [${serverHostname}] App has no exposed ports, skipping health checks (assuming healthy if running)`
+        );
+      }
     }
 
     // Step 5: Switch network alias (zero-downtime transition)
