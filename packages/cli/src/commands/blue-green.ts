@@ -401,32 +401,41 @@ export async function performBlueGreenDeployment(
     }
 
     // Step 5: Switch network alias (zero-downtime transition)
-    if (verbose) {
-      console.log(
-        `    [${serverHostname}] Switching traffic to new version (zero downtime)...`
-      );
-    }
+    // Only needed if there are existing containers to switch from
+    if (currentActiveColor !== null) {
+      if (verbose) {
+        console.log(
+          `    [${serverHostname}] Switching traffic to new version (zero downtime)...`
+        );
+      }
 
-    const aliasSwitch = await dockerClient.switchNetworkAliasForProject(
-      appEntry.name,
-      newColor,
-      networkName,
-      projectName
-    );
-
-    if (!aliasSwitch) {
-      await cleanupFailedDeployment(
-        deployedContainers,
-        dockerClient,
-        serverHostname,
-        verbose
-      );
-      return {
-        success: false,
+      const aliasSwitch = await dockerClient.switchNetworkAliasForProject(
+        appEntry.name,
         newColor,
-        deployedContainers: [],
-        error: "Failed to switch network alias",
-      };
+        networkName,
+        projectName
+      );
+
+      if (!aliasSwitch) {
+        await cleanupFailedDeployment(
+          deployedContainers,
+          dockerClient,
+          serverHostname,
+          verbose
+        );
+        return {
+          success: false,
+          newColor,
+          deployedContainers: [],
+          error: "Failed to switch network alias",
+        };
+      }
+    } else {
+      if (verbose) {
+        console.log(
+          `    [${serverHostname}] First deployment - network aliases already configured during container creation`
+        );
+      }
     }
 
     // Step 6: Update labels to mark new containers as active
