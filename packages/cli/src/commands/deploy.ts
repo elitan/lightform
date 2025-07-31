@@ -118,7 +118,10 @@ function serviceEntryToContainerOptions(
     imageName = buildServiceImageName(serviceEntry, releaseId);
   } else {
     // For pre-built services, use the configured image
-    imageName = serviceEntry.image!;
+    if (!serviceEntry.image) {
+      throw new Error(`Service ${serviceEntry.name} has no image configured and no build configuration`);
+    }
+    imageName = serviceEntry.image;
   }
 
   return {
@@ -1044,15 +1047,11 @@ async function getServiceBuildConfig(
     };
   }
 
-  // Default build configuration for services without explicit build config
-  // Detect platform for the target server
-  const platform = await detectServerPlatform(serviceEntry.server, context);
-
-  return {
-    context: ".",
-    dockerfile: "Dockerfile",
-    platform,
-  };
+  // This shouldn't happen due to our serviceNeedsBuilding logic, but add a safety check
+  throw new Error(
+    `Service ${serviceEntry.name} is marked as needing building but has no build configuration. ` +
+    `Either add a 'build' section or specify an 'image' field.`
+  );
 }
 
 /**
@@ -1421,11 +1420,14 @@ async function deployServiceDirectly(
       logger.verboseLog(
         `↻ Service ${serviceEntry.name} needs update, pulling image...`
       );
+      if (!serviceEntry.image) {
+        throw new Error(`Service ${serviceEntry.name} has no image configured for pulling`);
+      }
       await authenticateAndPullImage(
         serviceEntry,
         dockerClient,
         context,
-        serviceEntry.image!
+        serviceEntry.image
       );
     }
 

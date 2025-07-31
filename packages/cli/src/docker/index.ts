@@ -1117,54 +1117,6 @@ EOF`);
     }
   }
 
-  /**
-   * Convert a iop service definition to Docker container options
-   */
-  static serviceToContainerOptions(
-    service: ServiceEntry,
-    projectName: string,
-    secrets: IopSecrets
-  ): DockerContainerOptions {
-    const containerName = `${projectName}-${service.name}`;
-    const options: DockerContainerOptions = {
-      name: containerName,
-      image: service.image!,
-      network: `${projectName}-network`,
-      networkAliases: [service.name], // Add service name as network alias (e.g., "db")
-      ports: service.ports,
-      volumes: processVolumes(service.volumes, projectName),
-      envVars: {},
-      command: service.command,
-      labels: {
-        "iop.managed": "true",
-        "iop.project": projectName,
-        "iop.type": "service",
-        "iop.service": service.name,
-      },
-    };
-
-    // Add environment variables
-    if (service.environment?.plain) {
-      for (const envVar of service.environment.plain) {
-        const [key, ...valueParts] = envVar.split("=");
-        if (key && valueParts.length > 0) {
-          options.envVars![key] = valueParts.join("=");
-        }
-      }
-    }
-
-    // Secret environment variables
-    if (service.environment?.secret) {
-      service.environment.secret.forEach((secretName: string) => {
-        const secretValue = secrets[secretName];
-        if (secretValue) {
-          options.envVars![secretName] = secretValue;
-        }
-      });
-    }
-
-    return options;
-  }
 
   /**
    * Find containers by label filter
