@@ -1299,6 +1299,7 @@ async function deployService(
     await deployServiceDirectly(
       serviceEntry,
       dockerClient,
+      sshClient,
       serverHostname,
       context
     );
@@ -1357,6 +1358,7 @@ async function deployServicesWithReconciliation(
       await deployServiceDirectly(
         serviceEntry,
         dockerClient,
+        sshClient,
         serverHostname,
         context
       );
@@ -1377,6 +1379,7 @@ async function deployServicesWithReconciliation(
 async function deployServiceDirectly(
   serviceEntry: ServiceEntry,
   dockerClient: DockerClient,
+  sshClient: SSHClient,
   serverHostname: string,
   context: DeploymentContext
 ): Promise<void> {
@@ -1408,6 +1411,7 @@ async function deployServiceDirectly(
       const imageNameWithRelease = buildServiceImageName(serviceEntry, context.releaseId);
       await transferAndLoadServiceImage(
         serviceEntry,
+        sshClient,
         dockerClient,
         context,
         imageNameWithRelease
@@ -1421,7 +1425,7 @@ async function deployServiceDirectly(
         serviceEntry,
         dockerClient,
         context,
-        serviceEntry.image
+        serviceEntry.image!
       );
     }
 
@@ -2119,6 +2123,7 @@ async function transferAndLoadImage(
  */
 async function transferAndLoadServiceImage(
   serviceEntry: ServiceEntry,
+  sshClient: any,
   dockerClientRemote: DockerClient,
   context: DeploymentContext,
   imageName: string
@@ -2153,7 +2158,7 @@ async function transferAndLoadServiceImage(
 
     // For services, we can use a simpler upload approach since they're typically smaller
     // Upload the archive
-    await dockerClientRemote.sshClient.uploadFile(archivePath, remoteArchivePath);
+    await sshClient.uploadFile(archivePath, remoteArchivePath);
 
     // Load the image from archive (automatically handles compression detection)
     logger.verboseLog(
@@ -2170,7 +2175,7 @@ async function transferAndLoadServiceImage(
     logger.verboseLog(`✓ Service image loaded successfully`);
 
     // Clean up remote archive
-    await dockerClientRemote.sshClient.exec(`rm -f ${remoteArchivePath}`);
+    await sshClient.exec(`rm -f ${remoteArchivePath}`);
 
     // Clean up local archive
     try {
