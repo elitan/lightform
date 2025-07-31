@@ -102,8 +102,22 @@ export type AppEntry = z.infer<typeof AppEntrySchema>;
 
 // Zod schema for ServiceEntry without name (used in record format)
 export const ServiceEntryWithoutNameSchema = z.object({
-  image: z.string(), // Includes tag, e.g., "postgres:15"
+  image: z.string().optional(), // Includes tag, e.g., "postgres:15" - optional when build is specified
   server: z.string().describe("Hostname or IP address of the target server"),
+  build: z
+    .object({
+      context: z.string(),
+      dockerfile: z.string().default("Dockerfile"),
+      args: z.array(z.string()).optional().describe(
+        "Build arguments passed to Docker build command. List of environment variable names to pass as build args. These variables must be defined in the environment section."
+      ),
+      target: z.string().optional(), // For multi-stage builds
+      platform: z.string().optional(), // e.g., linux/amd64
+    })
+    .optional()
+    .describe(
+      "Build configuration. When specified, the service is built locally and transferred via docker save/load instead of using registries."
+    ),
   ports: z.array(z.string()).optional(),
   volumes: z.array(z.string()).optional(),
   environment: z
@@ -123,14 +137,65 @@ export const ServiceEntryWithoutNameSchema = z.object({
       "Registry configuration for services using private registries. Public images like 'postgres:15' don't require registry configuration."
     ),
   command: z.string().optional().describe("Override the default command for the container"),
+}).refine((data) => {
+  // Ensure either image or build is provided, but not both
+  const hasImage = !!data.image;
+  const hasBuild = !!data.build;
+  return hasImage !== hasBuild; // XOR: exactly one must be true
+}, {
+  message: "Service must have either 'image' or 'build', but not both",
+  path: ["image"],
 });
 export type ServiceEntryWithoutName = z.infer<
   typeof ServiceEntryWithoutNameSchema
 >;
 
 // Zod schema for ServiceEntry (includes name - for array format if needed)
-export const ServiceEntrySchema = ServiceEntryWithoutNameSchema.extend({
+export const ServiceEntrySchema = z.object({
   name: z.string(),
+  image: z.string().optional(), // Includes tag, e.g., "postgres:15" - optional when build is specified
+  server: z.string().describe("Hostname or IP address of the target server"),
+  build: z
+    .object({
+      context: z.string(),
+      dockerfile: z.string().default("Dockerfile"),
+      args: z.array(z.string()).optional().describe(
+        "Build arguments passed to Docker build command. List of environment variable names to pass as build args. These variables must be defined in the environment section."
+      ),
+      target: z.string().optional(), // For multi-stage builds
+      platform: z.string().optional(), // e.g., linux/amd64
+    })
+    .optional()
+    .describe(
+      "Build configuration. When specified, the service is built locally and transferred via docker save/load instead of using registries."
+    ),
+  ports: z.array(z.string()).optional(),
+  volumes: z.array(z.string()).optional(),
+  environment: z
+    .object({
+      plain: z.array(z.string()).optional(), // Array format for environment variables
+      secret: z.array(z.string()).optional(),
+    })
+    .optional(),
+  registry: z // Optional per-service registry override (for private registries)
+    .object({
+      url: z.string().optional(),
+      username: z.string(),
+      password_secret: z.string(), // Secret key for the password
+    })
+    .optional()
+    .describe(
+      "Registry configuration for services using private registries. Public images like 'postgres:15' don't require registry configuration."
+    ),
+  command: z.string().optional().describe("Override the default command for the container"),
+}).refine((data) => {
+  // Ensure either image or build is provided, but not both
+  const hasImage = !!data.image;
+  const hasBuild = !!data.build;
+  return hasImage !== hasBuild; // XOR: exactly one must be true
+}, {
+  message: "Service must have either 'image' or 'build', but not both",
+  path: ["image"],
 });
 export type ServiceEntry = z.infer<typeof ServiceEntrySchema>;
 
