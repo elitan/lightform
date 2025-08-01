@@ -113,22 +113,20 @@ describe("Port Conflict Detection", () => {
       expect(errors[0].entries).toEqual(["postgres"]);
     });
 
-    it("should handle mixed apps and services", () => {
+    it("should handle port conflicts between services", () => {
       const config: IopConfig = {
         name: "test-project",
-        apps: {
+        services: {
           web: {
             image: "web:latest",
             server: "server1.com",
             ports: ["8080:80"],
             replicas: 1,
           },
-        },
-        services: {
           postgres: {
             image: "postgres:15",
             server: "server1.com",
-            ports: ["8080:5432"], // Conflicts with web app
+            ports: ["8080:5432"], // Conflicts with web service
           },
         },
       };
