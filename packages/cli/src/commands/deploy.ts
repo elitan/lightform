@@ -43,25 +43,10 @@ export interface DeploymentSummary {
 }
 
 /**
- * Display comprehensive deployment summary showing all services
+ * Display URLs for services with proxy configuration
  */
-function displayDeploymentSummary(results: ServiceDeploymentResult[], logger: Logger): void {
-  
-  const deployed = results.filter(r => r.status === 'deployed');
-  const skipped = results.filter(r => r.status === 'skipped');
+function displayServiceUrls(results: ServiceDeploymentResult[]): void {
   const withUrls = results.filter(r => r.url);
-  
-  // Show deployment summary using consistent formatting
-  console.log(`[✓] Deployment summary`);
-  
-  // Show all services with their status
-  results.forEach((result, index) => {
-    const isLast = index === results.length - 1;
-    const symbol = isLast ? "└─" : "├─";
-    const statusIcon = result.status === 'deployed' ? '✓' : '↻';
-    const statusText = result.status === 'deployed' ? 'deployed' : 'skipped';
-    console.log(`  ${symbol} [${statusIcon}] ${result.serviceName} (${statusText}: ${result.reason})`);
-  });
   
   // Show URLs for services with proxy configuration
   if (withUrls.length > 0) {
@@ -661,13 +646,12 @@ async function deployServices(context: DeploymentContext): Promise<ServiceDeploy
     // Create build header
     logger.phaseStart("Building locally");
 
-    // Build all services that need building
+    // Build all services that need building (but don't package yet)
     for (let i = 0; i < servicesNeedingBuild.length; i++) {
       const serviceEntry = servicesNeedingBuild[i];
       const isLastBuild = i === servicesNeedingBuild.length - 1;
 
-      const archivePath = await buildAndSaveService(serviceEntry, context, isLastBuild);
-      context.imageArchives.set(serviceEntry.name, archivePath);
+      await buildServiceImage(serviceEntry, context, isLastBuild);
     }
 
     // Build complete - show checkmark
@@ -722,22 +706,25 @@ async function deployServices(context: DeploymentContext): Promise<ServiceDeploy
 
   logger.phaseEnd("Deploying services");
   
+  // Show URLs immediately after deployment
+  displayServiceUrls(allResults);
+  
   return allResults;
 }
 
 /**
- * Builds a service and saves it to a tar archive for transfer
+ * Builds a service image (without packaging for transfer)
  */
-async function buildAndSaveService(
+async function buildServiceImage(
   serviceEntry: ServiceEntry,
   context: DeploymentContext,
   isLastService: boolean = false
-): Promise<string> {
+): Promise<void> {
   const imageNameWithRelease = buildServiceImageName(serviceEntry, context.releaseId);
 
   try {
-    // Step 1: Build the image
-    logger.buildStep(`Build ${serviceEntry.name} image`);
+    // Build the image
+    logger.buildStep(`Build ${serviceEntry.name} image`, isLastService);
     const buildStartTime = Date.now();
 
     const imageReady = await buildOrTagServiceImage(
@@ -748,10 +735,24 @@ async function buildAndSaveService(
     if (!imageReady) throw new Error("Image build failed");
 
     const buildDuration = Date.now() - buildStartTime;
-    logger.buildStepComplete(`Build ${serviceEntry.name} image`, buildDuration);
+    logger.buildStepComplete(`Build ${serviceEntry.name} image`, buildDuration, isLastService);
+  } catch (error) {
+    logger.error(`${serviceEntry.name} image build failed`, error);
+    throw error;
+  }
+}
 
-    // Step 2: Prepare for transfer
-    logger.buildStep(`Package for transfer`, isLastService);
+/**
+ * Builds and packages a service image for transfer (used lazily during deployment)
+ */
+async function buildAndPackageServiceForTransfer(
+  serviceEntry: ServiceEntry,
+  context: DeploymentContext
+): Promise<string> {
+  const imageNameWithRelease = buildServiceImageName(serviceEntry, context.releaseId);
+
+  try {
+    logger.verboseLog(`Packaging ${serviceEntry.name} image for transfer...`);
     const saveStartTime = Date.now();
 
     const archivePath = await saveServiceImage(
@@ -761,15 +762,11 @@ async function buildAndSaveService(
     );
 
     const saveDuration = Date.now() - saveStartTime;
-    logger.buildStepComplete(
-      "Package for transfer",
-      saveDuration,
-      isLastService
-    );
+    logger.verboseLog(`✓ Packaged ${serviceEntry.name} image in ${saveDuration}ms`);
 
     return archivePath;
   } catch (error) {
-    logger.error(`${serviceEntry.name} image preparation failed`, error);
+    logger.error(`${serviceEntry.name} image packaging failed`, error);
     throw error;
   }
 }
@@ -1250,6 +1247,10 @@ async function ensureServiceImageAvailable(
   sshClient: SSHClient
 ): Promise<void> {
   if (serviceNeedsBuilding(service)) {
+    // Package the image for transfer (lazy packaging)
+    const archivePath = await buildAndPackageServiceForTransfer(service, context);
+    context.imageArchives?.set(service.name, archivePath);
+    
     // Transfer and load built image
     const imageNameWithRelease = buildServiceImageName(service, context.releaseId);
     await transferAndLoadServiceImage(service, sshClient, dockerClient, context, imageNameWithRelease);
@@ -2522,9 +2523,6 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     };
 
     const deploymentResults = await deployServices(context);
-
-    // Display deployment summary with all services
-    displayDeploymentSummary(deploymentResults, logger);
   } catch (error) {
     logger.deploymentFailed(error);
     process.exit(1);
