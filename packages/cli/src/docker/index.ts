@@ -148,9 +148,10 @@ export class DockerClient {
       }
       return { stdout, stderr };
     } catch (error) {
-      if (verbose) {
-        console.error(`Local command failed: ${command}`, error);
-      }
+      // Always show command and error details for build failures, even without --verbose
+      // This ensures users can see what went wrong without needing to use --verbose flag
+      console.error(`Local command failed: ${command}`);
+      console.error(error);
       throw error;
     }
   }
