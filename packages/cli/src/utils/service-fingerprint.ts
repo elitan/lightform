@@ -197,27 +197,8 @@ export function shouldRedeploy(
     };
   }
   
-  // For built services, check BOTH config/secrets AND image hash
+  // For built services, check image hash (code changes) after config/secrets
   if (desired.type === 'built') {
-    // First check config changes (same priority as external services)
-    if (current.configHash !== desired.configHash) {
-      return {
-        shouldRedeploy: true,
-        reason: 'configuration changed',
-        priority: 'critical'
-      };
-    }
-    
-    // Check secrets structure/availability changed
-    if (current.secretsHash !== desired.secretsHash) {
-      return {
-        shouldRedeploy: true,
-        reason: 'secrets changed',
-        priority: 'critical'
-      };
-    }
-    
-    // Then check image hash (code changes)
     if (current.localImageHash !== desired.localImageHash) {
       return {
         shouldRedeploy: true,

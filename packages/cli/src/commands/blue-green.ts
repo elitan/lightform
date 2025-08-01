@@ -17,7 +17,7 @@ export interface BlueGreenDeploymentOptions {
   dockerClient: DockerClient;
   serverHostname: string;
   verbose?: boolean;
-  fingerprint?: ServiceFingerprint;
+  fingerprint?: ServiceFingerprint; // Optional fingerprint for container labels
 }
 
 export interface BlueGreenDeploymentResult {
@@ -82,18 +82,18 @@ function createBlueGreenContainerOptions(
       "iop.project": projectName,
       "iop.type": "service",
       "iop.app": serviceEntry.name,
-      // Add fingerprint labels
+      // Add fingerprint labels if provided
       ...(fingerprint ? {
         "iop.fingerprint-type": fingerprint.type,
         "iop.config-hash": fingerprint.configHash,
         "iop.secrets-hash": fingerprint.secretsHash,
         ...(fingerprint.type === 'built' ? {
-          "iop.local-image-hash": fingerprint.localImageHash || '',
-          "iop.server-image-hash": fingerprint.serverImageHash || '',
+          ...(fingerprint.localImageHash && { "iop.local-image-hash": fingerprint.localImageHash }),
+          ...(fingerprint.serverImageHash && { "iop.server-image-hash": fingerprint.serverImageHash }),
         } : {
-          "iop.image-reference": fingerprint.imageReference || '',
-        })
-      } : {})
+          ...(fingerprint.imageReference && { "iop.image-reference": fingerprint.imageReference }),
+        }),
+      } : {}),
     },
   };
 }
@@ -258,6 +258,7 @@ export async function performBlueGreenDeployment(
     dockerClient,
     serverHostname,
     verbose = false,
+    fingerprint,
   } = options;
 
   if (verbose) {

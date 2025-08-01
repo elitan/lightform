@@ -1,13 +1,11 @@
-name: basic
+name: basic-test
 
 ssh:
   username: iop
 
-# Unified services model - everything is a service!
-# Services with 'proxy' config get zero-downtime deployment automatically
-# Infrastructure services get stop-start deployment
+# Test with services that have identical build configurations  
 services:
-  # HTTP services (get zero-downtime blue-green deployment)
+  # Both services use identical build context and args
   web1:
     build:
       context: .
@@ -18,16 +16,16 @@ services:
     replicas: 1
     environment:
       plain:
-        - EXAMPLE_VAR=web1
+        - EXAMPLE_VAR=same  # Same value for both services
       secret:
         - SECRET_VAR
         - POSTGRES_PASSWORD
-    proxy:           # This triggers zero-downtime deployment
+    proxy:
       app_port: 3000
     health_check:
       path: /up
 
-  web2:
+  web2: 
     build:
       context: .
       dockerfile: Dockerfile
@@ -37,26 +35,25 @@ services:
     replicas: 1
     environment:
       plain:
-        - EXAMPLE_VAR=web2
+        - EXAMPLE_VAR=same  # Same value for both services
       secret:
         - SECRET_VAR
-        - POSTGRES_PASSWORD  
-    proxy:           # This triggers zero-downtime deployment
+        - POSTGRES_PASSWORD
+    proxy:
       app_port: 3000
     health_check:
       path: /up
 
-  # Infrastructure services (get stop-start deployment)
+  # Infrastructure service
   db:
     image: postgres:17
     server: 157.180.47.213
     ports:
-      - "5433:5432"  # Port mapping indicates infrastructure service
+      - "5433:5432"
     environment:
       plain:
         - POSTGRES_USER=postgres
         - POSTGRES_DB=postgres
-        - POSTGRES_TIMEZONE=UTC
       secret:
         - POSTGRES_PASSWORD
     volumes:
