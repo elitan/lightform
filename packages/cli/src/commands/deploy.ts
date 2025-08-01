@@ -2,19 +2,25 @@ import { loadConfig } from "../config"; // Assuming loadConfig is exported from 
 import { loadSecrets } from "../config"; // Assuming loadSecrets is exported from src/config/index.ts
 import {
   IopConfig,
-  AppEntry,
   ServiceEntry,
   HealthCheckConfig,
   IopSecrets,
 } from "../config/types";
 import {
-  appNeedsBuilding,
-  getAppImageName,
-  buildImageName,
   serviceNeedsBuilding,
   getServiceImageName,
   buildServiceImageName,
 } from "../utils/image-utils";
+import {
+  requiresZeroDowntimeDeployment,
+  getDeploymentStrategy,
+  getServiceProxyPort,
+} from "../utils/service-utils";
+import {
+  createServiceFingerprint,
+  shouldRedeploy,
+  ServiceFingerprint,
+} from "../utils/service-fingerprint";
 import {
   DockerClient,
   DockerBuildOptions,
@@ -45,31 +51,13 @@ import { stat } from "fs/promises";
 // Module-level logger that gets configured when deployCommand runs
 let logger: Logger;
 
-/**
- * Creates a config hash for a service entry (Docker Compose style)
- */
-function createServiceConfigHash(serviceEntry: ServiceEntry): string {
-  const configForHash = {
-    image: serviceEntry.image,
-    environment: {
-      plain: serviceEntry.environment?.plain?.sort() || [],
-      secret: serviceEntry.environment?.secret?.sort() || [],
-    },
-    ports: serviceEntry.ports?.sort() || [],
-    volumes: serviceEntry.volumes?.sort() || [],
-  };
-  return require("crypto")
-    .createHash("sha256")
-    .update(JSON.stringify(configForHash))
-    .digest("hex")
-    .substring(0, 12);
-}
+// Removed: Now using enhanced fingerprinting from service-fingerprint.ts
 
 /**
  * Resolves environment variables for a container from plain and secret sources
  */
 function resolveEnvironmentVariables(
-  entry: AppEntry | ServiceEntry,
+  entry: ServiceEntry,
   secrets: IopSecrets
 ): Record<string, string> {
   const envVars: Record<string, string> = {};
@@ -109,7 +97,8 @@ function serviceEntryToContainerOptions(
   const containerName = `${projectName}-${serviceEntry.name}`; // Project-prefixed names
   const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
-  const configHash = createServiceConfigHash(serviceEntry);
+  // Config hash is now handled by service fingerprinting
+  const configHash = ""; // Will be populated by fingerprint logic
 
   // Determine the correct image name based on whether the service needs building
   let imageName: string;
@@ -164,19 +153,17 @@ function normalizeConfigEntries(
 interface DeploymentContext {
   config: IopConfig;
   secrets: IopSecrets;
-  targetApps: AppEntry[];
-  targetServices: ServiceEntry[];
+  targetServices: ServiceEntry[]; // Unified: all entries are services
   releaseId: string;
   projectName: string;
   networkName: string;
-  deployServicesFlag: boolean;
   verboseFlag: boolean;
-  imageArchives?: Map<string, string>; // app name -> archive path
+  imageArchives?: Map<string, string>; // service name -> archive path
+  serviceFingerprints?: Map<string, ServiceFingerprint>; // service name -> fingerprint
 }
 
 interface ParsedArgs {
   entryNames: string[];
-  deployServicesFlag: boolean;
   verboseFlag: boolean;
 }
 
@@ -184,14 +171,13 @@ interface ParsedArgs {
  * Parses command line arguments and extracts flags and entry names
  */
 function parseDeploymentArgs(rawEntryNamesAndFlags: string[]): ParsedArgs {
-  const deployServicesFlag = rawEntryNamesAndFlags.includes("--services");
   const verboseFlag = rawEntryNamesAndFlags.includes("--verbose");
 
   const entryNames = rawEntryNamesAndFlags.filter(
-    (name) => name !== "--services" && name !== "--verbose"
+    (name) => name !== "--verbose"
   );
 
-  return { entryNames, deployServicesFlag, verboseFlag };
+  return { entryNames, verboseFlag };
 }
 
 /**
@@ -250,77 +236,54 @@ async function loadConfigurationAndSecrets(): Promise<{
 }
 
 /**
- * Determines which apps or services to deploy based on arguments and configuration
+ * Determines which services to deploy based on arguments and configuration
+ * Now uses unified services model (both apps and services are treated as services)
  */
-function identifyTargetEntries(
+function identifyTargetServices(
   entryNames: string[],
-  deployServicesFlag: boolean,
   config: IopConfig
-): { apps: AppEntry[]; services: ServiceEntry[] } {
+): ServiceEntry[] {
+  // Merge apps and services into unified services list
   const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
-  let targetApps: AppEntry[] = [];
+  const allServices = [...configuredApps, ...configuredServices];
+  
   let targetServices: ServiceEntry[] = [];
 
-  if (deployServicesFlag) {
-    // --services flag: deploy services only
-    if (entryNames.length === 0) {
-      targetServices = [...configuredServices];
-      if (targetServices.length === 0) {
-        logger.warn("No services found in configuration");
-      }
-    } else {
-      entryNames.forEach((name) => {
-        const service = configuredServices.find((s) => s.name === name);
-        if (service) {
-          targetServices.push(service);
-        } else {
-          logger.warn(`Service "${name}" not found in configuration`);
-        }
-      });
-      if (targetServices.length === 0) {
-        logger.warn("No valid services found for specified names");
-      }
+  if (entryNames.length === 0) {
+    // Deploy all services
+    targetServices = [...allServices];
+    if (targetServices.length === 0) {
+      logger.warn("No services found in configuration");
     }
   } else {
-    // Default behavior: deploy both apps and services
-    if (entryNames.length === 0) {
-      // Deploy everything
-      targetApps = [...configuredApps];
-      targetServices = [...configuredServices];
-      if (targetApps.length === 0 && targetServices.length === 0) {
-        logger.warn("No apps or services found in configuration");
+    // Deploy specific services by name
+    entryNames.forEach((name) => {
+      const service = allServices.find((s) => s.name === name);
+      if (service) {
+        targetServices.push(service);
+      } else {
+        logger.warn(`Service "${name}" not found in configuration`);
       }
-    } else {
-      // Deploy specific entries (can be apps or services)
-      entryNames.forEach((name) => {
-        const app = configuredApps.find((a) => a.name === name);
-        const service = configuredServices.find((s) => s.name === name);
-
-        if (app) {
-          targetApps.push(app);
-        } else if (service) {
-          targetServices.push(service);
-        } else {
-          logger.warn(
-            `Entry "${name}" not found in apps or services configuration`
-          );
-        }
-      });
-      if (targetApps.length === 0 && targetServices.length === 0) {
-        logger.warn("No valid apps or services found for specified names");
-      }
+    });
+    if (targetServices.length === 0) {
+      logger.warn("No valid services found for specified names");
     }
   }
 
+  // Categorize services by deployment strategy
+  const zeroDowntimeServices = targetServices.filter(s => requiresZeroDowntimeDeployment(s));
+  const stopStartServices = targetServices.filter(s => !requiresZeroDowntimeDeployment(s));
+
   logger.verboseLog(
-    `Selected: ${targetApps.length} apps [${targetApps
-      .map((a) => a.name)
-      .join(", ")}], ${targetServices.length} services [${targetServices
+    `Selected: ${targetServices.length} services total - ${zeroDowntimeServices.length} zero-downtime [${zeroDowntimeServices
+      .map((s) => s.name)
+      .join(", ")}], ${stopStartServices.length} stop-start [${stopStartServices
       .map((s) => s.name)
       .join(", ")}]`
   );
-  return { apps: targetApps, services: targetServices };
+  
+  return targetServices;
 }
 
 /**
@@ -328,7 +291,7 @@ function identifyTargetEntries(
  * and checks for port conflicts
  */
 async function verifyInfrastructure(
-  targetEntries: (AppEntry | ServiceEntry)[],
+  targetEntries: ServiceEntry[],
   config: IopConfig,
   secrets: IopSecrets,
   networkName: string,
@@ -459,7 +422,7 @@ async function checkPortConflictsOnServer(
   serverHostname: string,
   sshClient: SSHClient,
   dockerClient: DockerClient,
-  targetEntries: (AppEntry | ServiceEntry)[],
+  targetEntries: ServiceEntry[],
   projectName: string,
   verbose: boolean = false
 ): Promise<void> {
@@ -603,10 +566,11 @@ async function detectServerPlatform(
 }
 
 /**
- * Gets the build configuration for an app, providing defaults if none specified
+ * Gets the build configuration for a service, providing defaults if none specified
+ * (Legacy function - now uses getServiceBuildConfig)
  */
 async function getBuildConfig(
-  appEntry: AppEntry,
+  serviceEntry: ServiceEntry,
   context: DeploymentContext
 ): Promise<{
   context: string;
@@ -615,224 +579,90 @@ async function getBuildConfig(
   args?: Record<string, string>;
   target?: string;
 }> {
-  if (appEntry.build) {
-    const buildArgs: Record<string, string> = {};
-
-    // Handle build.args - resolve variable names from environment section
-    if (appEntry.build.args && appEntry.build.args.length > 0) {
-      const envVars = resolveEnvironmentVariables(appEntry, context.secrets);
-
-      for (const varName of appEntry.build.args) {
-        if (envVars[varName] !== undefined) {
-          buildArgs[varName] = envVars[varName];
-
-          // Warn about potentially sensitive variables being exposed to build context
-          const lowerCaseName = varName.toLowerCase();
-          if (
-            lowerCaseName.includes("secret") ||
-            lowerCaseName.includes("password") ||
-            lowerCaseName.includes("key") ||
-            lowerCaseName.includes("token")
-          ) {
-            logger.warn(
-              `Warning: Build argument "${varName}" appears to contain sensitive data and will be visible in Docker build context for app ${appEntry.name}`
-            );
-          }
-        } else {
-          throw new Error(
-            `Build argument '${varName}' is not defined in the 'environment' section for app '${appEntry.name}'`
-          );
-        }
-      }
-    }
-
-    // Detect platform if not explicitly set
-    let platform = appEntry.build.platform;
-    if (!platform) {
-      platform = await detectServerPlatform(appEntry.server, context);
-    }
-
-    return {
-      context: appEntry.build.context || ".",
-      dockerfile: appEntry.build.dockerfile || "Dockerfile",
-      platform,
-      args: buildArgs,
-      target: appEntry.build.target,
-    };
-  }
-
-  // Default build configuration for apps without explicit build config
-  // Detect platform for the target server
-  const platform = await detectServerPlatform(appEntry.server, context);
-
-  return {
-    context: ".",
-    dockerfile: "Dockerfile",
-    platform,
-  };
+  return getServiceBuildConfig(serviceEntry, context);
 }
 
 /**
- * Main deployment loop that processes all target entries
+ * Main deployment loop that processes all target services with unified logic
  */
-async function deployEntries(context: DeploymentContext): Promise<void> {
-  // Use apps and services directly from context
-  const apps = context.targetApps;
+async function deployServices(context: DeploymentContext): Promise<void> {
   const services = context.targetServices;
 
-  const appsNeedingBuild = apps.filter((app) => appNeedsBuilding(app));
+  // Separate services by build requirements
   const servicesNeedingBuild = services.filter((service) => serviceNeedsBuilding(service));
+  const preBuiltServices = services.filter((service) => !serviceNeedsBuilding(service));
 
   // Initialize image archives map
   context.imageArchives = new Map<string, string>();
 
-  // Build phase for apps and services that need building
-  const totalBuilds = appsNeedingBuild.length + servicesNeedingBuild.length;
-  if (totalBuilds > 0) {
+  // Build phase for services that need building
+  if (servicesNeedingBuild.length > 0) {
     const buildStartTime = Date.now();
 
     // Create build header
     logger.phaseStart("Building locally");
 
-    let buildIndex = 0;
-
-    // Build apps
-    for (let i = 0; i < appsNeedingBuild.length; i++) {
-      const appEntry = appsNeedingBuild[i];
-      const isLastBuild = buildIndex === totalBuilds - 1;
-
-      const archivePath = await buildAndSaveApp(appEntry, context, isLastBuild);
-      context.imageArchives.set(appEntry.name, archivePath);
-      buildIndex++;
-    }
-
-    // Build services
+    // Build all services that need building
     for (let i = 0; i < servicesNeedingBuild.length; i++) {
       const serviceEntry = servicesNeedingBuild[i];
-      const isLastBuild = buildIndex === totalBuilds - 1;
+      const isLastBuild = i === servicesNeedingBuild.length - 1;
 
       const archivePath = await buildAndSaveService(serviceEntry, context, isLastBuild);
       context.imageArchives.set(serviceEntry.name, archivePath);
-      buildIndex++;
     }
 
     // Build complete - show checkmark
     logger.phaseEnd("Building locally");
   }
 
-  // Skip build phase for pre-built apps and show info
-  if (apps.length > 0 && apps.length > appsNeedingBuild.length) {
+  // Show info about pre-built services
+  if (preBuiltServices.length > 0) {
     logger.verboseLog(
-      `Using pre-built images: ${apps
-        .filter((app) => !appNeedsBuilding(app))
-        .map((app) => `${app.name} (${app.image})`)
+      `Using pre-built images: ${preBuiltServices
+        .map((service) => `${service.name} (${service.image})`)
         .join(", ")}`
     );
   }
 
-  // Clean up removed apps with reconciliation
+  // Reconciliation phase - clean up orphaned services
   logger.phase("Reconciling state");
-  const allAppServers = new Set<string>();
-  context.targetApps.forEach((entry) => {
-    allAppServers.add(entry.server);
+  const allServers = new Set<string>();
+  services.forEach((service) => {
+    allServers.add(service.server);
   });
 
-  // Also check servers that might have orphaned apps
-  const configuredApps = normalizeConfigEntries(context.config.apps);
-  const allConfiguredServers = new Set<string>();
-  configuredApps.forEach((app) => {
-    allConfiguredServers.add(app.server);
+  // Also check servers that might have orphaned services from config
+  const configuredServices = [
+    ...normalizeConfigEntries(context.config.apps),
+    ...normalizeConfigEntries(context.config.services)
+  ];
+  configuredServices.forEach((service) => {
+    allServers.add(service.server);
   });
-  allConfiguredServers.forEach((server) => allAppServers.add(server));
 
-  for (const serverHostname of Array.from(allAppServers)) {
-    await reconcileAppsOnServer(context, serverHostname);
+  for (const serverHostname of Array.from(allServers)) {
+    await reconcileServicesOnServer(context, serverHostname);
   }
   logger.phaseComplete("Reconciling state");
 
-  // Deploy phase for services with reconciliation
-  if (services.length > 0) {
-    logger.phase("Deploying services");
-
-    // Get all unique servers that need service deployment
-    const allServiceServers = new Set<string>();
-    services.forEach((entry) => {
-      const serviceEntry = entry as ServiceEntry;
-      allServiceServers.add(serviceEntry.server);
-    });
-
-    // Deploy to each server with reconciliation
-    for (const serverHostname of Array.from(allServiceServers)) {
-      await deployServicesWithReconciliation(context, serverHostname);
+  // Deployment phase - deploy services with appropriate strategy
+  logger.phaseStart("Deploying services");
+  
+  // Group services by server for efficient deployment
+  const servicesByServer = new Map<string, ServiceEntry[]>();
+  for (const service of services) {
+    if (!servicesByServer.has(service.server)) {
+      servicesByServer.set(service.server, []);
     }
-
-    logger.phaseComplete("Deploying services");
+    servicesByServer.get(service.server)!.push(service);
   }
 
-  // Deploy phase for apps
-  if (apps.length > 0) {
-    logger.phaseStart("Deploying applications");
-    const deploymentStartTime = Date.now();
-
-    // Deployment phase: Deploy each app to their servers
-    for (let i = 0; i < apps.length; i++) {
-      const appEntry = apps[i];
-      const isLastApp = i === apps.length - 1;
-      await deployAppToServers(appEntry, context, isLastApp);
-    }
-
-    const deploymentDuration = Date.now() - deploymentStartTime;
-    logger.phaseEnd("Deploying applications");
+  // Deploy to each server
+  for (const [serverHostname, serverServices] of servicesByServer) {
+    await deployServicesToServer(serverServices, context, serverHostname);
   }
-}
 
-/**
- * Builds an app and saves it to a tar archive for transfer
- */
-async function buildAndSaveApp(
-  appEntry: AppEntry,
-  context: DeploymentContext,
-  isLastApp: boolean = false
-): Promise<string> {
-  const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
-
-  try {
-    // Step 1: Build the image
-    logger.buildStep(`Build ${appEntry.name} image`);
-    const buildStartTime = Date.now();
-
-    const imageReady = await buildOrTagAppImage(
-      appEntry,
-      imageNameWithRelease,
-      context
-    );
-    if (!imageReady) throw new Error("Image build failed");
-
-    const buildDuration = Date.now() - buildStartTime;
-    logger.buildStepComplete(`Build ${appEntry.name} image`, buildDuration);
-
-    // Step 2: Prepare for transfer
-    logger.buildStep(`Package for transfer`, isLastApp);
-    const saveStartTime = Date.now();
-
-    const archivePath = await saveAppImage(
-      appEntry,
-      imageNameWithRelease,
-      context.verboseFlag
-    );
-
-    const saveDuration = Date.now() - saveStartTime;
-    logger.buildStepComplete(
-      "Package for transfer",
-      saveDuration,
-      isLastApp
-    );
-
-    return archivePath;
-  } catch (error) {
-    logger.error(`${appEntry.name} image preparation failed`, error);
-    throw error;
-  }
+  logger.phaseEnd("Deploying services");
 }
 
 /**
@@ -883,6 +713,8 @@ async function buildAndSaveService(
     throw error;
   }
 }
+
+// Removed duplicate buildAndSaveService function
 
 /**
  * Builds or tags a service image locally
@@ -1055,219 +887,13 @@ async function getServiceBuildConfig(
   };
 }
 
-/**
- * Deploys an app to its server (deployment phase)
- */
-async function deployAppToServers(
-  appEntry: AppEntry,
-  context: DeploymentContext,
-  isLastApp: boolean = false
-): Promise<void> {
-  logger.appDeployment(appEntry.name, [appEntry.server], isLastApp);
+// Removed: deployAppToServers - now handled by deployServicesToServer
 
-  await deployAppToServer(appEntry, appEntry.server, context, true, isLastApp);
-}
+// Removed: buildOrTagAppImage - now uses buildOrTagServiceImage
 
-/**
- * Builds or tags a Docker image for an app entry
- */
-async function buildOrTagAppImage(
-  appEntry: AppEntry,
-  imageNameWithRelease: string,
-  context: DeploymentContext
-): Promise<boolean> {
-  if (appNeedsBuilding(appEntry)) {
-    logger.verboseLog(`Building app ${appEntry.name}...`);
-    try {
-      const buildConfig = await getBuildConfig(appEntry, context);
+// Removed: saveAppImage - now uses saveServiceImage
 
-      await DockerClient.build({
-        context: buildConfig.context,
-        dockerfile: buildConfig.dockerfile,
-        tags: [imageNameWithRelease],
-        buildArgs: buildConfig.args,
-        platform: buildConfig.platform,
-        target: buildConfig.target,
-        verbose: context.verboseFlag,
-      });
-      logger.verboseLog(
-        `Successfully built and tagged ${imageNameWithRelease} for platforms: ${buildConfig.platform}`
-      );
-      return true;
-    } catch (error) {
-      logger.error(`Failed to build app ${appEntry.name}`, error);
-      return false;
-    }
-  } else {
-    // For apps that don't need building, tag the existing image
-    const baseImageName = getAppImageName(appEntry);
-    logger.verboseLog(`Tagging ${baseImageName} as ${imageNameWithRelease}...`);
-    try {
-      await DockerClient.tag(
-        baseImageName,
-        imageNameWithRelease,
-        context.verboseFlag
-      );
-      logger.verboseLog(
-        `Successfully tagged ${baseImageName} as ${imageNameWithRelease}`
-      );
-      return true;
-    } catch (error) {
-      logger.error(`Failed to tag pre-built image ${baseImageName}`, error);
-      return false;
-    }
-  }
-}
-
-/**
- * Saves an app image to a tar archive for transfer
- */
-async function saveAppImage(
-  appEntry: AppEntry,
-  imageNameWithRelease: string,
-  verbose: boolean = false
-): Promise<string> {
-  logger.verboseLog(`Saving image ${imageNameWithRelease} to archive...`);
-  try {
-    // Create a temporary directory for the archive
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "iop-"));
-    const compressedArchivePath = path.join(
-      tempDir,
-      `${appEntry.name}-${Date.now()}.tar.gz`
-    );
-    const uncompressedArchivePath = path.join(
-      tempDir,
-      `${appEntry.name}-${Date.now()}.tar`
-    );
-
-    // Try to use compression first
-    await DockerClient.saveCompressed(
-      imageNameWithRelease,
-      compressedArchivePath,
-      verbose
-    );
-
-    // Check which file was actually created (compressed or uncompressed)
-    if (fs.existsSync(compressedArchivePath)) {
-      logger.verboseLog(
-        `Successfully saved ${imageNameWithRelease} to compressed archive ${compressedArchivePath}`
-      );
-      return compressedArchivePath;
-    } else if (fs.existsSync(uncompressedArchivePath)) {
-      logger.verboseLog(
-        `Successfully saved ${imageNameWithRelease} to uncompressed archive ${uncompressedArchivePath}`
-      );
-      return uncompressedArchivePath;
-    } else {
-      throw new Error(
-        "Neither compressed nor uncompressed archive was created"
-      );
-    }
-  } catch (error) {
-    logger.error(`Failed to save image ${imageNameWithRelease}`, error);
-    throw error;
-  }
-}
-
-/**
- * Deploys an app to a specific server using zero-downtime deployment
- */
-async function deployAppToServer(
-  appEntry: AppEntry,
-  serverHostname: string,
-  context: DeploymentContext,
-  isLastServer: boolean = false,
-  isLastApp: boolean = false
-): Promise<void> {
-  try {
-    logger.verboseLog(`Deploying ${appEntry.name} to ${serverHostname}`);
-
-    const sshClient = await establishSSHConnection(
-      serverHostname,
-      context.config,
-      context.secrets,
-      context.verboseFlag
-    );
-
-    const dockerClient = new DockerClient(
-      sshClient,
-      serverHostname,
-      context.verboseFlag
-    );
-
-    const imageNameWithRelease = buildImageName(appEntry, context.releaseId);
-
-    // Step 1: Ensure image is available
-    if (appNeedsBuilding(appEntry)) {
-      // For built apps, transfer and load the image
-      logger.serverStep("Transfer image", false, isLastApp);
-      await transferAndLoadImage(
-        appEntry,
-        sshClient,
-        dockerClient,
-        context,
-        imageNameWithRelease
-      );
-      logger.serverStepComplete("Transfer image", undefined, false, isLastApp);
-    } else {
-      // For pre-built apps, pull the image from registry
-      logger.serverStep(`Pull ${appEntry.name} image`, false, isLastApp);
-      await authenticateAndPullImage(
-        appEntry,
-        dockerClient,
-        context,
-        imageNameWithRelease
-      );
-      logger.serverStepComplete(`Pull ${appEntry.name} image`, undefined, false, isLastApp);
-    }
-
-    // Step 2: Zero-downtime deployment
-    logger.serverStep("Zero-downtime deployment", false, isLastApp);
-    const deploymentResult = await performBlueGreenDeployment({
-      appEntry,
-      releaseId: context.releaseId,
-      secrets: context.secrets,
-      projectName: context.projectName,
-      networkName: context.networkName,
-      dockerClient,
-      serverHostname,
-      verbose: context.verboseFlag,
-    });
-
-    if (!deploymentResult.success) {
-      await sshClient.close();
-      throw new Error(deploymentResult.error || "Deployment failed");
-    }
-    logger.serverStepComplete("Zero-downtime deployment", undefined, false, isLastApp);
-
-    // Step 3: Configure proxy
-    logger.serverStep("Configure proxy", isLastServer, isLastApp);
-    await configureProxyForApp(
-      appEntry,
-      dockerClient,
-      serverHostname,
-      context.projectName,
-      context.config,
-      context.verboseFlag
-    );
-    logger.serverStepComplete(
-      "Configure proxy",
-      undefined,
-      isLastServer,
-      isLastApp
-    );
-
-    await sshClient.close();
-  } catch (error) {
-    logger.serverStepError(
-      `${appEntry.name} deployment to ${serverHostname}`,
-      error,
-      isLastServer,
-      isLastApp
-    );
-    throw error;
-  }
-}
+// Removed: deployAppToServer - now handled by deployServiceWithStrategy
 
 /**
  * Deploys a single service to its target server
@@ -1313,7 +939,11 @@ async function deployService(
 /**
  * Deploys services with state reconciliation to a specific server
  */
-async function deployServicesWithReconciliation(
+/**
+ * Deploy services to a specific server with unified deployment logic
+ */
+async function deployServicesToServer(
+  services: ServiceEntry[],
   context: DeploymentContext,
   serverHostname: string
 ): Promise<void> {
@@ -1332,36 +962,257 @@ async function deployServicesWithReconciliation(
       context.verboseFlag
     );
 
-    // Step 1: Plan state reconciliation
-    const reconciliationPlan = await planStateReconciliation(
-      context,
-      dockerClient,
-      serverHostname
-    );
+    // Deploy each service with appropriate strategy
+    for (const service of services) {
+      await deployServiceWithStrategy(service, context, dockerClient, sshClient, serverHostname);
+    }
 
-    // Step 2: Remove orphaned services first
-    await removeOrphanedServices(
-      reconciliationPlan.servicesToRemove,
-      dockerClient,
+  } finally {
+    if (sshClient) {
+      await sshClient.close();
+    }
+  }
+}
+
+/**
+ * Deploy a single service using the appropriate strategy (zero-downtime vs stop-start)
+ */
+async function deployServiceWithStrategy(
+  service: ServiceEntry,
+  context: DeploymentContext,
+  dockerClient: DockerClient,
+  sshClient: SSHClient,
+  serverHostname: string
+): Promise<void> {
+  // Check if service needs redeployment using enhanced fingerprinting
+  const currentFingerprint = await getCurrentServiceFingerprint(service, dockerClient, context);
+  const desiredFingerprint = context.serviceFingerprints?.get(service.name);
+  
+  if (!desiredFingerprint) {
+    throw new Error(`No fingerprint found for service ${service.name}`);
+  }
+
+  const redeployDecision = shouldRedeploy(currentFingerprint, desiredFingerprint);
+  
+  if (!redeployDecision.shouldRedeploy) {
+    logger.verboseLog(`✓ Service ${service.name} is up-to-date (${redeployDecision.reason})`);
+    return;
+  }
+
+  logger.verboseLog(
+    `↻ Service ${service.name} needs deployment: ${redeployDecision.reason} (${redeployDecision.priority})`
+  );
+
+  // Ensure image is available
+  await ensureServiceImageAvailable(service, context, dockerClient, sshClient);
+
+  // Choose deployment strategy
+  const strategy = getDeploymentStrategy(service);
+  
+  if (strategy === 'zero-downtime') {
+    await deployServiceWithZeroDowntime(service, context, dockerClient, serverHostname);
+  } else {
+    await deployServiceWithStopStart(service, context, dockerClient, serverHostname);
+  }
+
+  // Configure proxy if needed
+  if (service.proxy) {
+    await configureProxyForService(service, dockerClient, serverHostname, context);
+  }
+
+  logger.verboseLog(`✓ Service ${service.name} deployed successfully to ${serverHostname}`);
+}
+
+/**
+ * Deploy service using zero-downtime strategy (blue-green)
+ */
+async function deployServiceWithZeroDowntime(
+  service: ServiceEntry,
+  context: DeploymentContext,
+  dockerClient: DockerClient,
+  serverHostname: string
+): Promise<void> {
+  logger.verboseLog(`🚀 Deploying ${service.name} with zero-downtime strategy`);
+
+  // Use the existing blue-green deployment logic
+  const deploymentResult = await performBlueGreenDeployment({
+    serviceEntry: service, // Updated to match BlueGreenDeploymentOptions interface
+    releaseId: context.releaseId,
+    secrets: context.secrets,
+    projectName: context.projectName,
+    networkName: context.networkName,
+    dockerClient,
+    serverHostname,
+    verbose: context.verboseFlag,
+  });
+
+  if (!deploymentResult.success) {
+    throw new Error(deploymentResult.error || "Zero-downtime deployment failed");
+  }
+}
+
+/**
+ * Deploy service using stop-start strategy (for infrastructure services)
+ */
+async function deployServiceWithStopStart(
+  service: ServiceEntry,
+  context: DeploymentContext,
+  dockerClient: DockerClient,
+  serverHostname: string
+): Promise<void> {
+  logger.verboseLog(`🔄 Deploying ${service.name} with stop-start strategy`);
+
+  const containerName = `${context.projectName}-${service.name}`;
+
+  // Stop and remove existing container
+  try {
+    await dockerClient.stopContainer(containerName);
+    await dockerClient.removeContainer(containerName);
+    logger.verboseLog(`Stopped and removed existing container ${containerName}`);
+  } catch (error) {
+    // Container might not exist - that's ok
+    logger.verboseLog(`No existing container to remove: ${error}`);
+  }
+
+  // Create new container with updated configuration
+  const containerOptions = serviceEntryToContainerOptions(
+    service,
+    context.secrets,
+    context.projectName,
+    context.releaseId
+  );
+
+  const success = await dockerClient.createContainer(containerOptions);
+  if (!success) {
+    throw new Error(`Failed to create container ${containerName}`);
+  }
+
+  logger.verboseLog(`Created and started new container ${containerName}`);
+}
+
+/**
+ * Ensure service image is available on the server
+ */
+async function ensureServiceImageAvailable(
+  service: ServiceEntry,
+  context: DeploymentContext,
+  dockerClient: DockerClient,
+  sshClient: SSHClient
+): Promise<void> {
+  if (serviceNeedsBuilding(service)) {
+    // Transfer and load built image
+    const imageNameWithRelease = buildServiceImageName(service, context.releaseId);
+    await transferAndLoadServiceImage(service, sshClient, dockerClient, context, imageNameWithRelease);
+  } else {
+    // Pull pre-built image
+    const imageName = service.image!;
+    await authenticateAndPullImage(service, dockerClient, context, imageName);
+  }
+}
+
+/**
+ * Get current service fingerprint from deployed container
+ */
+async function getCurrentServiceFingerprint(
+  service: ServiceEntry,
+  dockerClient: DockerClient,
+  context: DeploymentContext
+): Promise<ServiceFingerprint | null> {
+  const containerName = `${context.projectName}-${service.name}`;
+  
+  try {
+    const containerExists = await dockerClient.containerExists(containerName);
+    if (!containerExists) {
+      return null; // First deployment
+    }
+
+    const containerConfig = await dockerClient.inspectContainer(containerName);
+    if (!containerConfig) {
+      return null;
+    }
+
+    // Extract fingerprint from container labels
+    const labels = containerConfig.Config?.Labels || {};
+    const configHash = labels['iop.config-hash'] || '';
+    const environmentHash = labels['iop.environment-hash'] || '';
+    const secretsHash = labels['iop.secrets-hash'] || '';
+    const buildContextHash = labels['iop.build-context-hash'];
+
+    return {
+      configHash,
+      environmentHash,
+      secretsHash,
+      buildContextHash,
+    };
+  } catch (error) {
+    // If we can't get current fingerprint, assume first deployment
+    return null;
+  }
+}
+
+/**
+ * Unified service reconciliation - removes orphaned services
+ */
+async function reconcileServicesOnServer(
+  context: DeploymentContext,
+  serverHostname: string
+): Promise<void> {
+  let sshClient: SSHClient | undefined;
+
+  try {
+    sshClient = await establishSSHConnection(
       serverHostname,
-      context.projectName
+      context.config,
+      context.secrets,
+      context.verboseFlag
+    );
+    const dockerClient = new DockerClient(
+      sshClient,
+      serverHostname,
+      context.verboseFlag
     );
 
-    // Step 3: Deploy/update desired services
-    const servicesToDeploy = context.targetServices.filter((entry) => {
-      return entry.server === serverHostname;
+    // Get current state
+    const currentState = await dockerClient.getProjectCurrentState(context.projectName);
+
+    // Determine desired services (from both apps and services config)
+    const allConfiguredServices = [
+      ...normalizeConfigEntries(context.config.apps),
+      ...normalizeConfigEntries(context.config.services)
+    ];
+    
+    const desiredServices = new Set<string>();
+    allConfiguredServices.forEach((service) => {
+      if (service.server === serverHostname) {
+        desiredServices.add(service.name);
+      }
     });
 
-    // Deploy services sequentially to handle potential dependencies
-    for (const entry of servicesToDeploy) {
-      const serviceEntry = entry as ServiceEntry;
-      await deployServiceDirectly(
-        serviceEntry,
-        dockerClient,
-        sshClient,
-        serverHostname,
-        context
+    // Find orphaned services (exist but not in config)
+    const servicesToRemove: string[] = [];
+    
+    // Check both apps and services in current state
+    Object.keys(currentState.apps || {}).forEach((serviceName) => {
+      if (!desiredServices.has(serviceName)) {
+        servicesToRemove.push(serviceName);
+      }
+    });
+    
+    Object.keys(currentState.services || {}).forEach((serviceName) => {
+      if (!desiredServices.has(serviceName)) {
+        servicesToRemove.push(serviceName);
+      }
+    });
+
+    // Remove orphaned services
+    if (servicesToRemove.length > 0) {
+      logger.verboseLog(
+        `Removing ${servicesToRemove.length} orphaned service(s) from ${serverHostname}: ${servicesToRemove.join(', ')}`
       );
+
+      for (const serviceName of servicesToRemove) {
+        await removeOrphanedService(serviceName, dockerClient, serverHostname, context.projectName);
+      }
     }
   } catch (error) {
     logger.error(`Failed to deploy services to ${serverHostname}: ${error}`);
@@ -1477,7 +1328,7 @@ async function establishSSHConnection(
  * Handles registry authentication and pulls the specified image
  */
 async function authenticateAndPullImage(
-  entry: AppEntry | ServiceEntry,
+  entry: ServiceEntry,
   dockerClientRemote: DockerClient,
   context: DeploymentContext,
   imageToPull: string
@@ -1549,59 +1400,104 @@ async function performRegistryLogin(
 }
 
 /**
- * Configures iop-proxy routing for an app's hosts
+ * Remove a single orphaned service
  */
-async function configureProxyForApp(
-  appEntry: AppEntry,
+async function removeOrphanedService(
+  serviceName: string,
   dockerClient: DockerClient,
   serverHostname: string,
-  projectName: string,
-  config: IopConfig,
-  verbose: boolean = false
+  projectName: string
+): Promise<void> {
+  try {
+    // Find all containers for this service (including blue/green variants)
+    const serviceContainers = await dockerClient.findContainersByLabelAndProject(
+      `iop.app=${serviceName}`,
+      projectName
+    );
+
+    // Also check for service-labeled containers
+    const serviceContainers2 = await dockerClient.findContainersByLabelAndProject(
+      `iop.service=${serviceName}`,
+      projectName
+    );
+
+    const allContainers = [...new Set([...serviceContainers, ...serviceContainers2])];
+
+    if (allContainers.length > 0) {
+      logger.verboseLog(
+        `Found ${allContainers.length} containers for service ${serviceName}: ${allContainers.join(', ')}`
+      );
+
+      // Stop and remove all containers for this service
+      for (const containerName of allContainers) {
+        try {
+          await dockerClient.stopContainer(containerName);
+          await dockerClient.removeContainer(containerName);
+          logger.verboseLog(`Removed container: ${containerName}`);
+        } catch (containerError) {
+          logger.verboseLog(`Failed to remove container ${containerName}: ${containerError}`);
+        }
+      }
+    }
+
+    logger.verboseLog(`Successfully removed orphaned service: ${serviceName}`);
+  } catch (error) {
+    logger.verboseLog(`Failed to remove orphaned service ${serviceName} on ${serverHostname}: ${error}`);
+  }
+}
+
+/**
+ * Configures iop-proxy routing for a service's hosts
+ */
+async function configureProxyForService(
+  service: ServiceEntry,
+  dockerClient: DockerClient,
+  serverHostname: string,
+  context: DeploymentContext
 ): Promise<void> {
   // Skip proxy configuration if no proxy config at all
-  if (!appEntry.proxy) return;
+  if (!service.proxy) return;
 
-  logger.verboseLog(`Configuring iop-proxy for ${appEntry.name}`);
+  logger.verboseLog(`Configuring iop-proxy for ${service.name}`);
 
   const proxyClient = new IopProxyClient(
     dockerClient,
     serverHostname,
-    verbose
+    context.verboseFlag
   );
 
   // Determine hosts to configure
   let hosts: string[];
-  if (shouldUseSslip(appEntry.proxy.hosts)) {
+  if (shouldUseSslip(service.proxy.hosts)) {
     // Generate app.iop.run domain if no hosts configured
     const sslipDomain = generateAppSslipDomain(
-      projectName,
-      appEntry.name,
+      context.projectName,
+      service.name,
       serverHostname
     );
     hosts = [sslipDomain];
     logger.verboseLog(`Generated app.iop.run domain: ${sslipDomain}`);
   } else {
-    hosts = appEntry.proxy.hosts!;
+    hosts = service.proxy.hosts!;
   }
 
-  const appPort = appEntry.proxy.app_port || 80;
-  const healthPath = appEntry.health_check?.path || "/up";
+  const servicePort = getServiceProxyPort(service) || 80;
+  const healthPath = service.health_check?.path || "/up";
 
-  // Use project-specific target for proxy routing (dual alias solution)
-  const projectSpecificTarget = `${projectName}-${appEntry.name}`;
+  // Use project-specific target for proxy routing
+  const projectSpecificTarget = `${context.projectName}-${service.name}`;
 
   for (const host of hosts) {
     logger.verboseLog(
-      `Configuring proxy for ${host} -> ${projectSpecificTarget}:${appPort}`
+      `Configuring proxy for ${host} -> ${projectSpecificTarget}:${servicePort}`
     );
 
     // Configure the proxy route with project-specific target
     const success = await proxyClient.configureProxy(
       host,
-      projectSpecificTarget, // Use "gmail-web" instead of "web"
-      appPort,
-      projectName,
+      projectSpecificTarget,
+      servicePort,
+      context.projectName,
       healthPath
     );
 
@@ -1609,14 +1505,13 @@ async function configureProxyForApp(
       throw new Error(`Failed to configure proxy for ${host}`);
     }
 
-    // Then verify the health and update the proxy with the correct status
+    // Verify health and update proxy status
     logger.verboseLog(
-      `Verifying health for ${host} -> ${projectSpecificTarget}:${appPort}${healthPath}`
+      `Verifying health for ${host} -> ${projectSpecificTarget}:${servicePort}${healthPath}`
     );
 
     try {
       // For now, assume the service is healthy after successful deployment
-      // The health check can be improved later to use proper network-aware checks
       const isHealthy = true;
 
       logger.verboseLog(
@@ -1640,6 +1535,21 @@ async function configureProxyForApp(
       );
     }
   }
+}
+
+/**
+ * Legacy function - now just calls configureProxyForService
+ */
+async function configureProxyForApp(
+  appEntry: ServiceEntry,
+  dockerClient: DockerClient,
+  serverHostname: string,
+  projectName: string,
+  config: IopConfig,
+  verbose: boolean = false
+): Promise<void> {
+  const context = { projectName, verboseFlag: verbose } as DeploymentContext;
+  await configureProxyForService(appEntry, dockerClient, serverHostname, context);
 }
 
 /**
@@ -2008,17 +1918,31 @@ async function removeOrphanedApps(
 
 /**
  * Transfers the image archive to the remote server and loads it
+ * (Legacy function - now calls transferAndLoadServiceImage)
  */
 async function transferAndLoadImage(
-  appEntry: AppEntry,
+  serviceEntry: ServiceEntry,
   sshClient: any,
   dockerClientRemote: DockerClient,
   context: DeploymentContext,
   imageName: string
 ): Promise<void> {
-  const archivePath = context.imageArchives?.get(appEntry.name);
+  return transferAndLoadServiceImage(serviceEntry, sshClient, dockerClientRemote, context, imageName);
+}
+
+/**
+ * Transfers the service image archive to the remote server and loads it
+ */
+async function transferAndLoadServiceImage(
+  serviceEntry: ServiceEntry,
+  sshClient: any,
+  dockerClientRemote: DockerClient,
+  context: DeploymentContext,
+  imageName: string
+): Promise<void> {
+  const archivePath = context.imageArchives?.get(serviceEntry.name);
   if (!archivePath) {
-    throw new Error(`No archive found for app ${appEntry.name}`);
+    throw new Error(`No archive found for service ${serviceEntry.name}`);
   }
 
   try {
@@ -2026,7 +1950,7 @@ async function transferAndLoadImage(
     const isCompressed =
       archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz");
     const fileExt = isCompressed ? ".tar.gz" : ".tar";
-    const remoteArchivePath = `/tmp/iop-${appEntry.name}-${context.releaseId}${fileExt}`;
+    const remoteArchivePath = `/tmp/iop-${serviceEntry.name}-${context.releaseId}${fileExt}`;
 
     logger.verboseLog(
       `Transferring ${
@@ -2066,7 +1990,7 @@ async function transferAndLoadImage(
           process.stdout.write("\r\x1b[K");
           process.stdout.write(
             `     ├─ [${spinner}] Loading ${
-              appEntry.name
+              serviceEntry.name
             } image... (${timeStr}) | ${transferredMB}MB/${totalSizeMB}MB ${
               isCompressed ? "(compressed)" : "(uncompressed)"
             }`
@@ -2118,86 +2042,7 @@ async function transferAndLoadImage(
   }
 }
 
-/**
- * Transfers the service image archive to the remote server and loads it
- */
-async function transferAndLoadServiceImage(
-  serviceEntry: ServiceEntry,
-  sshClient: any,
-  dockerClientRemote: DockerClient,
-  context: DeploymentContext,
-  imageName: string
-): Promise<void> {
-  const archivePath = context.imageArchives?.get(serviceEntry.name);
-  if (!archivePath) {
-    throw new Error(`No archive found for service ${serviceEntry.name}`);
-  }
-
-  try {
-    // Generate remote path for the archive, preserving the actual file extension
-    const isCompressed =
-      archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz");
-    const fileExt = isCompressed ? ".tar.gz" : ".tar";
-    const remoteArchivePath = `/tmp/iop-${serviceEntry.name}-${context.releaseId}${fileExt}`;
-
-    logger.verboseLog(
-      `Transferring ${
-        isCompressed ? "compressed" : "uncompressed"
-      } service image archive to server...`
-    );
-
-    // Get file size for progress tracking
-    const fileStat = await stat(archivePath);
-    const totalSizeMB = (fileStat.size / 1024 / 1024).toFixed(1);
-
-    logger.verboseLog(
-      `File size: ${totalSizeMB} MB (${
-        isCompressed ? "compressed" : "uncompressed"
-      })`
-    );
-
-    // For services, we can use a simpler upload approach since they're typically smaller
-    // Upload the archive
-    await sshClient.uploadFile(archivePath, remoteArchivePath);
-
-    // Load the image from archive (automatically handles compression detection)
-    logger.verboseLog(
-      `Loading service image ${imageName} from ${
-        isCompressed ? "compressed" : "uncompressed"
-      } archive...`
-    );
-    const loadSuccess = await dockerClientRemote.loadImage(remoteArchivePath);
-
-    if (!loadSuccess) {
-      throw new Error(`Failed to load service image from archive ${remoteArchivePath}`);
-    }
-
-    logger.verboseLog(`✓ Service image loaded successfully`);
-
-    // Clean up remote archive
-    await sshClient.exec(`rm -f ${remoteArchivePath}`);
-
-    // Clean up local archive
-    try {
-      fs.unlinkSync(archivePath);
-      // Also try to remove the temp directory if it's empty
-      const tempDir = path.dirname(archivePath);
-      try {
-        fs.rmdirSync(tempDir);
-      } catch (e) {
-        // Ignore if directory is not empty or already removed
-      }
-      logger.verboseLog(`Cleaned up local service archive ${archivePath}`);
-    } catch (cleanupError) {
-      logger.verboseLog(
-        `Warning: Failed to clean up local service archive: ${cleanupError}`
-      );
-    }
-  } catch (error) {
-    logger.error(`Failed to transfer and load service image ${imageName}`, error);
-    throw error;
-  }
-}
+// Removed duplicate transferAndLoadServiceImage function
 
 /**
  * Bootstrap a fresh server by connecting as root and setting up the iop user
@@ -2442,9 +2287,7 @@ async function checkProjectDirectoriesExist(
  */
 export async function deployCommand(rawEntryNamesAndFlags: string[]) {
   try {
-    const { entryNames, deployServicesFlag, verboseFlag } = parseDeploymentArgs(
-      rawEntryNamesAndFlags
-    );
+    const { entryNames, verboseFlag } = parseDeploymentArgs(rawEntryNamesAndFlags);
 
     // Set logger verbose mode
     logger = new Logger({ verbose: verboseFlag });
@@ -2459,10 +2302,9 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     const { config, secrets } = await loadConfigurationAndSecrets();
     logger.phaseComplete("Loading configuration");
 
-    const { apps: targetApps, services: targetServices } =
-      identifyTargetEntries(entryNames, deployServicesFlag, config);
-    if (targetApps.length === 0 && targetServices.length === 0) {
-      logger.error("No entries selected for deployment");
+    const targetServices = identifyTargetServices(entryNames, config);
+    if (targetServices.length === 0) {
+      logger.error("No services selected for deployment");
       return;
     }
 
@@ -2471,8 +2313,8 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
 
     // Ensure infrastructure is ready (auto-setup if needed)
     const allTargetServers = new Set<string>();
-    [...targetApps, ...targetServices].forEach((entry) => {
-      allTargetServers.add(entry.server);
+    targetServices.forEach((service) => {
+      allTargetServers.add(service.server);
     });
 
     await ensureInfrastructureReady(
@@ -2482,50 +2324,53 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       verboseFlag
     );
 
+    // Generate service fingerprints for smart redeployment
+    const serviceFingerprints = new Map<string, ServiceFingerprint>();
+    for (const service of targetServices) {
+      const fingerprint = await createServiceFingerprint(service, secrets);
+      serviceFingerprints.set(service.name, fingerprint);
+    }
+
     const context: DeploymentContext = {
       config,
       secrets,
-      targetApps,
       targetServices,
       releaseId,
       projectName,
       networkName,
-      deployServicesFlag,
       verboseFlag,
+      serviceFingerprints,
     };
 
-    await deployEntries(context);
+    await deployServices(context);
 
-    // Collect URLs for final output
-    const appUrls: Array<{appName: string, url: string}> = [];
-    if (!deployServicesFlag) {
-      for (const entry of targetApps) {
-        const appEntry = entry;
-        if (appEntry.proxy) {
-          // Use configured hosts or generate app.iop.run domain
-          let hosts: string[];
-          if (shouldUseSslip(appEntry.proxy.hosts)) {
-            const sslipDomain = generateAppSslipDomain(
-              projectName,
-              appEntry.name,
-              appEntry.server
-            );
-            hosts = [sslipDomain];
-          } else {
-            hosts = appEntry.proxy.hosts!;
-          }
+    // Collect URLs for final output from HTTP services
+    const serviceUrls: Array<{appName: string, url: string}> = [];
+    for (const service of targetServices) {
+      if (service.proxy) {
+        // Use configured hosts or generate app.iop.run domain
+        let hosts: string[];
+        if (shouldUseSslip(service.proxy.hosts)) {
+          const sslipDomain = generateAppSslipDomain(
+            projectName,
+            service.name,
+            service.server
+          );
+          hosts = [sslipDomain];
+        } else {
+          hosts = service.proxy.hosts!;
+        }
 
-          for (const host of hosts) {
-            appUrls.push({
-              appName: appEntry.name,
-              url: `https://${host}`
-            });
-          }
+        for (const host of hosts) {
+          serviceUrls.push({
+            appName: service.name, // Use appName for compatibility with logger
+            url: `https://${host}`
+          });
         }
       }
     }
 
-    logger.deploymentComplete(appUrls);
+    logger.deploymentComplete(serviceUrls);
   } catch (error) {
     logger.deploymentFailed(error);
     process.exit(1);

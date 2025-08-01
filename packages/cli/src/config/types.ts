@@ -1,20 +1,13 @@
 import { z } from "zod";
 
-// TypeScript types for configuration will go here
-
-// Zod schema for common server definition (can be string or object)
-// For now, let's assume servers are always strings (hostnames/IPs) as used in setup.ts
-// If object-based server defs are needed later, this can be expanded.
-// const ServerConfigSchema = z.union([z.string(), z.object({ host: z.string(), port: z.number().optional() })]);
-
-// Zod schema for HealthCheck (primarily for Apps)
+// Zod schema for HealthCheck
 export const HealthCheckSchema = z.object({
   path: z.string().optional().default("/up"), // Health check endpoint path
 });
 export type HealthCheckConfig = z.infer<typeof HealthCheckSchema>;
 
-// Zod schema for App-specific Proxy Configuration
-export const AppProxyConfigSchema = z.object({
+// Zod schema for Proxy Configuration (for HTTP services)
+export const ProxyConfigSchema = z.object({
   hosts: z.array(z.string()).optional(),
   app_port: z
     .number()
@@ -44,17 +37,17 @@ export const AppProxyConfigSchema = z.object({
     .describe("Request timeout, e.g., '30s', '1m'. Default is '30s'.")
     .optional(),
 });
-export type AppProxyConfig = z.infer<typeof AppProxyConfigSchema>;
+export type ProxyConfig = z.infer<typeof ProxyConfigSchema>;
 
-// Zod schema for AppEntry without name (used in record format)
-export const AppEntryWithoutNameSchema = z.object({
-  image: z.string().optional(),
+// Zod schema for unified Service Entry without name (used in record format)
+export const ServiceEntryWithoutNameSchema = z.object({
+  image: z.string().optional(), // e.g., "postgres:15" or "my-app/web" - optional when build is specified
   server: z.string().describe("Hostname or IP address of the target server"),
   replicas: z
     .number()
     .min(1)
     .default(1)
-    .describe("Number of replicas to deploy for this app. Defaults to 1."),
+    .describe("Number of replicas to deploy for this service. Defaults to 1."),
   build: z
     .object({
       context: z.string(),
@@ -67,9 +60,9 @@ export const AppEntryWithoutNameSchema = z.object({
     })
     .optional()
     .describe(
-      "Build configuration. When specified, the app is built locally and transferred via docker save/load instead of using registries."
+      "Build configuration. When specified, the service is built locally and transferred via docker save/load instead of using registries."
     ),
-  ports: z.array(z.string()).optional(), // e.g., ["80:80", "443:443"]
+  ports: z.array(z.string()).optional(), // e.g., ["3000", "5432:5432"]
   volumes: z.array(z.string()).optional(), // e.g., ["mydata:/data/db"]
   environment: z
     .object({
@@ -85,58 +78,11 @@ export const AppEntryWithoutNameSchema = z.object({
     })
     .optional()
     .describe(
-      "Registry configuration for pre-built images. Not used for apps with 'build' configuration."
+      "Registry configuration for pre-built images. Not used for services with 'build' configuration."
     ),
   command: z.string().optional().describe("Override the default command for the container"),
   health_check: HealthCheckSchema.optional(),
-  proxy: AppProxyConfigSchema.optional(),
-  // Potentially add other app-specific fields like 'replicas', 'domains', etc.
-});
-export type AppEntryWithoutName = z.infer<typeof AppEntryWithoutNameSchema>;
-
-// Zod schema for AppEntry (includes name - for array format if needed)
-export const AppEntrySchema = AppEntryWithoutNameSchema.extend({
-  name: z.string(),
-});
-export type AppEntry = z.infer<typeof AppEntrySchema>;
-
-// Zod schema for ServiceEntry without name (used in record format)
-export const ServiceEntryWithoutNameSchema = z.object({
-  image: z.string().optional(), // Includes tag, e.g., "postgres:15" - optional when build is specified
-  server: z.string().describe("Hostname or IP address of the target server"),
-  build: z
-    .object({
-      context: z.string(),
-      dockerfile: z.string().default("Dockerfile"),
-      args: z.array(z.string()).optional().describe(
-        "Build arguments passed to Docker build command. List of environment variable names to pass as build args. These variables must be defined in the environment section."
-      ),
-      target: z.string().optional(), // For multi-stage builds
-      platform: z.string().optional(), // e.g., linux/amd64
-    })
-    .optional()
-    .describe(
-      "Build configuration. When specified, the service is built locally and transferred via docker save/load instead of using registries."
-    ),
-  ports: z.array(z.string()).optional(),
-  volumes: z.array(z.string()).optional(),
-  environment: z
-    .object({
-      plain: z.array(z.string()).optional(), // Array format for environment variables
-      secret: z.array(z.string()).optional(),
-    })
-    .optional(),
-  registry: z // Optional per-service registry override (for private registries)
-    .object({
-      url: z.string().optional(),
-      username: z.string(),
-      password_secret: z.string(), // Secret key for the password
-    })
-    .optional()
-    .describe(
-      "Registry configuration for services using private registries. Public images like 'postgres:15' don't require registry configuration."
-    ),
-  command: z.string().optional().describe("Override the default command for the container"),
+  proxy: ProxyConfigSchema.optional(),
 }).refine((data) => {
   // Ensure either image or build is provided, but not both
   const hasImage = !!data.image;
@@ -146,15 +92,18 @@ export const ServiceEntryWithoutNameSchema = z.object({
   message: "Service must have either 'image' or 'build', but not both",
   path: ["image"],
 });
-export type ServiceEntryWithoutName = z.infer<
-  typeof ServiceEntryWithoutNameSchema
->;
+export type ServiceEntryWithoutName = z.infer<typeof ServiceEntryWithoutNameSchema>;
 
 // Zod schema for ServiceEntry (includes name - for array format if needed)
 export const ServiceEntrySchema = z.object({
   name: z.string(),
-  image: z.string().optional(), // Includes tag, e.g., "postgres:15" - optional when build is specified
+  image: z.string().optional(), // e.g., "postgres:15" or "my-app/web" - optional when build is specified
   server: z.string().describe("Hostname or IP address of the target server"),
+  replicas: z
+    .number()
+    .min(1)
+    .default(1)
+    .describe("Number of replicas to deploy for this service. Defaults to 1."),
   build: z
     .object({
       context: z.string(),
@@ -169,15 +118,15 @@ export const ServiceEntrySchema = z.object({
     .describe(
       "Build configuration. When specified, the service is built locally and transferred via docker save/load instead of using registries."
     ),
-  ports: z.array(z.string()).optional(),
-  volumes: z.array(z.string()).optional(),
+  ports: z.array(z.string()).optional(), // e.g., ["3000", "5432:5432"]
+  volumes: z.array(z.string()).optional(), // e.g., ["mydata:/data/db"]
   environment: z
     .object({
-      plain: z.array(z.string()).optional(), // Array format for environment variables
+      plain: z.array(z.string()).optional(), // Array format for environment variables like ["KEY=VALUE"]
       secret: z.array(z.string()).optional(),
     })
     .optional(),
-  registry: z // Optional per-service registry override (for private registries)
+  registry: z // Optional registry for pre-built images
     .object({
       url: z.string().optional(),
       username: z.string(),
@@ -185,9 +134,11 @@ export const ServiceEntrySchema = z.object({
     })
     .optional()
     .describe(
-      "Registry configuration for services using private registries. Public images like 'postgres:15' don't require registry configuration."
+      "Registry configuration for pre-built images. Not used for services with 'build' configuration."
     ),
   command: z.string().optional().describe("Override the default command for the container"),
+  health_check: HealthCheckSchema.optional(),
+  proxy: ProxyConfigSchema.optional(),
 }).refine((data) => {
   // Ensure either image or build is provided, but not both
   const hasImage = !!data.image;
@@ -199,18 +150,26 @@ export const ServiceEntrySchema = z.object({
 });
 export type ServiceEntry = z.infer<typeof ServiceEntrySchema>;
 
-// Zod schema for IopConfig - allowing both object and array formats for apps and services
+// Legacy types for backward compatibility (will be removed)
+export type AppEntry = ServiceEntry;
+export type AppEntryWithoutName = ServiceEntryWithoutName;
+export const AppEntrySchema = ServiceEntrySchema;
+export const AppEntryWithoutNameSchema = ServiceEntryWithoutNameSchema;
+export type AppProxyConfig = ProxyConfig;
+
+// Zod schema for IopConfig - unified services model
 export const IopConfigSchema = z.object({
   name: z.string().min(1, "Project name is required"), // Used for network naming etc.
-  apps: z
-    .union([
-      z.record(AppEntryWithoutNameSchema), // Object format where keys are app names
-      z.array(AppEntrySchema), // Array format with explicit name field
-    ])
-    .optional(),
   services: z
     .union([
       z.record(ServiceEntryWithoutNameSchema), // Object format where keys are service names
+      z.array(ServiceEntrySchema), // Array format with explicit name field
+    ])
+    .optional(),
+  // Legacy support - will be merged into services
+  apps: z
+    .union([
+      z.record(ServiceEntryWithoutNameSchema), // Object format where keys are app names
       z.array(ServiceEntrySchema), // Array format with explicit name field
     ])
     .optional(),

@@ -3,7 +3,11 @@ name: basic
 ssh:
   username: iop
 
-apps:
+# Unified services model - everything is a service!
+# Services with 'proxy' config get zero-downtime deployment automatically
+# Infrastructure services get stop-start deployment
+services:
+  # HTTP services (get zero-downtime blue-green deployment)
   web1:
     build:
       context: .
@@ -11,13 +15,14 @@ apps:
       args:
         - EXAMPLE_VAR
     server: 157.180.47.213
+    replicas: 1
     environment:
       plain:
         - EXAMPLE_VAR=web1
       secret:
         - SECRET_VAR
         - POSTGRES_PASSWORD
-    proxy:
+    proxy:           # This triggers zero-downtime deployment
       app_port: 3000
     health_check:
       path: /up
@@ -29,23 +34,24 @@ apps:
       args:
         - EXAMPLE_VAR
     server: 157.180.47.213
+    replicas: 1
     environment:
       plain:
         - EXAMPLE_VAR=web2
       secret:
         - SECRET_VAR
-        - POSTGRES_PASSWORD
-    proxy:
+        - POSTGRES_PASSWORD  
+    proxy:           # This triggers zero-downtime deployment
       app_port: 3000
     health_check:
       path: /up
 
-services:
+  # Infrastructure services (get stop-start deployment)
   db:
     image: postgres:17
     server: 157.180.47.213
     ports:
-      - "5433:5432"
+      - "5433:5432"  # Port mapping indicates infrastructure service
     environment:
       plain:
         - POSTGRES_USER=postgres
