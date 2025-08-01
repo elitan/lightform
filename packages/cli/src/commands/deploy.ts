@@ -20,6 +20,8 @@ import {
   createServiceFingerprint,
   shouldRedeploy,
   ServiceFingerprint,
+  enrichFingerprintWithServerInfo,
+  isBuiltService,
 } from "../utils/service-fingerprint";
 import {
   DockerClient,
@@ -146,7 +148,7 @@ function serviceEntryToContainerOptions(
   const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
   
-  // Use fingerprint data if available, otherwise fallback to empty string
+  // Get config hash from fingerprint if available
   const configHash = fingerprint?.configHash || "";
 
   // Determine the correct image name based on whether the service needs building
@@ -1035,8 +1037,11 @@ async function deployServicesToServer(
 
     // Deploy each service with appropriate strategy and collect results
     const results: ServiceDeploymentResult[] = [];
-    for (const service of services) {
-      const result = await deployServiceWithStrategy(service, context, dockerClient, sshClient, serverHostname);
+    for (let i = 0; i < services.length; i++) {
+      const service = services[i];
+      const isLastService = i === services.length - 1;
+      
+      const result = await deployServiceWithStrategy(service, context, dockerClient, sshClient, serverHostname, isLastService);
       results.push(result);
     }
     
@@ -1057,20 +1062,31 @@ async function deployServiceWithStrategy(
   context: DeploymentContext,
   dockerClient: DockerClient,
   sshClient: SSHClient,
-  serverHostname: string
+  serverHostname: string,
+  isLastService: boolean = false
 ): Promise<ServiceDeploymentResult> {
   // Check if service needs redeployment using enhanced fingerprinting
   const currentFingerprint = await getCurrentServiceFingerprint(service, dockerClient, context);
-  const desiredFingerprint = context.serviceFingerprints?.get(service.name);
+  let desiredFingerprint = context.serviceFingerprints?.get(service.name);
   
   if (!desiredFingerprint) {
     throw new Error(`No fingerprint found for service ${service.name}`);
   }
+  
+  // Enrich desired fingerprint with server information for better comparison
+  desiredFingerprint = await enrichFingerprintWithServerInfo(
+    desiredFingerprint,
+    service.name,
+    context.projectName,
+    sshClient
+  );
 
   const redeployDecision = shouldRedeploy(currentFingerprint, desiredFingerprint);
   
   if (!redeployDecision.shouldRedeploy) {
     logger.verboseLog(`✓ Service ${service.name} is up-to-date (${redeployDecision.reason})`);
+    logger.serviceDeploymentSkipped(service.name, "up-to-date, skipped", isLastService);
+    
     // Generate URL if service has proxy configuration
     let url: string | undefined;
     if (service.proxy) {
@@ -1098,12 +1114,16 @@ async function deployServiceWithStrategy(
     `↻ Service ${service.name} needs deployment: ${redeployDecision.reason} (${redeployDecision.priority})`
   );
 
+  // Start service deployment logging
+  const strategy = getDeploymentStrategy(service);
+  const strategyText = strategy === 'zero-downtime' ? 'zero-downtime deployment' : 'stop-start deployment';
+  const deploymentStartTime = Date.now();
+  logger.serviceDeploymentStep(service.name, strategyText, isLastService);
+
   // Ensure image is available
   await ensureServiceImageAvailable(service, context, dockerClient, sshClient);
 
   // Choose deployment strategy
-  const strategy = getDeploymentStrategy(service);
-  
   if (strategy === 'zero-downtime') {
     await deployServiceWithZeroDowntime(service, context, dockerClient, serverHostname, desiredFingerprint);
   } else {
@@ -1115,6 +1135,10 @@ async function deployServiceWithStrategy(
     await configureProxyForService(service, dockerClient, serverHostname, context);
   }
 
+  // Complete service deployment logging
+  const deploymentDuration = Date.now() - deploymentStartTime;
+  logger.serviceDeploymentComplete(service.name, strategyText, deploymentDuration, isLastService);
+  
   logger.verboseLog(`✓ Service ${service.name} deployed successfully to ${serverHostname}`);
   
   // Generate URL if service has proxy configuration
@@ -1774,11 +1798,13 @@ export async function serviceNeedsUpdate(
     }
 
     // Build desired configuration
+    const fingerprint = context.serviceFingerprints?.get(serviceEntry.name);
     const desiredConfig = serviceEntryToContainerOptions(
       serviceEntry,
       context.secrets,
       context.projectName,
-      context.releaseId
+      context.releaseId,
+      fingerprint
     );
 
     // Check for changes
@@ -1826,11 +1852,13 @@ async function replaceServiceContainer(
     );
   }
 
+  const fingerprint = context.serviceFingerprints?.get(serviceEntry.name);
   const serviceContainerOptions = serviceEntryToContainerOptions(
     serviceEntry,
     context.secrets,
     context.projectName,
-    context.releaseId
+    context.releaseId,
+    fingerprint
   );
 
   logger.verboseLog(
@@ -2478,7 +2506,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     // Generate service fingerprints for smart redeployment
     const serviceFingerprints = new Map<string, ServiceFingerprint>();
     for (const service of targetServices) {
-      const fingerprint = await createServiceFingerprint(service, secrets);
+      const fingerprint = await createServiceFingerprint(service, secrets, config.name);
       serviceFingerprints.set(service.name, fingerprint);
     }
 

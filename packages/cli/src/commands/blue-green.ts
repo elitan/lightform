@@ -340,7 +340,7 @@ export async function performBlueGreenDeployment(
         secrets,
         projectName,
         containerName,
-        fingerprint
+        options.fingerprint
       );
 
       if (verbose) {
