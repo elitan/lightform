@@ -1,7 +1,7 @@
 {
   "name": "iop",
   "description": "Ship Docker Anywhere",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "author": "elitan",
   "license": "MIT",
   "repository": {
