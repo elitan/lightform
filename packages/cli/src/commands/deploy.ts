@@ -26,6 +26,53 @@ import {
   DockerBuildOptions,
   DockerContainerOptions,
 } from "../docker";
+
+// Deployment result tracking
+export interface ServiceDeploymentResult {
+  serviceName: string;
+  status: 'deployed' | 'skipped';
+  reason: string;
+  url?: string;
+}
+
+export interface DeploymentSummary {
+  deployed: ServiceDeploymentResult[];
+  skipped: ServiceDeploymentResult[];
+}
+
+/**
+ * Display comprehensive deployment summary showing all services
+ */
+function displayDeploymentSummary(results: ServiceDeploymentResult[], logger: Logger): void {
+  
+  const deployed = results.filter(r => r.status === 'deployed');
+  const skipped = results.filter(r => r.status === 'skipped');
+  const withUrls = results.filter(r => r.url);
+  
+  // Show deployment summary using consistent formatting
+  console.log(`[✓] Deployment summary`);
+  
+  // Show all services with their status
+  results.forEach((result, index) => {
+    const isLast = index === results.length - 1;
+    const symbol = isLast ? "└─" : "├─";
+    const statusIcon = result.status === 'deployed' ? '✓' : '↻';
+    const statusText = result.status === 'deployed' ? 'deployed' : 'skipped';
+    console.log(`  ${symbol} [${statusIcon}] ${result.serviceName} (${statusText}: ${result.reason})`);
+  });
+  
+  // Show URLs for services with proxy configuration
+  if (withUrls.length > 0) {
+    const isPlural = withUrls.length > 1;
+    const appText = isPlural ? "apps are" : "app is";
+    console.log(`\nYour ${appText} live at:`);
+    withUrls.forEach((result, index) => {
+      const isLast = index === withUrls.length - 1;
+      const symbol = isLast ? "└─" : "├─";
+      console.log(`  ${symbol} ${result.serviceName} → ${result.url}`);
+    });
+  }
+}
 import { SSHClient, SSHClientOptions, getSSHCredentials } from "../ssh";
 import {
   generateReleaseId,
@@ -92,13 +139,15 @@ function serviceEntryToContainerOptions(
   serviceEntry: ServiceEntry,
   secrets: IopSecrets,
   projectName: string,
-  releaseId?: string
+  releaseId?: string,
+  fingerprint?: ServiceFingerprint
 ): DockerContainerOptions {
   const containerName = `${projectName}-${serviceEntry.name}`; // Project-prefixed names
   const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
-  // Config hash is now handled by service fingerprinting
-  const configHash = ""; // Will be populated by fingerprint logic
+  
+  // Use fingerprint data if available, otherwise fallback to empty string
+  const configHash = fingerprint?.configHash || "";
 
   // Determine the correct image name based on whether the service needs building
   let imageName: string;
@@ -125,7 +174,18 @@ function serviceEntryToContainerOptions(
       "iop.project": projectName,
       "iop.type": "service",
       "iop.service": serviceEntry.name,
-      "iop.config-hash": configHash, // Docker Compose style config tracking
+      "iop.config-hash": configHash,
+      // Add fingerprint labels if provided
+      ...(fingerprint ? {
+        "iop.fingerprint-type": fingerprint.type,
+        "iop.secrets-hash": fingerprint.secretsHash,
+        ...(fingerprint.type === 'built' ? {
+          ...(fingerprint.localImageHash && { "iop.local-image-hash": fingerprint.localImageHash }),
+          ...(fingerprint.serverImageHash && { "iop.server-image-hash": fingerprint.serverImageHash }),
+        } : {
+          ...(fingerprint.imageReference && { "iop.image-reference": fingerprint.imageReference }),
+        }),
+      } : {}),
     },
   };
 }
@@ -582,7 +642,7 @@ async function getBuildConfig(
 /**
  * Main deployment loop that processes all target services with unified logic
  */
-async function deployServices(context: DeploymentContext): Promise<void> {
+async function deployServices(context: DeploymentContext): Promise<ServiceDeploymentResult[]> {
   const services = context.targetServices;
 
   // Separate services by build requirements
@@ -651,12 +711,16 @@ async function deployServices(context: DeploymentContext): Promise<void> {
     servicesByServer.get(service.server)!.push(service);
   }
 
-  // Deploy to each server
+  // Deploy to each server and collect results
+  const allResults: ServiceDeploymentResult[] = [];
   for (const [serverHostname, serverServices] of servicesByServer) {
-    await deployServicesToServer(serverServices, context, serverHostname);
+    const serverResults = await deployServicesToServer(serverServices, context, serverHostname);
+    allResults.push(...serverResults);
   }
 
   logger.phaseEnd("Deploying services");
+  
+  return allResults;
 }
 
 /**
@@ -953,7 +1017,7 @@ async function deployServicesToServer(
   services: ServiceEntry[],
   context: DeploymentContext,
   serverHostname: string
-): Promise<void> {
+): Promise<ServiceDeploymentResult[]> {
   let sshClient: SSHClient | undefined;
 
   try {
@@ -969,10 +1033,14 @@ async function deployServicesToServer(
       context.verboseFlag
     );
 
-    // Deploy each service with appropriate strategy
+    // Deploy each service with appropriate strategy and collect results
+    const results: ServiceDeploymentResult[] = [];
     for (const service of services) {
-      await deployServiceWithStrategy(service, context, dockerClient, sshClient, serverHostname);
+      const result = await deployServiceWithStrategy(service, context, dockerClient, sshClient, serverHostname);
+      results.push(result);
     }
+    
+    return results;
 
   } finally {
     if (sshClient) {
@@ -990,7 +1058,7 @@ async function deployServiceWithStrategy(
   dockerClient: DockerClient,
   sshClient: SSHClient,
   serverHostname: string
-): Promise<void> {
+): Promise<ServiceDeploymentResult> {
   // Check if service needs redeployment using enhanced fingerprinting
   const currentFingerprint = await getCurrentServiceFingerprint(service, dockerClient, context);
   const desiredFingerprint = context.serviceFingerprints?.get(service.name);
@@ -1003,7 +1071,27 @@ async function deployServiceWithStrategy(
   
   if (!redeployDecision.shouldRedeploy) {
     logger.verboseLog(`✓ Service ${service.name} is up-to-date (${redeployDecision.reason})`);
-    return;
+    // Generate URL if service has proxy configuration
+    let url: string | undefined;
+    if (service.proxy) {
+      if (shouldUseSslip(service.proxy.hosts)) {
+        const sslipDomain = generateAppSslipDomain(
+          context.projectName,
+          service.name,
+          service.server
+        );
+        url = `https://${sslipDomain}`;
+      } else if (service.proxy.hosts && service.proxy.hosts.length > 0) {
+        url = `https://${service.proxy.hosts[0]}`;
+      }
+    }
+    
+    return {
+      serviceName: service.name,
+      status: 'skipped',
+      reason: redeployDecision.reason,
+      url,
+    };
   }
 
   logger.verboseLog(
@@ -1017,7 +1105,7 @@ async function deployServiceWithStrategy(
   const strategy = getDeploymentStrategy(service);
   
   if (strategy === 'zero-downtime') {
-    await deployServiceWithZeroDowntime(service, context, dockerClient, serverHostname);
+    await deployServiceWithZeroDowntime(service, context, dockerClient, serverHostname, desiredFingerprint);
   } else {
     await deployServiceWithStopStart(service, context, dockerClient, serverHostname);
   }
@@ -1028,6 +1116,28 @@ async function deployServiceWithStrategy(
   }
 
   logger.verboseLog(`✓ Service ${service.name} deployed successfully to ${serverHostname}`);
+  
+  // Generate URL if service has proxy configuration
+  let url: string | undefined;
+  if (service.proxy) {
+    if (shouldUseSslip(service.proxy.hosts)) {
+      const sslipDomain = generateAppSslipDomain(
+        context.projectName,
+        service.name,
+        service.server
+      );
+      url = `https://${sslipDomain}`;
+    } else if (service.proxy.hosts && service.proxy.hosts.length > 0) {
+      url = `https://${service.proxy.hosts[0]}`;
+    }
+  }
+  
+  return {
+    serviceName: service.name,
+    status: 'deployed',
+    reason: redeployDecision.reason,
+    url,
+  };
 }
 
 /**
@@ -1037,7 +1147,8 @@ async function deployServiceWithZeroDowntime(
   service: ServiceEntry,
   context: DeploymentContext,
   dockerClient: DockerClient,
-  serverHostname: string
+  serverHostname: string,
+  fingerprint: ServiceFingerprint
 ): Promise<void> {
   logger.verboseLog(`🚀 Deploying ${service.name} with zero-downtime strategy`);
 
@@ -1051,6 +1162,7 @@ async function deployServiceWithZeroDowntime(
     dockerClient,
     serverHostname,
     verbose: context.verboseFlag,
+    fingerprint, // Pass fingerprint for container labels
   });
 
   if (!deploymentResult.success) {
@@ -1081,12 +1193,19 @@ async function deployServiceWithStopStart(
     logger.verboseLog(`No existing container to remove: ${error}`);
   }
 
-  // Create new container with updated configuration
+  // Get the fingerprint for this service from context
+  const fingerprint = context.serviceFingerprints?.get(service.name);
+  if (!fingerprint) {
+    throw new Error(`No fingerprint found for service ${service.name}`);
+  }
+
+  // Create new container with updated configuration and fingerprint labels
   const containerOptions = serviceEntryToContainerOptions(
     service,
     context.secrets,
     context.projectName,
-    context.releaseId
+    context.releaseId,
+    fingerprint
   );
 
   const success = await dockerClient.createContainer(containerOptions);
@@ -1125,17 +1244,34 @@ async function getCurrentServiceFingerprint(
   dockerClient: DockerClient,
   context: DeploymentContext
 ): Promise<ServiceFingerprint | null> {
-  const containerName = `${context.projectName}-${service.name}`;
-  
   try {
-    const containerExists = await dockerClient.containerExists(containerName);
-    if (!containerExists) {
-      return null; // First deployment
+    let containerConfig: any = null;
+    
+    // For services that use zero-downtime deployment, check blue-green containers
+    if (requiresZeroDowntimeDeployment(service)) {
+      // Try to find active blue or green container
+      const blueContainerName = `${context.projectName}-${service.name}-blue`;
+      const greenContainerName = `${context.projectName}-${service.name}-green`;
+      
+      const blueExists = await dockerClient.containerExists(blueContainerName);
+      const greenExists = await dockerClient.containerExists(greenContainerName);
+      
+      if (blueExists) {
+        containerConfig = await dockerClient.inspectContainer(blueContainerName);
+      } else if (greenExists) {
+        containerConfig = await dockerClient.inspectContainer(greenContainerName);
+      }
+    } else {
+      // For regular services, use the standard container name
+      const containerName = `${context.projectName}-${service.name}`;
+      const containerExists = await dockerClient.containerExists(containerName);
+      if (containerExists) {
+        containerConfig = await dockerClient.inspectContainer(containerName);
+      }
     }
-
-    const containerConfig = await dockerClient.inspectContainer(containerName);
+    
     if (!containerConfig) {
-      return null;
+      return null; // First deployment
     }
 
     // Extract fingerprint from container labels
@@ -2357,35 +2493,10 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
       serviceFingerprints,
     };
 
-    await deployServices(context);
+    const deploymentResults = await deployServices(context);
 
-    // Collect URLs for final output from HTTP services
-    const serviceUrls: Array<{appName: string, url: string}> = [];
-    for (const service of targetServices) {
-      if (service.proxy) {
-        // Use configured hosts or generate app.iop.run domain
-        let hosts: string[];
-        if (shouldUseSslip(service.proxy.hosts)) {
-          const sslipDomain = generateAppSslipDomain(
-            projectName,
-            service.name,
-            service.server
-          );
-          hosts = [sslipDomain];
-        } else {
-          hosts = service.proxy.hosts!;
-        }
-
-        for (const host of hosts) {
-          serviceUrls.push({
-            appName: service.name,
-            url: `https://${host}`
-          });
-        }
-      }
-    }
-
-    logger.deploymentComplete(serviceUrls);
+    // Display deployment summary with all services
+    displayDeploymentSummary(deploymentResults, logger);
   } catch (error) {
     logger.deploymentFailed(error);
     process.exit(1);

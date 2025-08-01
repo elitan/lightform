@@ -6,6 +6,7 @@ import {
   buildServiceImageName,
 } from "../utils/image-utils";
 import { processVolumes } from "../utils";
+import { ServiceFingerprint } from "../utils/service-fingerprint";
 
 export interface BlueGreenDeploymentOptions {
   serviceEntry: ServiceEntry; // Now using unified ServiceEntry
@@ -16,6 +17,7 @@ export interface BlueGreenDeploymentOptions {
   dockerClient: DockerClient;
   serverHostname: string;
   verbose?: boolean;
+  fingerprint?: ServiceFingerprint; // Optional fingerprint for container labels
 }
 
 export interface BlueGreenDeploymentResult {
@@ -53,7 +55,8 @@ function createBlueGreenContainerOptions(
   releaseId: string,
   secrets: IopSecrets,
   projectName: string,
-  containerName: string
+  containerName: string,
+  fingerprint?: ServiceFingerprint
 ): DockerContainerOptions {
   const imageNameWithRelease = buildServiceImageName(serviceEntry, releaseId);
   const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
@@ -79,6 +82,18 @@ function createBlueGreenContainerOptions(
       "iop.project": projectName,
       "iop.type": "service",
       "iop.app": serviceEntry.name,
+      // Add fingerprint labels if provided
+      ...(fingerprint ? {
+        "iop.fingerprint-type": fingerprint.type,
+        "iop.config-hash": fingerprint.configHash,
+        "iop.secrets-hash": fingerprint.secretsHash,
+        ...(fingerprint.type === 'built' ? {
+          ...(fingerprint.localImageHash && { "iop.local-image-hash": fingerprint.localImageHash }),
+          ...(fingerprint.serverImageHash && { "iop.server-image-hash": fingerprint.serverImageHash }),
+        } : {
+          ...(fingerprint.imageReference && { "iop.image-reference": fingerprint.imageReference }),
+        }),
+      } : {}),
     },
   };
 }
@@ -243,6 +258,7 @@ export async function performBlueGreenDeployment(
     dockerClient,
     serverHostname,
     verbose = false,
+    fingerprint,
   } = options;
 
   if (verbose) {
@@ -323,7 +339,8 @@ export async function performBlueGreenDeployment(
         releaseId,
         secrets,
         projectName,
-        containerName
+        containerName,
+        fingerprint
       );
 
       if (verbose) {
