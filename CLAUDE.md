@@ -1,4 +1,6 @@
-# iop Project - AI Developer Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 iop is a zero-downtime Docker deployment tool that lets you deploy any Docker app to your own servers with automatic HTTPS and no configuration complexity.
 
@@ -44,7 +46,6 @@ docs/             # Fumadocs documentation site
 **Core Commands** (`src/commands/`):
 
 - **`init.ts`**: Creates `iop.yml` config and `.iop/secrets`
-- **`setup.ts`**: Bootstraps fresh servers, installs Docker, configures security
 - **`deploy.ts`**: Zero-downtime deployment with blue-green strategy
 - **`status.ts`**: Comprehensive status reporting across all servers
 - **`proxy.ts`**: Proxy management (status, updates)
@@ -107,19 +108,19 @@ bun run test:cli    # CLI tests only
 
 ```yaml
 name: my-app
-apps: # User-facing applications
-  web:
-    image: my-app/web
-    servers: [server.com]
+ssh:
+  username: iop
+services: # Unified services model - everything is a service
+  web: # Services with 'proxy' config get zero-downtime deployment
     build: { context: . }
+    server: server.com
     proxy: { app_port: 3000 }
     environment:
       secret: [DATABASE_URL]
-
-services: # Infrastructure services (databases, etc.)
-  postgres:
+  postgres: # Infrastructure services get stop-start deployment
     image: postgres:15
-    servers: [db.com]
+    server: db.com
+    ports: ["5432:5432"]
     environment:
       secret: [POSTGRES_PASSWORD]
 ```
@@ -135,8 +136,8 @@ POSTGRES_PASSWORD=supersecret
 
 1. **Error Handling**: All CLI commands use consistent error reporting with suggestions
 2. **SSH Operations**: All server communication goes through `ssh/` utilities
-3. **State Management**: Proxy maintains authoritative state, CLI queries/updates it
-4. **Blue-Green**: Apps get blue/green deployment, services get direct replacement
+3. **State Management**: Proxy maintains authoritative state, CLI queries/updates via HTTP API
+4. **Unified Services**: Services with `proxy` config get blue-green deployment, others get stop-start
 5. **Security First**: Automatic server hardening, fail2ban, SSH security
 6. **Multi-Server**: All operations work across multiple servers in parallel
 
@@ -187,7 +188,7 @@ POSTGRES_PASSWORD=supersecret
 1. Update relevant package in `packages/proxy/internal/`
 2. Test locally with examples
 3. Publish updated proxy: `cd packages/proxy && ./publish.sh`
-4. Update via CLI: `iop setup --verbose` (auto-pulls latest)
+4. Proxy auto-updates during next deployment - no manual intervention needed
 
 ### Adding Configuration Options
 
@@ -220,12 +221,13 @@ POSTGRES_PASSWORD=supersecret
 ## Key Concepts for AI Development
 
 1. **Registry-Free Deployment**: Images built locally, compressed, transferred via SSH
-2. **Blue-Green Apps vs Direct Services**: Apps get zero-downtime, services get replaced
-3. **Proxy as Source of Truth**: All deployment state lives in the proxy's state file
+2. **Unified Services Model**: Everything is a service - services with `proxy` config get zero-downtime blue-green deployment, others get stop-start
+3. **Proxy as Source of Truth**: All deployment state lives in the proxy's state file (`/var/lib/iop-proxy/state.json`)
 4. **Server Bootstrap**: Fresh servers get automatic Docker install and security hardening
 5. **Auto-SSL with Staging**: Always use Let's Encrypt staging for testing to avoid rate limits
 6. **Network Aliases**: Zero-downtime achieved by switching Docker network aliases
 7. **Multi-Server**: All operations designed to work across multiple servers in parallel
+8. **HTTP API Communication**: Proxy exposes HTTP API on localhost:8080 for CLI communication
 
 ## Debugging and Troubleshooting
 
@@ -234,14 +236,21 @@ POSTGRES_PASSWORD=supersecret
 **Quick Debug Commands**:
 
 ```bash
-# Check proxy status
+# Check proxy status and logs
 ssh iop@157.180.47.213 "docker logs --tail 50 iop-proxy"
 
 # Check deployment status
 ssh iop@157.180.47.213 "docker exec iop-proxy /usr/local/bin/iop-proxy list"
 
+# Enable staging mode for SSL testing (critical)
+ssh iop@157.180.47.213 "docker exec iop-proxy /usr/local/bin/iop-proxy set-staging --enabled true"
+
 # Test connectivity
 curl -k -I https://test.eliasson.me
+
+# HTTP API debugging
+ssh iop@157.180.47.213 "docker exec iop-proxy curl -s localhost:8080/api/hosts"
+ssh iop@157.180.47.213 "docker exec iop-proxy curl -s localhost:8080/api/status"
 ```
 
 **Local Development Setup**:
@@ -272,3 +281,22 @@ The project is feature-complete for V1 with:
 - ❌ Database migrations (application responsibility)
 
 This is a production-ready deployment tool focused on simplicity and reliability over feature bloat.
+
+## Reserved Names and Constraints
+
+- Service names cannot be: `init`, `status`, `proxy` (CLI command names)
+- Services must have either `image` or `build` config, but not both
+- Test server for development: `157.180.47.213` (SSH username: `iop`)
+
+## Command-Line Interface
+
+**Default Command**: `iop` (no arguments) runs deployment
+**Available Commands**: `init`, `deploy`, `status`, `proxy`
+**Global Flags**: `--help`, `--verbose`
+
+## Proxy Publishing and Updates
+
+When modifying proxy code:
+1. `cd packages/proxy && ./publish.sh` - Publishes to Docker Hub as `elitan/iop-proxy:latest`
+2. Proxy auto-updates during next CLI deployment - no manual steps needed
+3. For manual proxy updates: infrastructure setup during deployment pulls latest automatically

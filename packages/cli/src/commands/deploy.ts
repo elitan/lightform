@@ -20,6 +20,8 @@ import {
   createServiceFingerprint,
   shouldRedeploy,
   ServiceFingerprint,
+  enrichFingerprintWithServerInfo,
+  isBuiltService,
 } from "../utils/service-fingerprint";
 import {
   DockerClient,
@@ -92,13 +94,14 @@ function serviceEntryToContainerOptions(
   serviceEntry: ServiceEntry,
   secrets: IopSecrets,
   projectName: string,
-  releaseId?: string
+  releaseId?: string,
+  fingerprint?: ServiceFingerprint
 ): DockerContainerOptions {
   const containerName = `${projectName}-${serviceEntry.name}`; // Project-prefixed names
   const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
   const networkName = getProjectNetworkName(projectName);
-  // Config hash is now handled by service fingerprinting
-  const configHash = ""; // Will be populated by fingerprint logic
+  // Get config hash from fingerprint if available
+  const configHash = fingerprint?.configHash || "";
 
   // Determine the correct image name based on whether the service needs building
   let imageName: string;
@@ -125,7 +128,18 @@ function serviceEntryToContainerOptions(
       "iop.project": projectName,
       "iop.type": "service",
       "iop.service": serviceEntry.name,
-      "iop.config-hash": configHash, // Docker Compose style config tracking
+      "iop.config-hash": configHash,
+      // Add fingerprint labels
+      ...(fingerprint ? {
+        "iop.fingerprint-type": fingerprint.type,
+        "iop.secrets-hash": fingerprint.secretsHash,
+        ...(fingerprint.type === 'built' ? {
+          "iop.local-image-hash": fingerprint.localImageHash || '',
+          "iop.server-image-hash": fingerprint.serverImageHash || '',
+        } : {
+          "iop.image-reference": fingerprint.imageReference || '',
+        })
+      } : {})
     },
   };
 }
@@ -957,8 +971,11 @@ async function deployServicesToServer(
     );
 
     // Deploy each service with appropriate strategy
-    for (const service of services) {
-      await deployServiceWithStrategy(service, context, dockerClient, sshClient, serverHostname);
+    for (let i = 0; i < services.length; i++) {
+      const service = services[i];
+      const isLastService = i === services.length - 1;
+      
+      await deployServiceWithStrategy(service, context, dockerClient, sshClient, serverHostname, isLastService);
     }
 
   } finally {
@@ -976,20 +993,30 @@ async function deployServiceWithStrategy(
   context: DeploymentContext,
   dockerClient: DockerClient,
   sshClient: SSHClient,
-  serverHostname: string
+  serverHostname: string,
+  isLastService: boolean = false
 ): Promise<void> {
   // Check if service needs redeployment using enhanced fingerprinting
   const currentFingerprint = await getCurrentServiceFingerprint(service, dockerClient, context);
-  const desiredFingerprint = context.serviceFingerprints?.get(service.name);
+  let desiredFingerprint = context.serviceFingerprints?.get(service.name);
   
   if (!desiredFingerprint) {
     throw new Error(`No fingerprint found for service ${service.name}`);
   }
+  
+  // Enrich desired fingerprint with server information for better comparison
+  desiredFingerprint = await enrichFingerprintWithServerInfo(
+    desiredFingerprint,
+    service.name,
+    context.projectName,
+    sshClient
+  );
 
   const redeployDecision = shouldRedeploy(currentFingerprint, desiredFingerprint);
   
   if (!redeployDecision.shouldRedeploy) {
     logger.verboseLog(`✓ Service ${service.name} is up-to-date (${redeployDecision.reason})`);
+    logger.serviceDeploymentSkipped(service.name, "up-to-date, skipped", isLastService);
     return;
   }
 
@@ -997,12 +1024,16 @@ async function deployServiceWithStrategy(
     `↻ Service ${service.name} needs deployment: ${redeployDecision.reason} (${redeployDecision.priority})`
   );
 
+  // Start service deployment logging
+  const strategy = getDeploymentStrategy(service);
+  const strategyText = strategy === 'zero-downtime' ? 'zero-downtime deployment' : 'stop-start deployment';
+  const deploymentStartTime = Date.now();
+  logger.serviceDeploymentStep(service.name, strategyText, isLastService);
+
   // Ensure image is available
   await ensureServiceImageAvailable(service, context, dockerClient, sshClient);
 
   // Choose deployment strategy
-  const strategy = getDeploymentStrategy(service);
-  
   if (strategy === 'zero-downtime') {
     await deployServiceWithZeroDowntime(service, context, dockerClient, serverHostname);
   } else {
@@ -1014,6 +1045,10 @@ async function deployServiceWithStrategy(
     await configureProxyForService(service, dockerClient, serverHostname, context);
   }
 
+  // Complete service deployment logging
+  const deploymentDuration = Date.now() - deploymentStartTime;
+  logger.serviceDeploymentComplete(service.name, strategyText, deploymentDuration, isLastService);
+  
   logger.verboseLog(`✓ Service ${service.name} deployed successfully to ${serverHostname}`);
 }
 
@@ -1029,6 +1064,7 @@ async function deployServiceWithZeroDowntime(
   logger.verboseLog(`🚀 Deploying ${service.name} with zero-downtime strategy`);
 
   // Use the existing blue-green deployment logic
+  const fingerprint = context.serviceFingerprints?.get(service.name);
   const deploymentResult = await performBlueGreenDeployment({
     serviceEntry: service, // Updated to match BlueGreenDeploymentOptions interface
     releaseId: context.releaseId,
@@ -1038,6 +1074,7 @@ async function deployServiceWithZeroDowntime(
     dockerClient,
     serverHostname,
     verbose: context.verboseFlag,
+    fingerprint,
   });
 
   if (!deploymentResult.success) {
@@ -1069,11 +1106,13 @@ async function deployServiceWithStopStart(
   }
 
   // Create new container with updated configuration
+  const fingerprint = context.serviceFingerprints?.get(service.name);
   const containerOptions = serviceEntryToContainerOptions(
     service,
     context.secrets,
     context.projectName,
-    context.releaseId
+    context.releaseId,
+    fingerprint
   );
 
   const success = await dockerClient.createContainer(containerOptions);
@@ -1127,17 +1166,26 @@ async function getCurrentServiceFingerprint(
 
     // Extract fingerprint from container labels
     const labels = containerConfig.Config?.Labels || {};
+    const type = labels['iop.fingerprint-type'] as 'built' | 'external';
     const configHash = labels['iop.config-hash'] || '';
-    const environmentHash = labels['iop.environment-hash'] || '';
     const secretsHash = labels['iop.secrets-hash'] || '';
-    const buildContextHash = labels['iop.build-context-hash'];
-
-    return {
-      configHash,
-      environmentHash,
-      secretsHash,
-      buildContextHash,
-    };
+    
+    if (type === 'built') {
+      return {
+        type: 'built',
+        configHash,
+        secretsHash,
+        localImageHash: labels['iop.local-image-hash'],
+        serverImageHash: labels['iop.server-image-hash'],
+      };
+    } else {
+      return {
+        type: 'external',
+        configHash,
+        secretsHash,
+        imageReference: labels['iop.image-reference'],
+      };
+    }
   } catch (error) {
     // If we can't get current fingerprint, assume first deployment
     return null;
@@ -1613,11 +1661,13 @@ export async function serviceNeedsUpdate(
     }
 
     // Build desired configuration
+    const fingerprint = context.serviceFingerprints?.get(serviceEntry.name);
     const desiredConfig = serviceEntryToContainerOptions(
       serviceEntry,
       context.secrets,
       context.projectName,
-      context.releaseId
+      context.releaseId,
+      fingerprint
     );
 
     // Check for changes
@@ -1665,11 +1715,13 @@ async function replaceServiceContainer(
     );
   }
 
+  const fingerprint = context.serviceFingerprints?.get(serviceEntry.name);
   const serviceContainerOptions = serviceEntryToContainerOptions(
     serviceEntry,
     context.secrets,
     context.projectName,
-    context.releaseId
+    context.releaseId,
+    fingerprint
   );
 
   logger.verboseLog(
@@ -2317,7 +2369,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     // Generate service fingerprints for smart redeployment
     const serviceFingerprints = new Map<string, ServiceFingerprint>();
     for (const service of targetServices) {
-      const fingerprint = await createServiceFingerprint(service, secrets);
+      const fingerprint = await createServiceFingerprint(service, secrets, config.name);
       serviceFingerprints.set(service.name, fingerprint);
     }
 
