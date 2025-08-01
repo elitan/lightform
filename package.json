@@ -20,9 +20,10 @@
     "test:cli": "cd packages/cli && bun test",
     "start:cli": "cd packages/cli && bun run start",
     "publish:cli": "cd packages/cli && bun publish --access public",
-    "release:patch": "cd packages/cli && npm version patch && git push origin main --tags && bun publish --access public",
-    "release:minor": "cd packages/cli && npm version minor && git push origin main --tags && bun publish --access public",
-    "release:major": "cd packages/cli && npm version major && git push origin main --tags && bun publish --access public"
+    "release": "./scripts/release.sh patch",
+    "release:patch": "./scripts/release.sh patch",
+    "release:minor": "./scripts/release.sh minor",
+    "release:major": "./scripts/release.sh major"
   },
   "devDependencies": {
     "@types/bun": "latest",

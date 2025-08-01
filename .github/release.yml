@@ -1,0 +1,55 @@
+# GitHub Release Configuration
+# Automatically generate release notes with categorized PRs
+# https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+
+changelog:
+  exclude:
+    labels:
+      - chore
+      - dependencies
+      - ignore-for-release
+    authors:
+      - dependabot
+      - github-actions
+  categories:
+    - title: 🚨 Breaking Changes
+      labels:
+        - breaking-change
+        - breaking
+        - major
+    - title: 🚀 New Features
+      labels:
+        - feature
+        - enhancement
+        - new-feature
+    - title: 🐛 Bug Fixes
+      labels:
+        - bug
+        - bugfix
+        - fix
+    - title: 📚 Documentation
+      labels:
+        - documentation
+        - docs
+    - title: 🧹 Maintenance
+      labels:
+        - maintenance
+        - refactor
+        - cleanup
+    - title: 🔧 Infrastructure
+      labels:
+        - infrastructure
+        - ci
+        - build
+        - deployment
+    - title: ⚡ Performance
+      labels:
+        - performance
+        - optimization
+    - title: 🔒 Security
+      labels:
+        - security
+        - vulnerability
+    - title: Other Changes
+      labels:
+        - "*"
