@@ -1,24 +1,22 @@
 import * as crypto from 'crypto';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { ServiceEntry, IopSecrets } from '../config/types';
-// Note: Using glob functionality from @types/glob 
-// If glob is not available, we'll use a simpler approach
+import { SSHClient } from '../ssh';
+
+const execAsync = promisify(exec);
 
 export interface ServiceFingerprint {
-  // Core configuration
+  type: 'built' | 'external';
   configHash: string;
-  
-  // Build context (for built services)
-  buildContextHash?: string;
-  dockerfileHash?: string;
-  
-  // Image tracking (for pre-built services)
-  imageDigest?: string;
-  
-  // Runtime configuration
   secretsHash: string;
-  environmentHash: string;
+  
+  // For built services
+  localImageHash?: string;
+  serverImageHash?: string;
+  
+  // For external services  
+  imageReference?: string;
 }
 
 export interface RedeploymentDecision {
@@ -37,6 +35,7 @@ export function createServiceConfigHash(serviceEntry: ServiceEntry): string {
     volumes: serviceEntry.volumes?.sort() || [],
     command: serviceEntry.command,
     replicas: serviceEntry.replicas || 1,
+    restart: (serviceEntry as any).restart,
     proxy: serviceEntry.proxy ? {
       hosts: serviceEntry.proxy.hosts?.sort() || [],
       app_port: serviceEntry.proxy.app_port,
@@ -53,54 +52,16 @@ export function createServiceConfigHash(serviceEntry: ServiceEntry): string {
       platform: serviceEntry.build.platform,
       args: serviceEntry.build.args?.sort() || [],
     } : undefined,
+    // Include environment in config hash for simplicity
+    environment: {
+      plain: serviceEntry.environment?.plain?.sort() || [],
+      secret: serviceEntry.environment?.secret?.sort() || [],
+    },
   };
   
   return crypto
     .createHash('sha256')
     .update(JSON.stringify(configForHash))
-    .digest('hex')
-    .substring(0, 12);
-}
-
-/**
- * Creates environment hash from resolved environment variables
- */
-export function createEnvironmentHash(
-  serviceEntry: ServiceEntry,
-  secrets: IopSecrets
-): string {
-  const envVars: Record<string, string> = {};
-  
-  // Add plain environment variables
-  if (serviceEntry.environment?.plain) {
-    for (const envVar of serviceEntry.environment.plain) {
-      const [key, ...valueParts] = envVar.split('=');
-      if (key && valueParts.length > 0) {
-        envVars[key] = valueParts.join('=');
-      }
-    }
-  }
-  
-  // Add secret environment variables
-  if (serviceEntry.environment?.secret) {
-    for (const secretKey of serviceEntry.environment.secret) {
-      if (secrets[secretKey] !== undefined) {
-        envVars[secretKey] = secrets[secretKey];
-      }
-    }
-  }
-  
-  // Sort keys for consistent hashing
-  const sortedEnvVars = Object.keys(envVars)
-    .sort()
-    .reduce((result: Record<string, string>, key: string) => {
-      result[key] = envVars[key];
-      return result;
-    }, {} as Record<string, string>);
-  
-  return crypto
-    .createHash('sha256')
-    .update(JSON.stringify(sortedEnvVars))
     .digest('hex')
     .substring(0, 12);
 }
@@ -125,128 +86,73 @@ export function createSecretsHash(
 }
 
 /**
- * Reads and parses .dockerignore file
+ * Gets the Docker image hash for a locally built image
  */
-async function parseDockerignore(buildContext: string): Promise<string[]> {
+export async function getLocalImageHash(imageName: string): Promise<string | null> {
   try {
-    const dockerignorePath = path.join(buildContext, '.dockerignore');
-    const content = await fs.readFile(dockerignorePath, 'utf8');
-    return content
-      .split('\\n')
-      .map(line => line.trim())
-      .filter(line => line && !line.startsWith('#'));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Calculates build context hash for services that need building
- */
-export async function calculateBuildContextHash(
-  serviceEntry: ServiceEntry
-): Promise<string | undefined> {
-  if (!serviceEntry.build) return undefined;
-  
-  const buildContext = serviceEntry.build.context;
-  const dockerfile = serviceEntry.build.dockerfile || 'Dockerfile';
-  
-  try {
-    const hash = crypto.createHash('sha256');
-    
-    // Hash Dockerfile content
-    const dockerfilePath = path.join(buildContext, dockerfile);
-    try {
-      const dockerfileContent = await fs.readFile(dockerfilePath, 'utf8');
-      hash.update(`dockerfile:${dockerfileContent}`);
-    } catch (error) {
-      // If Dockerfile doesn't exist, still create a hash but mark it as missing
-      hash.update(`dockerfile:MISSING`);
-    }
-    
-    // Get .dockerignore patterns
-    const ignorePatterns = await parseDockerignore(buildContext);
-    
-    // Simple file walking without glob dependency
-    // For now, just hash the Dockerfile and a few key files
-    const files: string[] = [];
-    
-    // Add some common files that affect builds
-    const commonFiles = [
-      'package.json',
-      'package-lock.json', 
-      'yarn.lock',
-      'bun.lockb',
-      'requirements.txt',
-      'Cargo.toml',
-      'go.mod',
-      'pom.xml'
-    ];
-    
-    for (const file of commonFiles) {
-      try {
-        const filePath = path.join(buildContext, file);
-        await fs.access(filePath);
-        files.push(file);
-      } catch {
-        // File doesn't exist, skip it
-      }
-    }
-    
-    // Files are already sorted
-    const sortedFiles = files.sort();
-    
-    // Hash file paths and contents (but limit file count for performance)
-    const maxFiles = 100; // Limit to avoid performance issues
-    const filesToHash = sortedFiles.slice(0, maxFiles);
-    
-    for (const file of filesToHash) {
-      const filePath = path.join(buildContext, file);
-      try {
-        const stats = await fs.stat(filePath);
-        if (stats.isFile() && stats.size < 1024 * 1024) { // Only hash files < 1MB
-          const content = await fs.readFile(filePath);
-          hash.update(`${file}:${content.toString()}`);
-        } else {
-          // For large files, just hash the path and mtime
-          hash.update(`${file}:${stats.mtime.getTime()}`);
-        }
-      } catch {
-        // Skip files that can't be read
-        hash.update(`${file}:UNREADABLE`);
-      }
-    }
-    
-    return hash.digest('hex').substring(0, 12);
+    const result = await execAsync(`docker image ls --format "{{.ID}}" ${imageName}:latest`);
+    const imageId = result.stdout.trim();
+    return imageId || null;
   } catch (error) {
-    // If we can't calculate build context hash, return undefined
-    // This will cause the service to be redeployed (safe fallback)
-    return undefined;
+    return null; // Image doesn't exist locally
   }
 }
 
 /**
- * Creates a complete service fingerprint
+ * Gets the Docker image hash for a service running on a server
+ */
+export async function getServerImageHash(
+  serviceName: string, 
+  projectName: string,
+  sshClient: SSHClient
+): Promise<string | null> {
+  try {
+    const containerName = `${projectName}-${serviceName}`;
+    const result = await sshClient.exec(`docker inspect ${containerName} --format='{{.Image}}'`);
+    return result.trim() || null;
+  } catch (error) {
+    return null; // Container doesn't exist or error
+  }
+}
+
+/**
+ * Determines if a service is built locally or uses external image
+ */
+export function isBuiltService(serviceEntry: ServiceEntry): boolean {
+  return !!serviceEntry.build;
+}
+
+/**
+ * Creates a service fingerprint based on service type
  */
 export async function createServiceFingerprint(
   serviceEntry: ServiceEntry,
-  secrets: IopSecrets
+  secrets: IopSecrets,
+  projectName?: string
 ): Promise<ServiceFingerprint> {
   const configHash = createServiceConfigHash(serviceEntry);
-  const environmentHash = createEnvironmentHash(serviceEntry, secrets);
   const secretsHash = createSecretsHash(serviceEntry, secrets);
   
-  let buildContextHash: string | undefined;
-  if (serviceEntry.build) {
-    buildContextHash = await calculateBuildContextHash(serviceEntry);
+  if (isBuiltService(serviceEntry)) {
+    // Built service - get local image hash
+    const imageName = projectName ? `${projectName}-${serviceEntry.name}` : serviceEntry.name;
+    const localImageHash = await getLocalImageHash(imageName);
+    
+    return {
+      type: 'built',
+      configHash,
+      secretsHash,
+      localImageHash: localImageHash || undefined,
+    };
+  } else {
+    // External service - just track image reference and config
+    return {
+      type: 'external',
+      configHash,
+      secretsHash,
+      imageReference: serviceEntry.image,
+    };
   }
-  
-  return {
-    configHash,
-    buildContextHash,
-    environmentHash,
-    secretsHash,
-  };
 }
 
 /**
@@ -260,59 +166,83 @@ export function shouldRedeploy(
   if (!current) {
     return {
       shouldRedeploy: true,
-      reason: 'First deployment',
+      reason: 'first deployment',
       priority: 'normal'
     };
   }
   
-  // Critical: Configuration changes
+  // Configuration changes (includes environment variables)
   if (current.configHash !== desired.configHash) {
     return {
       shouldRedeploy: true,
-      reason: 'Service configuration changed',
+      reason: 'configuration changed',
       priority: 'critical'
     };
   }
   
-  // Critical: Secrets structure changed
+  // Secrets structure changed
   if (current.secretsHash !== desired.secretsHash) {
     return {
       shouldRedeploy: true,
-      reason: 'Secrets configuration changed',
+      reason: 'secrets changed',
       priority: 'critical'
     };
   }
   
-  // Normal: Environment variables changed
-  if (current.environmentHash !== desired.environmentHash) {
-    return {
-      shouldRedeploy: true,
-      reason: 'Environment variables changed',
-      priority: 'normal'
-    };
+  // For built services, check image hash
+  if (desired.type === 'built') {
+    if (current.localImageHash !== desired.localImageHash) {
+      return {
+        shouldRedeploy: true,
+        reason: 'image updated',
+        priority: 'normal'
+      };
+    }
+    
+    // Also check if server has different image
+    if (desired.serverImageHash && current.serverImageHash !== desired.serverImageHash) {
+      return {
+        shouldRedeploy: true,
+        reason: 'server image differs',
+        priority: 'normal'
+      };
+    }
   }
   
-  // Normal: Build context changed (for built services)
-  if (desired.buildContextHash && current.buildContextHash !== desired.buildContextHash) {
-    return {
-      shouldRedeploy: true,
-      reason: 'Code changes detected in build context',
-      priority: 'normal'
-    };
-  }
-  
-  // Normal: Image digest changed (for pre-built services)
-  if (desired.imageDigest && current.imageDigest !== desired.imageDigest) {
-    return {
-      shouldRedeploy: true,
-      reason: 'New image version available',
-      priority: 'normal'
-    };
+  // For external services, check image reference
+  if (desired.type === 'external') {
+    if (current.imageReference !== desired.imageReference) {
+      return {
+        shouldRedeploy: true,
+        reason: 'image version updated',
+        priority: 'normal'
+      };
+    }
   }
   
   return {
     shouldRedeploy: false,
-    reason: 'No changes detected',
+    reason: 'up-to-date, skipped',
     priority: 'optional'
   };
+}
+
+/**
+ * Enriches a fingerprint with server-side information
+ */
+export async function enrichFingerprintWithServerInfo(
+  fingerprint: ServiceFingerprint,
+  serviceName: string,
+  projectName: string,
+  sshClient: SSHClient
+): Promise<ServiceFingerprint> {
+  if (fingerprint.type === 'built') {
+    const serverImageHash = await getServerImageHash(serviceName, projectName, sshClient);
+    return {
+      ...fingerprint,
+      serverImageHash: serverImageHash || undefined,
+    };
+  }
+  
+  return fingerprint;
 }

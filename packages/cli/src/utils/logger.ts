@@ -131,6 +131,28 @@ export class Logger {
     this.currentOutputLine++;
   }
 
+  // Service deployment progress logging
+  serviceDeploymentStep(serviceName: string, message: string, isLast: boolean = false) {
+    this.clearSpinner();
+    const symbol = isLast ? "└─" : "├─";
+    this.startSpinnerAtPosition(`  ${symbol} `, `${serviceName} → ${message}`, 2);
+  }
+
+  serviceDeploymentComplete(serviceName: string, message: string, duration?: number, isLast: boolean = false) {
+    this.clearSpinner();
+    const symbol = isLast ? "└─" : "├─";
+    const elapsed = duration || Date.now() - this.stepStartTime;
+    console.log(`  ${symbol} [✓] ${serviceName} → ${message} (${this.formatDuration(elapsed)})`);
+    this.currentOutputLine++;
+  }
+
+  serviceDeploymentSkipped(serviceName: string, reason: string, isLast: boolean = false) {
+    this.clearSpinner();
+    const symbol = isLast ? "└─" : "├─";
+    console.log(`  ${symbol} [✓] ${serviceName} → ${reason}`);
+    this.currentOutputLine++;
+  }
+
   // Build steps that work within a phase
   buildStep(message: string, isLast: boolean = false) {
     // Don't clear the main spinner, just pause it and show the step
