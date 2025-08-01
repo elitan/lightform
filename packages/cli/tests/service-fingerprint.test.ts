@@ -23,8 +23,8 @@ describe('service-fingerprint', () => {
         proxy: { app_port: 3000 }
       };
 
-      const hash1 = createServiceConfigHash(service);
-      const hash2 = createServiceConfigHash(service);
+      const hash1 = createServiceConfigHash(service, {});
+      const hash2 = createServiceConfigHash(service, {});
       
       expect(hash1).toBe(hash2);
       expect(hash1.length).toBe(12); // Should be truncated to 12 chars
@@ -43,8 +43,8 @@ describe('service-fingerprint', () => {
         image: 'nginx:1.22' // Different image version
       };
 
-      const hash1 = createServiceConfigHash(service1);
-      const hash2 = createServiceConfigHash(service2);
+      const hash1 = createServiceConfigHash(service1, {});
+      const hash2 = createServiceConfigHash(service2, {});
       
       expect(hash1).not.toBe(hash2);
     });
@@ -66,8 +66,8 @@ describe('service-fingerprint', () => {
         volumes: ['/logs:/app/logs', '/data:/app/data'] // Different order
       };
 
-      const hash1 = createServiceConfigHash(service1);
-      const hash2 = createServiceConfigHash(service2);
+      const hash1 = createServiceConfigHash(service1, {});
+      const hash2 = createServiceConfigHash(service2, {});
       
       expect(hash1).toBe(hash2); // Should be same despite different order
     });
@@ -93,10 +93,29 @@ describe('service-fingerprint', () => {
         }
       };
 
-      const hash1 = createServiceConfigHash(service1);
-      const hash2 = createServiceConfigHash(service2);
+      const hash1 = createServiceConfigHash(service1, {});
+      const hash2 = createServiceConfigHash(service2, {});
       
       expect(hash1).not.toBe(hash2);
+    });
+
+    it('should include secret values in config hash', () => {
+      const service: ServiceEntry = {
+        name: 'web',
+        server: 'example.com',
+        image: 'myapp',
+        environment: {
+          secret: ['DATABASE_URL']
+        }
+      };
+
+      const secrets1 = { DATABASE_URL: 'postgres://old-server/db' };
+      const secrets2 = { DATABASE_URL: 'postgres://new-server/db' };
+
+      const hash1 = createServiceConfigHash(service, secrets1);
+      const hash2 = createServiceConfigHash(service, secrets2);
+      
+      expect(hash1).not.toBe(hash2); // Should differ when secret values change
     });
   });
 

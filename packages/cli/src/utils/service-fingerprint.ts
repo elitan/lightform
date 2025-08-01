@@ -28,7 +28,7 @@ export interface RedeploymentDecision {
 /**
  * Creates a configuration hash for a service entry
  */
-export function createServiceConfigHash(serviceEntry: ServiceEntry): string {
+export function createServiceConfigHash(serviceEntry: ServiceEntry, secrets?: IopSecrets): string {
   const configForHash = {
     image: serviceEntry.image,
     ports: serviceEntry.ports?.sort() || [],
@@ -52,10 +52,18 @@ export function createServiceConfigHash(serviceEntry: ServiceEntry): string {
       platform: serviceEntry.build.platform,
       args: serviceEntry.build.args?.sort() || [],
     } : undefined,
-    // Include environment in config hash for simplicity
+    // Include environment in config hash with actual secret values
     environment: {
       plain: serviceEntry.environment?.plain?.sort() || [],
       secret: serviceEntry.environment?.secret?.sort() || [],
+      // Include resolved secret values for change detection
+      secretValues: secrets ? 
+        serviceEntry.environment?.secret?.reduce((acc, key) => {
+          if (secrets[key] !== undefined) {
+            acc[key] = secrets[key];
+          }
+          return acc;
+        }, {} as Record<string, string>) || {} : {},
     },
   };
   
@@ -130,7 +138,7 @@ export async function createServiceFingerprint(
   secrets: IopSecrets,
   projectName?: string
 ): Promise<ServiceFingerprint> {
-  const configHash = createServiceConfigHash(serviceEntry);
+  const configHash = createServiceConfigHash(serviceEntry, secrets);
   const secretsHash = createSecretsHash(serviceEntry, secrets);
   
   if (isBuiltService(serviceEntry)) {
@@ -189,8 +197,27 @@ export function shouldRedeploy(
     };
   }
   
-  // For built services, check image hash
+  // For built services, check BOTH config/secrets AND image hash
   if (desired.type === 'built') {
+    // First check config changes (same priority as external services)
+    if (current.configHash !== desired.configHash) {
+      return {
+        shouldRedeploy: true,
+        reason: 'configuration changed',
+        priority: 'critical'
+      };
+    }
+    
+    // Check secrets structure/availability changed
+    if (current.secretsHash !== desired.secretsHash) {
+      return {
+        shouldRedeploy: true,
+        reason: 'secrets changed',
+        priority: 'critical'
+      };
+    }
+    
+    // Then check image hash (code changes)
     if (current.localImageHash !== desired.localImageHash) {
       return {
         shouldRedeploy: true,
