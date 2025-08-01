@@ -300,3 +300,7 @@ When modifying proxy code:
 1. `cd packages/proxy && ./publish.sh` - Publishes to Docker Hub as `elitan/iop-proxy:latest`
 2. Proxy auto-updates during next CLI deployment - no manual steps needed
 3. For manual proxy updates: infrastructure setup during deployment pulls latest automatically
+
+## Memories
+
+- When we want to release, the info is in @RELEASE.md 
