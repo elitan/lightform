@@ -43,25 +43,10 @@ export interface DeploymentSummary {
 }
 
 /**
- * Display comprehensive deployment summary showing all services
+ * Display URLs for services with proxy configuration
  */
-function displayDeploymentSummary(results: ServiceDeploymentResult[], logger: Logger): void {
-  
-  const deployed = results.filter(r => r.status === 'deployed');
-  const skipped = results.filter(r => r.status === 'skipped');
+function displayServiceUrls(results: ServiceDeploymentResult[]): void {
   const withUrls = results.filter(r => r.url);
-  
-  // Show deployment summary using consistent formatting
-  console.log(`[✓] Deployment summary`);
-  
-  // Show all services with their status
-  results.forEach((result, index) => {
-    const isLast = index === results.length - 1;
-    const symbol = isLast ? "└─" : "├─";
-    const statusIcon = result.status === 'deployed' ? '✓' : '↻';
-    const statusText = result.status === 'deployed' ? 'deployed' : 'skipped';
-    console.log(`  ${symbol} [${statusIcon}] ${result.serviceName} (${statusText}: ${result.reason})`);
-  });
   
   // Show URLs for services with proxy configuration
   if (withUrls.length > 0) {
@@ -720,6 +705,9 @@ async function deployServices(context: DeploymentContext): Promise<ServiceDeploy
   }
 
   logger.phaseEnd("Deploying services");
+  
+  // Show URLs immediately after deployment
+  displayServiceUrls(allResults);
   
   return allResults;
 }
@@ -2535,9 +2523,6 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
     };
 
     const deploymentResults = await deployServices(context);
-
-    // Display deployment summary with all services
-    displayDeploymentSummary(deploymentResults, logger);
   } catch (error) {
     logger.deploymentFailed(error);
     process.exit(1);
