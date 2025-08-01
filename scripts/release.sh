@@ -70,7 +70,8 @@ git pull origin main
 
 # Bump version
 echo -e "${YELLOW}Bumping ${VERSION_TYPE} version...${NC}"
-NEW_VERSION=$(npm version $VERSION_TYPE --no-git-tag-version | sed 's/^v//')
+npm version $VERSION_TYPE --no-git-tag-version --silent > /dev/null
+NEW_VERSION=$(node -p "require('./package.json').version")
 echo -e "${GREEN}New version: ${NEW_VERSION}${NC}"
 
 # Build the package
