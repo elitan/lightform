@@ -150,12 +150,6 @@ export const ServiceEntrySchema = z.object({
 });
 export type ServiceEntry = z.infer<typeof ServiceEntrySchema>;
 
-// Legacy types for backward compatibility (will be removed)
-export type AppEntry = ServiceEntry;
-export type AppEntryWithoutName = ServiceEntryWithoutName;
-export const AppEntrySchema = ServiceEntrySchema;
-export const AppEntryWithoutNameSchema = ServiceEntryWithoutNameSchema;
-export type AppProxyConfig = ProxyConfig;
 
 // Zod schema for IopConfig - unified services model
 export const IopConfigSchema = z.object({
@@ -163,13 +157,6 @@ export const IopConfigSchema = z.object({
   services: z
     .union([
       z.record(ServiceEntryWithoutNameSchema), // Object format where keys are service names
-      z.array(ServiceEntrySchema), // Array format with explicit name field
-    ])
-    .optional(),
-  // Legacy support - will be merged into services
-  apps: z
-    .union([
-      z.record(ServiceEntryWithoutNameSchema), // Object format where keys are app names
       z.array(ServiceEntrySchema), // Array format with explicit name field
     ])
     .optional(),

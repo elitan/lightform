@@ -1,4 +1,4 @@
-import { IopConfig, AppEntry, ServiceEntry } from "../config/types";
+import { IopConfig, ServiceEntry } from "../config/types";
 import { parsePortMappings } from "./port-checker";
 
 export interface ConfigValidationError {
@@ -177,22 +177,10 @@ export class ConfigValidator {
   }
 
   /**
-   * Gets all entries (apps and services) from the configuration
+   * Gets all entries from the services configuration
    */
-  private getAllEntries(): Array<AppEntry | ServiceEntry> {
-    const entries: Array<AppEntry | ServiceEntry> = [];
-
-    // Add apps
-    if (this.config.apps) {
-      if (Array.isArray(this.config.apps)) {
-        entries.push(...this.config.apps);
-      } else {
-        // Convert object format to array
-        for (const [name, app] of Object.entries(this.config.apps)) {
-          entries.push({ ...app, name });
-        }
-      }
-    }
+  private getAllEntries(): Array<ServiceEntry> {
+    const entries: Array<ServiceEntry> = [];
 
     // Add services
     if (this.config.services) {

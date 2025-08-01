@@ -1,7 +1,6 @@
 import { loadConfig, loadSecrets } from "../config";
 import {
   IopConfig,
-  AppEntry,
   ServiceEntry,
   IopSecrets,
 } from "../config/types";
@@ -234,7 +233,7 @@ async function establishSSHConnection(
  * Gets container information for any entry (app or service) on a specific server
  */
 async function getEntryContainersOnServer(
-  entry: AppEntry | ServiceEntry,
+  entry: ServiceEntry,
   entryType: "app" | "service",
   dockerClient: DockerClient,
   projectName: string
@@ -293,15 +292,13 @@ async function getProxyStatusSummary(
 ): Promise<ProxyStatusSummary> {
   const proxyStatuses: ProxyStatus[] = [];
 
-  // Get unique servers from all apps and services
+  // Get unique servers from all services
   const allServers = new Set<string>();
 
-  const apps = normalizeConfigEntries(context.config.apps) as AppEntry[];
   const services = normalizeConfigEntries(
     context.config.services
   ) as ServiceEntry[];
 
-  apps.forEach((app) => allServers.add(app.server));
   services.forEach((service) => allServers.add(service.server));
 
   if (allServers.size === 0) {
@@ -356,7 +353,7 @@ async function getProxyStatusSummary(
  * Gets status information for any entry (app or service) on a specific server
  */
 async function getEntryStatusOnServer(
-  entry: AppEntry | ServiceEntry,
+  entry: ServiceEntry,
   entryType: "app" | "service",
   serverHostname: string,
   context: StatusContext
@@ -415,7 +412,7 @@ async function getEntryStatusOnServer(
  * Aggregates server statuses to determine overall entry status
  */
 function aggregateEntryStatus(
-  entry: AppEntry | ServiceEntry,
+  entry: ServiceEntry,
   entryType: "app" | "service",
   serverStatuses: ServerEntryStatus[]
 ): {
@@ -534,7 +531,7 @@ function aggregateEntryStatus(
  * Gets comprehensive status for any entry (app or service) across all its servers
  */
 async function getEntryStatus(
-  entry: AppEntry | ServiceEntry,
+  entry: ServiceEntry,
   entryType: "app" | "service",
   context: StatusContext
 ): Promise<EntryStatus> {
@@ -686,10 +683,10 @@ function displayEntryStatus(entryStatus: EntryStatus): void {
  */
 function filterEntriesByNames(
   entryNames: string[],
-  apps: AppEntry[],
+  apps: ServiceEntry[],
   services: ServiceEntry[]
 ): {
-  filteredApps: AppEntry[];
+  filteredApps: ServiceEntry[];
   filteredServices: ServiceEntry[];
 } {
   if (entryNames.length === 0) {
@@ -709,7 +706,7 @@ function filterEntriesByNames(
  */
 function validateRequestedEntries(
   entryNames: string[],
-  filteredApps: AppEntry[],
+  filteredApps: ServiceEntry[],
   filteredServices: ServiceEntry[]
 ): boolean {
   if (
@@ -732,14 +729,13 @@ async function checkAndDisplayStatus(
   parsedArgs: ParsedStatusArgs,
   context: StatusContext
 ): Promise<void> {
-  const apps = normalizeConfigEntries(context.config.apps) as AppEntry[];
   const services = normalizeConfigEntries(
     context.config.services
   ) as ServiceEntry[];
 
   const { filteredApps, filteredServices } = filterEntriesByNames(
     parsedArgs.entryNames,
-    apps,
+    [],
     services
   );
 
@@ -753,15 +749,14 @@ async function checkAndDisplayStatus(
     return;
   }
 
-  // Check if no apps or services are configured
-  if (apps.length === 0 && services.length === 0) {
-    logger.info("No apps or services configured.");
+  // Check if no services are configured
+  if (services.length === 0) {
+    logger.info("No services configured.");
     return;
   }
 
-  // Collect app statuses, service statuses, and proxy status in parallel
-  const [appStatuses, serviceStatuses, proxyStatusSummary] = await Promise.all([
-    Promise.all(filteredApps.map((app) => getEntryStatus(app, "app", context))),
+  // Collect service statuses and proxy status in parallel
+  const [serviceStatuses, proxyStatusSummary] = await Promise.all([
     Promise.all(
       filteredServices.map((service) =>
         getEntryStatus(service, "service", context)
@@ -781,7 +776,6 @@ async function checkAndDisplayStatus(
   }
 
   // Now display the collected results
-  displayCollectedEntryStatuses(filteredApps, appStatuses, "Apps");
   displayCollectedEntryStatuses(filteredServices, serviceStatuses, "Services");
   displayProxyStatus(proxyStatusSummary);
 }
@@ -790,7 +784,7 @@ async function checkAndDisplayStatus(
  * Displays status for entries using pre-collected status data
  */
 function displayCollectedEntryStatuses(
-  entries: (AppEntry | ServiceEntry)[],
+  entries: (ServiceEntry)[],
   entryStatuses: EntryStatus[],
   sectionTitle: string
 ): void {

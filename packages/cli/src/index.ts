@@ -28,7 +28,7 @@ function showMainHelp(): void {
   console.log("EXAMPLES:");
   console.log("  iop init                    # Initialize new project");
   console.log(
-    "  iop                         # Deploy all apps and services"
+    "  iop                         # Deploy all services"
   );
   console.log(
     "  iop --verbose               # Deploy with detailed output"
@@ -39,10 +39,10 @@ function showMainHelp(): void {
   console.log("GETTING STARTED:");
   console.log("  1. iop init                 # Create config files");
   console.log(
-    "  2. Edit iop.yml             # Configure your apps and servers"
+    "  2. Edit iop.yml             # Configure your services and servers"
   );
   console.log(
-    "  3. iop                      # Deploy your apps and services"
+    "  3. iop                      # Deploy your services"
   );
   console.log("");
   console.log("For command-specific help: iop <command> --help");
@@ -76,8 +76,8 @@ function showCommandHelp(command: string): void {
       break;
 
     case "deploy":
-      console.log("Deploy apps and services (default command)");
-      console.log("===========================================");
+      console.log("Deploy services (default command)");
+      console.log("==================================");
       console.log("");
       console.log("USAGE:");
       console.log(
@@ -89,27 +89,25 @@ function showCommandHelp(command: string): void {
       console.log("");
       console.log("DESCRIPTION:");
       console.log(
-        "  Deploys apps and services to configured servers with zero downtime."
+        "  Deploys services to configured servers with automatic zero-downtime detection."
       );
       console.log(
         "  Automatically sets up infrastructure if needed (no separate setup needed)."
       );
-      console.log("  Apps use blue-green deployment for zero downtime.");
-      console.log("  Services restart briefly during deployment.");
+      console.log("  Services with 'proxy' config get zero-downtime blue-green deployment.");
+      console.log("  Other services use stop-start deployment.");
       console.log("");
       console.log("FLAGS:");
-      console.log("  --services   Deploy services only (skip apps)");
       console.log("  --verbose    Show detailed deployment progress");
       console.log("  --help       Show this help message");
       console.log("");
       console.log("EXAMPLES:");
       console.log(
-        "  iop                         # Deploy all apps and services"
+        "  iop                         # Deploy all services"
       );
       console.log(
-        "  iop web api                 # Deploy specific apps/services"
+        "  iop web api                 # Deploy specific services"
       );
-      console.log("  iop --services              # Deploy only services");
       console.log(
         "  iop --verbose               # Deploy with detailed output"
       );
@@ -123,7 +121,7 @@ function showCommandHelp(command: string): void {
       );
       console.log("  - Requires Docker running locally for image builds");
       console.log(
-        "  - App/service names cannot be: init, status, proxy (reserved)"
+        "  - Service names cannot be: init, status, proxy (reserved)"
       );
       break;
 
@@ -136,7 +134,7 @@ function showCommandHelp(command: string): void {
       console.log("");
       console.log("DESCRIPTION:");
       console.log(
-        "  Shows comprehensive status of apps, services, and proxy across servers."
+        "  Shows comprehensive status of services and proxy across servers."
       );
       console.log(
         "  Includes container health, resource usage, and deployment information."
@@ -150,7 +148,7 @@ function showCommandHelp(command: string): void {
       console.log(
         "  iop status                  # Check all deployments"
       );
-      console.log("  iop status web              # Check specific app");
+      console.log("  iop status web              # Check specific service");
       console.log("  iop status --verbose        # Detailed status info");
       break;
 

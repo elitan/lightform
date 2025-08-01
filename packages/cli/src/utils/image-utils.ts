@@ -45,7 +45,3 @@ export function buildServiceImageName(serviceEntry: ServiceEntry, releaseId: str
   return serviceEntry.image || baseImageName;
 }
 
-// Legacy function aliases for backward compatibility
-export const appNeedsBuilding = serviceNeedsBuilding;
-export const getAppImageName = getServiceImageName;
-export const buildImageName = buildServiceImageName;

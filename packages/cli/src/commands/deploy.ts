@@ -243,10 +243,8 @@ function identifyTargetServices(
   entryNames: string[],
   config: IopConfig
 ): ServiceEntry[] {
-  // Merge apps and services into unified services list
-  const configuredApps = normalizeConfigEntries(config.apps);
-  const configuredServices = normalizeConfigEntries(config.services);
-  const allServices = [...configuredApps, ...configuredServices];
+  // Get all configured services
+  const allServices = normalizeConfigEntries(config.services);
   
   let targetServices: ServiceEntry[] = [];
 
@@ -567,7 +565,6 @@ async function detectServerPlatform(
 
 /**
  * Gets the build configuration for a service, providing defaults if none specified
- * (Legacy function - now uses getServiceBuildConfig)
  */
 async function getBuildConfig(
   serviceEntry: ServiceEntry,
@@ -632,10 +629,7 @@ async function deployServices(context: DeploymentContext): Promise<void> {
   });
 
   // Also check servers that might have orphaned services from config
-  const configuredServices = [
-    ...normalizeConfigEntries(context.config.apps),
-    ...normalizeConfigEntries(context.config.services)
-  ];
+  const configuredServices = normalizeConfigEntries(context.config.services);
   configuredServices.forEach((service) => {
     allServers.add(service.server);
   });
@@ -1175,11 +1169,8 @@ async function reconcileServicesOnServer(
     // Get current state
     const currentState = await dockerClient.getProjectCurrentState(context.projectName);
 
-    // Determine desired services (from both apps and services config)
-    const allConfiguredServices = [
-      ...normalizeConfigEntries(context.config.apps),
-      ...normalizeConfigEntries(context.config.services)
-    ];
+    // Determine desired services from configuration
+    const allConfiguredServices = normalizeConfigEntries(context.config.services);
     
     const desiredServices = new Set<string>();
     allConfiguredServices.forEach((service) => {
@@ -1538,7 +1529,7 @@ async function configureProxyForService(
 }
 
 /**
- * Legacy function - now just calls configureProxyForService
+ * Configure proxy settings for a service
  */
 async function configureProxyForApp(
   appEntry: ServiceEntry,
@@ -1817,31 +1808,31 @@ async function reconcileAppsOnServer(
       context.projectName
     );
 
-    // Determine desired apps for this server
-    const configuredApps = normalizeConfigEntries(context.config.apps);
-    const desiredApps = new Set<string>();
+    // Determine desired services for this server  
+    const configuredServices = normalizeConfigEntries(context.config.services);
+    const desiredServices = new Set<string>();
 
-    configuredApps.forEach((app) => {
-      if (app.server === serverHostname) {
-        desiredApps.add(app.name);
+    configuredServices.forEach((service) => {
+      if (service.server === serverHostname) {
+        desiredServices.add(service.name);
       }
     });
 
-    // Determine what to remove (apps that exist but are not in config)
-    const appsToRemove: string[] = [];
-    Object.keys(currentState.apps).forEach((appName) => {
-      if (!desiredApps.has(appName)) {
-        appsToRemove.push(appName);
+    // Determine what to remove (services that exist but are not in config)
+    const servicesToRemove: string[] = [];
+    Object.keys(currentState.apps).forEach((serviceName) => {
+      if (!desiredServices.has(serviceName)) {
+        servicesToRemove.push(serviceName);
       }
     });
 
-    if (appsToRemove.length > 0) {
+    if (servicesToRemove.length > 0) {
       logger.verboseLog(
-        `Apps to remove from ${serverHostname}: ${appsToRemove.join(", ")}`
+        `Services to remove from ${serverHostname}: ${servicesToRemove.join(", ")}`
       );
 
       await removeOrphanedApps(
-        appsToRemove,
+        servicesToRemove,
         dockerClient,
         serverHostname,
         context.projectName
@@ -1918,7 +1909,6 @@ async function removeOrphanedApps(
 
 /**
  * Transfers the image archive to the remote server and loads it
- * (Legacy function - now calls transferAndLoadServiceImage)
  */
 async function transferAndLoadImage(
   serviceEntry: ServiceEntry,
@@ -2363,7 +2353,7 @@ export async function deployCommand(rawEntryNamesAndFlags: string[]) {
 
         for (const host of hosts) {
           serviceUrls.push({
-            appName: service.name, // Use appName for compatibility with logger
+            appName: service.name,
             url: `https://${host}`
           });
         }

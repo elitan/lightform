@@ -103,16 +103,8 @@ async function loadConfigurationAndSecrets(): Promise<{
  * Collects all unique servers from apps and services configuration
  */
 function collectAllServers(config: IopConfig): Set<string> {
-  const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
   const allServers = new Set<string>();
-
-  // Add servers from apps
-  configuredApps.forEach((app) => {
-    if (app.server) {
-      allServers.add(app.server);
-    }
-  });
 
   // Add servers from services
   configuredServices.forEach((service) => {
@@ -137,24 +129,18 @@ function filterServersByEntries(
 
   logger.verboseLog(`Targeting entries: ${entryNames.join(", ")}`);
 
-  const configuredApps = normalizeConfigEntries(config.apps);
   const configuredServices = normalizeConfigEntries(config.services);
   const targetServers = new Set<string>();
 
   entryNames.forEach((name) => {
-    const app = configuredApps.find((a) => a.name === name);
-    if (app && app.server) {
-      targetServers.add(app.server);
-    }
-
     const service = configuredServices.find((s) => s.name === name);
     if (service && service.server) {
       targetServers.add(service.server);
     }
 
-    if (!app && !service) {
+    if (!service) {
       logger.warn(
-        `Entry "${name}" not found in apps or services configuration. Skipping.`
+        `Entry "${name}" not found in services configuration. Skipping.`
       );
     }
   });
