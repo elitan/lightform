@@ -723,17 +723,21 @@ async function buildOrTagServiceImage(
     try {
       const buildConfig = await getServiceBuildConfig(serviceEntry, context);
 
+      // Create both release-specific and :latest tags for fingerprinting
+      const baseImageName = getServiceImageName(serviceEntry);
+      const latestTag = `${baseImageName}:latest`;
+      
       await DockerClient.build({
         context: buildConfig.context,
         dockerfile: buildConfig.dockerfile,
-        tags: [imageNameWithRelease],
+        tags: [imageNameWithRelease, latestTag],
         buildArgs: buildConfig.args,
         platform: buildConfig.platform,
         target: buildConfig.target,
         verbose: context.verboseFlag,
       });
       logger.verboseLog(
-        `Successfully built and tagged ${imageNameWithRelease} for platforms: ${buildConfig.platform}`
+        `Successfully built and tagged ${imageNameWithRelease} and ${latestTag} for platforms: ${buildConfig.platform}`
       );
       return true;
     } catch (error) {
@@ -743,15 +747,24 @@ async function buildOrTagServiceImage(
   } else {
     // For services that don't need building, tag the existing image
     const baseImageName = getServiceImageName(serviceEntry);
-    logger.verboseLog(`Tagging ${baseImageName} as ${imageNameWithRelease}...`);
+    const latestTag = `${baseImageName}:latest`;
+    logger.verboseLog(`Tagging ${baseImageName} as ${imageNameWithRelease} and ${latestTag}...`);
     try {
       await DockerClient.tag(
         baseImageName,
         imageNameWithRelease,
         context.verboseFlag
       );
+      
+      // Also create :latest tag for fingerprinting
+      await DockerClient.tag(
+        baseImageName,
+        latestTag,
+        context.verboseFlag
+      );
+      
       logger.verboseLog(
-        `Successfully tagged ${baseImageName} as ${imageNameWithRelease}`
+        `Successfully tagged ${baseImageName} as ${imageNameWithRelease} and ${latestTag}`
       );
       return true;
     } catch (error) {
@@ -1127,17 +1140,29 @@ async function getCurrentServiceFingerprint(
 
     // Extract fingerprint from container labels
     const labels = containerConfig.Config?.Labels || {};
+    const type = labels['iop.fingerprint-type'] as 'built' | 'external' || 'built';
     const configHash = labels['iop.config-hash'] || '';
-    const environmentHash = labels['iop.environment-hash'] || '';
     const secretsHash = labels['iop.secrets-hash'] || '';
-    const buildContextHash = labels['iop.build-context-hash'];
+    const localImageHash = labels['iop.local-image-hash'];
+    const serverImageHash = labels['iop.server-image-hash'];
+    const imageReference = labels['iop.image-reference'];
 
-    return {
-      configHash,
-      environmentHash,
-      secretsHash,
-      buildContextHash,
-    };
+    if (type === 'built') {
+      return {
+        type: 'built',
+        configHash,
+        secretsHash,
+        localImageHash,
+        serverImageHash,
+      };
+    } else {
+      return {
+        type: 'external',
+        configHash,
+        secretsHash,
+        imageReference,
+      };
+    }
   } catch (error) {
     // If we can't get current fingerprint, assume first deployment
     return null;
