@@ -22,7 +22,7 @@ services:
       secret:
         - SECRET_VAR
         - POSTGRES_PASSWORD
-    proxy:           # This triggers zero-downtime deployment
+    proxy: # This triggers zero-downtime deployment
       app_port: 3000
     health_check:
       path: /up
@@ -40,8 +40,8 @@ services:
         - EXAMPLE_VAR=web2
       secret:
         - SECRET_VAR
-        - POSTGRES_PASSWORD  
-    proxy:           # This triggers zero-downtime deployment
+        - POSTGRES_PASSWORD
+    proxy: # This triggers zero-downtime deployment
       app_port: 3000
     health_check:
       path: /up
@@ -51,12 +51,12 @@ services:
     image: postgres:17
     server: 157.180.47.213
     ports:
-      - "5433:5432"  # Port mapping indicates infrastructure service
+      - "5433:5432" # Port mapping indicates infrastructure service
     environment:
       plain:
         - POSTGRES_USER=postgres
         - POSTGRES_DB=postgres
-        - POSTGRES_TIMEZONE=UTC
+        - POSTGRES_TIMEZONE=Europe/Moscow
       secret:
         - POSTGRES_PASSWORD
     volumes:
