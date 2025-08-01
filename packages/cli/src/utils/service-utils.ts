@@ -4,48 +4,9 @@ import { ServiceEntry } from "../config/types";
  * Determines if a service requires zero-downtime deployment based on its characteristics
  */
 export function requiresZeroDowntimeDeployment(service: ServiceEntry): boolean {
-  // Explicit HTTP service indicators
-  if (service.proxy) return true;
-  
-  if (service.health_check) return true;
-  
-  // Check for exposed ports (indicates HTTP service)
-  if (service.ports) {
-    return service.ports.some((port: string) => {
-      // Exposed ports: "3000", ":3000" (bind to all interfaces)
-      if (!port.includes(':')) return true; // "3000"
-      if (port.startsWith(':')) return true; // ":3000"
-      
-      // Port mappings typically indicate infrastructure services
-      const parts = port.split(':');
-      if (parts.length === 2) {
-        // Format: "hostPort:containerPort" 
-        // Check if this is an infrastructure port
-        const containerPort = parts[1];
-        if (isInfrastructurePort(containerPort)) {
-          return false; // Infrastructure services use stop-start
-        }
-        return true; // HTTP services exposed to host
-      }
-      if (parts.length === 3) {
-        // Format: "ip:hostPort:containerPort"
-        const ip = parts[0];
-        const containerPort = parts[2];
-        
-        // Localhost-only infrastructure services
-        if ((ip === '127.0.0.1' || ip === 'localhost') && isInfrastructurePort(containerPort)) {
-          return false;
-        }
-        
-        // External interface binding
-        return ip !== '127.0.0.1' && ip !== 'localhost';
-      }
-      
-      return false;
-    });
-  }
-  
-  return false;
+  // Only services with proxy configuration get zero-downtime deployment
+  // All other services (including those with health_check or exposed ports) get stop-start
+  return Boolean(service.proxy);
 }
 
 /**

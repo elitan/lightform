@@ -22,7 +22,7 @@ describe('service-utils', () => {
       expect(requiresZeroDowntimeDeployment(service)).toBe(true);
     });
 
-    it('should return true for services with health_check config', () => {
+    it('should return false for services with health_check config but no proxy', () => {
       const service: ServiceEntry = {
         name: 'api',
         server: 'example.com',
@@ -32,10 +32,10 @@ describe('service-utils', () => {
         }
       };
       
-      expect(requiresZeroDowntimeDeployment(service)).toBe(true);
+      expect(requiresZeroDowntimeDeployment(service)).toBe(false);
     });
 
-    it('should return true for services with exposed ports (no mapping)', () => {
+    it('should return false for services with exposed ports but no proxy', () => {
       const service: ServiceEntry = {
         name: 'app',
         server: 'example.com',
@@ -43,10 +43,10 @@ describe('service-utils', () => {
         ports: ['3000', '8080']
       };
       
-      expect(requiresZeroDowntimeDeployment(service)).toBe(true);
+      expect(requiresZeroDowntimeDeployment(service)).toBe(false);
     });
 
-    it('should return true for services with interface-bound exposed ports', () => {
+    it('should return false for services with interface-bound exposed ports but no proxy', () => {
       const service: ServiceEntry = {
         name: 'app',
         server: 'example.com', 
@@ -54,7 +54,7 @@ describe('service-utils', () => {
         ports: [':3000'] // Bind to all interfaces
       };
       
-      expect(requiresZeroDowntimeDeployment(service)).toBe(true);
+      expect(requiresZeroDowntimeDeployment(service)).toBe(false);
     });
 
     it('should return false for services with mapped infrastructure ports', () => {
@@ -79,7 +79,7 @@ describe('service-utils', () => {
       expect(requiresZeroDowntimeDeployment(service)).toBe(false);
     });
 
-    it('should return true for services with external interface ports', () => {
+    it('should return false for services with external interface ports but no proxy', () => {
       const service: ServiceEntry = {
         name: 'web',
         server: 'example.com',
@@ -87,10 +87,10 @@ describe('service-utils', () => {
         ports: ['0.0.0.0:80:80'] // External interface
       };
       
-      expect(requiresZeroDowntimeDeployment(service)).toBe(true);
+      expect(requiresZeroDowntimeDeployment(service)).toBe(false);
     });
 
-    it('should return false for services with no special characteristics', () => {
+    it('should return false for services with no proxy config', () => {
       const service: ServiceEntry = {
         name: 'worker',
         server: 'example.com',
@@ -98,6 +98,19 @@ describe('service-utils', () => {
       };
       
       expect(requiresZeroDowntimeDeployment(service)).toBe(false);
+    });
+
+    it('should return true for services with proxy config regardless of other attributes', () => {
+      const service: ServiceEntry = {
+        name: 'web',
+        server: 'example.com',
+        image: 'nginx',
+        ports: ['5432:5432'], // Even infrastructure ports
+        health_check: { path: '/health' },
+        proxy: { app_port: 3000 } // This is what matters
+      };
+      
+      expect(requiresZeroDowntimeDeployment(service)).toBe(true);
     });
   });
 
