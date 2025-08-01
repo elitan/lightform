@@ -3,7 +3,9 @@ name: nextjs
 ssh:
   username: iop
 
-apps:
+# Unified services model - everything is a service!
+# Services with 'proxy' config get zero-downtime deployment automatically
+services:
   web:
     build:
       context: .
@@ -16,7 +18,7 @@ apps:
       plain:
         - NODE_ENV=production
         - NEXT_PUBLIC_API_URL=https://api.example.com
-    proxy:
+    proxy:           # This triggers zero-downtime deployment
       #hosts:
       #  - nextjs.example.myiop.cloud
       app_port: 3000
