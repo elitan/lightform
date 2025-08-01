@@ -3,10 +3,10 @@ import { validateConfig, ConfigValidationError } from "../src/utils/config-valid
 import { IopConfig } from "../src/config/types";
 
 describe("Reserved Names Validation", () => {
-  test("should reject app with reserved name 'proxy'", () => {
+  test("should reject service with reserved name 'proxy'", () => {
     const config: IopConfig = {
       name: "test-project",
-      apps: {
+      services: {
         proxy: {
           image: "test/proxy",
           server: "test.com",
@@ -44,10 +44,10 @@ describe("Reserved Names Validation", () => {
     expect(errors[0].entries).toEqual(["status"]);
   });
 
-  test("should reject app with reserved name 'init'", () => {
+  test("should reject service with reserved name 'init'", () => {
     const config: IopConfig = {
       name: "test-project",
-      apps: {
+      services: {
         init: {
           image: "test/init",
           server: "test.com",
@@ -65,7 +65,7 @@ describe("Reserved Names Validation", () => {
   test("should reject multiple reserved names", () => {
     const config: IopConfig = {
       name: "test-project",
-      apps: {
+      services: {
         proxy: {
           image: "test/proxy",
           server: "test.com",
@@ -74,8 +74,6 @@ describe("Reserved Names Validation", () => {
           image: "test/init", 
           server: "test.com",
         },
-      },
-      services: {
         status: {
           image: "test/status",
           server: "test.com",
@@ -93,7 +91,7 @@ describe("Reserved Names Validation", () => {
   test("should allow non-reserved names", () => {
     const config: IopConfig = {
       name: "test-project",
-      apps: {
+      services: {
         web: {
           image: "test/web",
           server: "test.com",
@@ -102,8 +100,6 @@ describe("Reserved Names Validation", () => {
           image: "test/api",
           server: "test.com",
         },
-      },
-      services: {
         database: {
           image: "postgres:15",
           server: "test.com",
@@ -125,7 +121,7 @@ describe("Reserved Names Validation", () => {
   test("should allow names similar to reserved names", () => {
     const config: IopConfig = {
       name: "test-project",
-      apps: {
+      services: {
         "proxy-app": {
           image: "test/proxy-app",
           server: "test.com",
@@ -151,14 +147,12 @@ describe("Reserved Names Validation", () => {
   test("should work with array format configuration", () => {
     const config: IopConfig = {
       name: "test-project",
-      apps: [
+      services: [
         {
           name: "proxy",
           image: "test/proxy",
           server: "test.com",
         },
-      ],
-      services: [
         {
           name: "status",
           image: "test/status",
@@ -177,7 +171,7 @@ describe("Reserved Names Validation", () => {
   test("should include helpful suggestions", () => {
     const config: IopConfig = {
       name: "test-project",
-      apps: {
+      services: {
         proxy: {
           image: "test/proxy",
           server: "test.com",

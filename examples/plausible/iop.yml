@@ -3,7 +3,10 @@ name: plausible
 ssh:
   username: iop
 
-apps:
+# Unified services model - everything is a service!
+# Services with 'proxy' config get zero-downtime deployment automatically
+services:
+  # HTTP service (gets zero-downtime deployment)
   plausible:
     image: ghcr.io/plausible/community-edition:v3.0.1
     server: 65.21.181.70
@@ -22,14 +25,14 @@ apps:
         - SECRET_KEY_BASE
         - TOTP_VAULT_KEY
         - DATABASE_URL
-    proxy:
+    proxy:           # This triggers zero-downtime deployment
       hosts:
         - analytics.eliasson.me
       app_port: 3000
     health_check:
       path: /api/health
 
-services:
+  # Infrastructure services (get stop-start deployment)
   plausible_db:
     image: postgres:16-alpine
     server: 65.21.181.70

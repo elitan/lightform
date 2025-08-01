@@ -1,7 +1,7 @@
 import { describe, expect, test, mock } from "bun:test";
 import { DockerClient } from "../src/docker";
 import { checkServiceConfigChanges } from "../src/commands/deploy";
-import type { ServiceEntry, IopSecrets, IopConfig, AppEntry } from "../src/config/types";
+import type { ServiceEntry, IopSecrets, IopConfig } from "../src/config/types";
 
 // Mock service configuration
 const baseService: ServiceEntry = {

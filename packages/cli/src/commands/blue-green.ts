@@ -1,14 +1,14 @@
-import { AppEntry, IopSecrets } from "../config/types";
+import { ServiceEntry, IopSecrets } from "../config/types";
 import { DockerClient, DockerContainerOptions } from "../docker";
 import {
-  appNeedsBuilding,
-  getAppImageName,
-  buildImageName,
+  serviceNeedsBuilding,
+  getServiceImageName,
+  buildServiceImageName,
 } from "../utils/image-utils";
 import { processVolumes } from "../utils";
 
 export interface BlueGreenDeploymentOptions {
-  appEntry: AppEntry;
+  serviceEntry: ServiceEntry; // Now using unified ServiceEntry
   releaseId: string;
   secrets: IopSecrets;
   projectName: string;
@@ -26,21 +26,21 @@ export interface BlueGreenDeploymentResult {
 }
 
 /**
- * Generates blue-green container names based on project name, app name, color, and replica count
+ * Generates blue-green container names based on project name, service name, color, and replica count
  */
 function generateContainerNames(
   projectName: string,
-  appName: string,
+  serviceName: string,
   color: "blue" | "green",
   replicas: number
 ): string[] {
   if (replicas === 1) {
-    return [`${projectName}-${appName}-${color}`];
+    return [`${projectName}-${serviceName}-${color}`];
   }
 
   const names: string[] = [];
   for (let i = 1; i <= replicas; i++) {
-    names.push(`${projectName}-${appName}-${color}-${i}`);
+    names.push(`${projectName}-${serviceName}-${color}-${i}`);
   }
   return names;
 }
@@ -49,36 +49,36 @@ function generateContainerNames(
  * Creates container options for blue-green deployment
  */
 function createBlueGreenContainerOptions(
-  appEntry: AppEntry,
+  serviceEntry: ServiceEntry,
   releaseId: string,
   secrets: IopSecrets,
   projectName: string,
   containerName: string
 ): DockerContainerOptions {
-  const imageNameWithRelease = buildImageName(appEntry, releaseId);
-  const envVars = resolveEnvironmentVariables(appEntry, secrets);
+  const imageNameWithRelease = buildServiceImageName(serviceEntry, releaseId);
+  const envVars = resolveEnvironmentVariables(serviceEntry, secrets);
 
   // Dual alias approach: generic name for internal communication + project-specific for proxy routing
-  const projectSpecificAlias = `${projectName}-${appEntry.name}`;
+  const projectSpecificAlias = `${projectName}-${serviceEntry.name}`;
 
   return {
     name: containerName,
     image: imageNameWithRelease,
-    ports: appEntry.ports,
-    volumes: processVolumes(appEntry.volumes, projectName),
+    ports: serviceEntry.ports,
+    volumes: processVolumes(serviceEntry.volumes, projectName),
     envVars: envVars,
     network: `${projectName}-network`,
     networkAliases: [
-      appEntry.name, // "web" - for internal project communication
+      serviceEntry.name, // "web" - for internal project communication
       projectSpecificAlias, // "gmail-web" - for proxy routing
     ],
     restart: "unless-stopped",
-    command: appEntry.command,
+    command: serviceEntry.command,
     labels: {
       "iop.managed": "true",
       "iop.project": projectName,
-      "iop.type": "app",
-      "iop.app": appEntry.name,
+      "iop.type": "service",
+      "iop.app": serviceEntry.name,
     },
   };
 }
@@ -87,7 +87,7 @@ function createBlueGreenContainerOptions(
  * Resolves environment variables for a container from plain and secret sources
  */
 function resolveEnvironmentVariables(
-  entry: AppEntry,
+  entry: ServiceEntry,
   secrets: IopSecrets
 ): Record<string, string> {
   const envVars: Record<string, string> = {};
@@ -121,7 +121,7 @@ function resolveEnvironmentVariables(
  */
 async function performBlueGreenHealthChecks(
   containerNames: string[],
-  appEntry: AppEntry,
+  serviceEntry: ServiceEntry,
   dockerClient: DockerClient,
   serverHostname: string,
   projectName: string,
@@ -133,17 +133,17 @@ async function performBlueGreenHealthChecks(
     );
   }
 
-  const appPort = appEntry.proxy?.app_port || 3000;
-  const healthCheckPath = appEntry.health_check?.path || "/up";
+  const servicePort = serviceEntry.proxy?.app_port || 3000;
+  const healthCheckPath = serviceEntry.health_check?.path || "/up";
   const healthPromises = containerNames.map(async (containerName) => {
     try {
       const healthCheckPassed =
         await dockerClient.checkHealthWithIopProxy(
           "iop-proxy",
-          appEntry.name,
+          serviceEntry.name,
           containerName,
           projectName,
-          appPort,
+          servicePort,
           healthCheckPath
         );
 
@@ -235,7 +235,7 @@ export async function performBlueGreenDeployment(
   options: BlueGreenDeploymentOptions
 ): Promise<BlueGreenDeploymentResult> {
   const {
-    appEntry,
+    serviceEntry, // Now directly using serviceEntry from interface
     releaseId,
     secrets,
     projectName,
@@ -247,7 +247,7 @@ export async function performBlueGreenDeployment(
 
   if (verbose) {
     console.log(
-      `    [${serverHostname}] Starting zero-downtime deployment for ${appEntry.name}...`
+      `    [${serverHostname}] Starting zero-downtime deployment for ${serviceEntry.name}...`
     );
   }
 
@@ -255,7 +255,7 @@ export async function performBlueGreenDeployment(
     // Step 1: Determine deployment color
     const currentActiveColor =
       await dockerClient.getCurrentActiveColorForProject(
-        appEntry.name,
+        serviceEntry.name,
         projectName
       );
     const newColor = currentActiveColor === "blue" ? "green" : "blue";
@@ -265,10 +265,10 @@ export async function performBlueGreenDeployment(
     }
 
     // Step 2: Generate container names for new deployment
-    const replicas = appEntry.replicas || 1;
+    const replicas = serviceEntry.replicas || 1;
     const newContainerNames = generateContainerNames(
       projectName,
-      appEntry.name,
+      serviceEntry.name,
       newColor,
       replicas
     );
@@ -319,7 +319,7 @@ export async function performBlueGreenDeployment(
       const replicaIndex = i + 1;
 
       const containerOptions = createBlueGreenContainerOptions(
-        appEntry,
+        serviceEntry,
         releaseId,
         secrets,
         projectName,
@@ -334,7 +334,7 @@ export async function performBlueGreenDeployment(
 
       const success = await dockerClient.createContainerWithLabels(
         containerOptions,
-        appEntry.name,
+        serviceEntry.name,
         newColor,
         replicaIndex,
         false // Not active yet
@@ -362,16 +362,16 @@ export async function performBlueGreenDeployment(
     // Step 4: Health check all new containers (only if ports are exposed)
     let allHealthy = true;
     
-    if (appEntry.ports && appEntry.ports.length > 0) {
+    if (serviceEntry.ports && serviceEntry.ports.length > 0) {
       if (verbose) {
         console.log(
-          `    [${serverHostname}] App exposes ports, performing health checks...`
+          `    [${serverHostname}] Service exposes ports, performing health checks...`
         );
       }
       
       allHealthy = await performBlueGreenHealthChecks(
         newContainerNames,
-        appEntry,
+        serviceEntry,
         dockerClient,
         serverHostname,
         projectName,
@@ -395,7 +395,7 @@ export async function performBlueGreenDeployment(
     } else {
       if (verbose) {
         console.log(
-          `    [${serverHostname}] App has no exposed ports, skipping health checks (assuming healthy if running)`
+          `    [${serverHostname}] Service has no exposed ports, skipping health checks (assuming healthy if running)`
         );
       }
     }
@@ -410,7 +410,7 @@ export async function performBlueGreenDeployment(
       }
 
       const aliasSwitch = await dockerClient.switchNetworkAliasForProject(
-        appEntry.name,
+        serviceEntry.name,
         newColor,
         networkName,
         projectName
@@ -439,12 +439,12 @@ export async function performBlueGreenDeployment(
     }
 
     // Step 6: Update labels to mark new containers as active
-    await dockerClient.updateActiveLabels(appEntry.name, newColor);
+    await dockerClient.updateActiveLabels(serviceEntry.name, newColor);
 
     // Step 7: Graceful shutdown of old containers
     if (currentActiveColor) {
       const oldContainers = await dockerClient.findContainersByLabelAndProject(
-        `iop.app=${appEntry.name}`,
+        `iop.app=${serviceEntry.name}`,
         projectName
       );
 

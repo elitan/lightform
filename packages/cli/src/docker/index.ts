@@ -3,7 +3,6 @@
 import { SSHClient } from "../ssh";
 import {
   ServiceEntry,
-  AppEntry,
   IopSecrets,
   IopConfig,
 } from "../config/types";
