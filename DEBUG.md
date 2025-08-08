@@ -2,6 +2,13 @@
 
 **⚠️ IMPORTANT: Always use Let's Encrypt staging mode for testing to avoid rate limits.**
 
+## Server Configuration
+
+- **Server IP**: `65.21.180.49`
+- **SSH Username**: `iop`
+
+> **Note**: All commands below use `{SERVER_IP}` as a placeholder. Replace `{SERVER_IP}` with the actual IP address mentioned above when running commands. If the server IP changes in the future, just update the IP above and replace it in all commands.
+
 ## Example Applications
 
 - **Basic Go App** (`examples/basic/`): Project name `gmail`, domain `test.eliasson.me`
@@ -18,13 +25,8 @@ cd examples/basic  # or examples/nextjs
 bun ../../packages/cli/src/index.ts
 
 # Enable staging mode immediately after first deployment
-ssh iop@157.180.47.213 "docker exec iop-proxy /usr/local/bin/iop-proxy set-staging --enabled true"
+ssh iop@{SERVER_IP} "docker exec iop-proxy /usr/local/bin/iop-proxy set-staging --enabled true"
 ```
-
-### Server Info
-
-- **Server IP**: `157.180.47.213`
-- **SSH Username**: `iop`
 
 ## Proxy Management
 
@@ -39,9 +41,9 @@ bun ../../packages/cli/src/index.ts --verbose
 
 # Manual approach if needed (usually not required):
 # Stop and remove proxy container
-# ssh iop@157.180.47.213 "docker stop iop-proxy && docker rm iop-proxy"
+# ssh iop@{SERVER_IP} "docker stop iop-proxy && docker rm iop-proxy"
 # Force pull latest image
-# ssh iop@157.180.47.213 "docker pull elitan/iop-proxy:latest"
+# ssh iop@{SERVER_IP} "docker pull elitan/iop-proxy:latest"
 ```
 
 ### Clear Proxy State (.iop directory)
@@ -52,23 +54,23 @@ The `.iop` directory stores proxy state and is owned by root. **Only the user ca
 
 ```bash
 # After user confirms deletion, verify it was removed
-ssh iop@157.180.47.213 "ls -la .iop 2>/dev/null || echo '.iop directory not found (successfully deleted)'"
+ssh iop@{SERVER_IP} "ls -la .iop 2>/dev/null || echo '.iop directory not found (successfully deleted)'"
 ```
 
 ### Proxy Commands
 
 ```bash
 # Check status and routes
-ssh iop@157.180.47.213 "docker exec iop-proxy /usr/local/bin/iop-proxy list"
+ssh iop@{SERVER_IP} "docker exec iop-proxy /usr/local/bin/iop-proxy list"
 
 # View logs
-ssh iop@157.180.47.213 "docker logs --tail 50 iop-proxy"
+ssh iop@{SERVER_IP} "docker logs --tail 50 iop-proxy"
 
 # Enable staging mode (essential for testing)
-ssh iop@157.180.47.213 "docker exec iop-proxy /usr/local/bin/iop-proxy set-staging --enabled true"
+ssh iop@{SERVER_IP} "docker exec iop-proxy /usr/local/bin/iop-proxy set-staging --enabled true"
 
 # Check certificate status
-ssh iop@157.180.47.213 "docker exec iop-proxy /usr/local/bin/iop-proxy cert-status"
+ssh iop@{SERVER_IP} "docker exec iop-proxy /usr/local/bin/iop-proxy cert-status"
 ```
 
 ## HTTP API Debugging
@@ -77,13 +79,13 @@ The proxy uses HTTP API on localhost:8080 for CLI communication:
 
 ```bash
 # List all hosts
-ssh iop@157.180.47.213 "docker exec iop-proxy curl -s localhost:8080/api/hosts"
+ssh iop@{SERVER_IP} "docker exec iop-proxy curl -s localhost:8080/api/hosts"
 
 # Check status
-ssh iop@157.180.47.213 "docker exec iop-proxy curl -s localhost:8080/api/status"
+ssh iop@{SERVER_IP} "docker exec iop-proxy curl -s localhost:8080/api/status"
 
 # Manual deploy
-ssh iop@157.180.47.213 "docker exec iop-proxy curl -X POST localhost:8080/api/deploy -H 'Content-Type: application/json' -d '{\"host\":\"test.com\",\"target\":\"app:3000\",\"project\":\"test\",\"ssl\":true}'"
+ssh iop@{SERVER_IP} "docker exec iop-proxy curl -X POST localhost:8080/api/deploy -H 'Content-Type: application/json' -d '{\"host\":\"test.com\",\"target\":\"app:3000\",\"project\":\"test\",\"ssl\":true}'"
 ```
 
 ## SSL Certificate Testing
@@ -92,7 +94,7 @@ ssh iop@157.180.47.213 "docker exec iop-proxy curl -X POST localhost:8080/api/de
 
 ```bash
 # Always enable for testing
-ssh iop@157.180.47.213 "docker exec iop-proxy /usr/local/bin/iop-proxy set-staging --enabled true"
+ssh iop@{SERVER_IP} "docker exec iop-proxy /usr/local/bin/iop-proxy set-staging --enabled true"
 
 # Test SSL (ignore staging warnings)
 curl -k -I https://test.eliasson.me
@@ -102,45 +104,45 @@ curl -k -I https://test.eliasson.me
 
 ```bash
 # For fresh testing
-ssh iop@157.180.47.213 "docker exec iop-proxy rm -rf /var/lib/iop-proxy/certs/*"
-ssh iop@157.180.47.213 "docker exec iop-proxy rm -f /var/lib/iop-proxy/state.json"
-ssh iop@157.180.47.213 "docker restart iop-proxy"
+ssh iop@{SERVER_IP} "docker exec iop-proxy rm -rf /var/lib/iop-proxy/certs/*"
+ssh iop@{SERVER_IP} "docker exec iop-proxy rm -f /var/lib/iop-proxy/state.json"
+ssh iop@{SERVER_IP} "docker restart iop-proxy"
 ```
 
 ## Container Debugging
 
 ```bash
 # Check project containers
-ssh iop@157.180.47.213 "docker ps --filter 'label=iop.project=<project-name>'"
+ssh iop@{SERVER_IP} "docker ps --filter 'label=iop.project=<project-name>'"
 
 # View container logs
-ssh iop@157.180.47.213 "docker logs --tail 50 <container-name>"
+ssh iop@{SERVER_IP} "docker logs --tail 50 <container-name>"
 
 # Test internal connectivity
-ssh iop@157.180.47.213 "docker exec iop-proxy curl -s http://<project-name>-web:3000/"
+ssh iop@{SERVER_IP} "docker exec iop-proxy curl -s http://<project-name>-web:3000/"
 ```
 
 ## Cleanup Commands
 
 ```bash
 # Remove project containers
-ssh iop@157.180.47.213 "docker ps -a --filter 'label=iop.project=<project-name>' --format '{{.Names}}' | xargs docker rm -f"
+ssh iop@{SERVER_IP} "docker ps -a --filter 'label=iop.project=<project-name>' --format '{{.Names}}' | xargs docker rm -f"
 
 # Full cleanup
-ssh iop@157.180.47.213 "docker ps -a --filter 'label=iop.project' --format '{{.Names}}' | xargs docker rm -f"
+ssh iop@{SERVER_IP} "docker ps -a --filter 'label=iop.project' --format '{{.Names}}' | xargs docker rm -f"
 ```
 
 ## Complete Testing Workflow
 
 ```bash
 # 1. Complete cleanup
-ssh iop@157.180.47.213 "docker stop \$(docker ps -aq) 2>/dev/null || true && docker rm \$(docker ps -aq) 2>/dev/null || true && docker system prune -af --volumes"
-ssh iop@157.180.47.213 "rm -rf ./.iop"
+ssh iop@{SERVER_IP} "docker stop \$(docker ps -aq) 2>/dev/null || true && docker rm \$(docker ps -aq) 2>/dev/null || true && docker system prune -af --volumes"
+ssh iop@{SERVER_IP} "rm -rf ./.iop"
 
 # 2. Deploy (setup is automatic)
 cd examples/basic
 bun ../../packages/cli/src/index.ts --verbose
-ssh iop@157.180.47.213 "docker exec iop-proxy /usr/local/bin/iop-proxy set-staging --enabled true"
+ssh iop@{SERVER_IP} "docker exec iop-proxy /usr/local/bin/iop-proxy set-staging --enabled true"
 
 # 3. Test
 curl -k -I https://test.eliasson.me
@@ -167,8 +169,8 @@ cd examples/basic
 bun ../../packages/cli/src/index.ts --verbose
 
 # 2. Check the logs
-ssh iop@157.180.47.213 "docker logs --tail 50 iop-proxy"
-ssh iop@157.180.47.213 "docker logs --tail 30 gmail-web"
+ssh iop@{SERVER_IP} "docker logs --tail 50 iop-proxy"
+ssh iop@{SERVER_IP} "docker logs --tail 30 gmail-web"
 
 # 3. Understand the problem
 # - Are there error messages?
@@ -199,14 +201,14 @@ bun ../../packages/cli/src/index.ts --verbose                   # Deploy (auto-s
 
 ```bash
 # SSL issues - check certificate logs
-ssh iop@157.180.47.213 "docker logs --tail 100 iop-proxy | grep -E 'CERT|ACME|SSL'"
+ssh iop@{SERVER_IP} "docker logs --tail 100 iop-proxy | grep -E 'CERT|ACME|SSL'"
 
 # Proxy routing issues - check API logs
-ssh iop@157.180.47.213 "docker logs --tail 100 iop-proxy | grep -E 'PROXY|API'"
+ssh iop@{SERVER_IP} "docker logs --tail 100 iop-proxy | grep -E 'PROXY|API'"
 
 # Container health issues - check container status
-ssh iop@157.180.47.213 "docker ps --filter 'label=iop.project=gmail'"
-ssh iop@157.180.47.213 "docker logs --tail 30 gmail-web"
+ssh iop@{SERVER_IP} "docker ps --filter 'label=iop.project=gmail'"
+ssh iop@{SERVER_IP} "docker logs --tail 30 gmail-web"
 ```
 
 This iterative approach helps systematically identify and fix issues without getting stuck on assumptions.

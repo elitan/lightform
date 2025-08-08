@@ -14,7 +14,7 @@ services:
       dockerfile: Dockerfile
       args:
         - EXAMPLE_VAR
-    server: 157.180.47.213
+    server: 65.21.180.49
     replicas: 1
     environment:
       plain:
@@ -33,7 +33,7 @@ services:
       dockerfile: Dockerfile
       args:
         - EXAMPLE_VAR
-    server: 157.180.47.213
+    server: 65.21.180.49
     replicas: 1
     environment:
       plain:
@@ -49,7 +49,7 @@ services:
   # Infrastructure services (get stop-start deployment)
   db:
     image: postgres:17
-    server: 157.180.47.213
+    server: 65.21.180.49
     ports:
       - "5433:5432" # Port mapping indicates infrastructure service
     environment:
