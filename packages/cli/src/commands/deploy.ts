@@ -20,7 +20,6 @@ import {
   createServiceFingerprint,
   shouldRedeploy,
   ServiceFingerprint,
-  enrichFingerprintWithServerInfo,
   isBuiltService,
 } from "../utils/service-fingerprint";
 import {
@@ -166,11 +165,8 @@ function serviceEntryToContainerOptions(
       ...(fingerprint ? {
         "iop.fingerprint-type": fingerprint.type,
         "iop.secrets-hash": fingerprint.secretsHash,
-        ...(fingerprint.type === 'built' ? {
-          ...(fingerprint.localImageHash && { "iop.local-image-hash": fingerprint.localImageHash }),
-          ...(fingerprint.serverImageHash && { "iop.server-image-hash": fingerprint.serverImageHash }),
-        } : {
-          ...(fingerprint.imageReference && { "iop.image-reference": fingerprint.imageReference }),
+        ...(fingerprint.type === 'external' && fingerprint.imageReference && { 
+          "iop.image-reference": fingerprint.imageReference 
         }),
       } : {}),
     },
@@ -1070,13 +1066,6 @@ async function deployServiceWithStrategy(
     throw new Error(`No fingerprint found for service ${service.name}`);
   }
   
-  // Enrich desired fingerprint with server information for better comparison
-  desiredFingerprint = await enrichFingerprintWithServerInfo(
-    desiredFingerprint,
-    service.name,
-    context.projectName,
-    sshClient
-  );
 
   const redeployDecision = shouldRedeploy(currentFingerprint, desiredFingerprint);
   
@@ -1271,6 +1260,7 @@ async function getCurrentServiceFingerprint(
 ): Promise<ServiceFingerprint | null> {
   try {
     let containerConfig: any = null;
+    let containerName: string = '';
     
     // For services that use zero-downtime deployment, check blue-green containers
     if (requiresZeroDowntimeDeployment(service)) {
@@ -1283,12 +1273,14 @@ async function getCurrentServiceFingerprint(
       
       if (blueExists) {
         containerConfig = await dockerClient.inspectContainer(blueContainerName);
+        containerName = blueContainerName;
       } else if (greenExists) {
         containerConfig = await dockerClient.inspectContainer(greenContainerName);
+        containerName = greenContainerName;
       }
     } else {
       // For regular services, use the standard container name
-      const containerName = `${context.projectName}-${service.name}`;
+      containerName = `${context.projectName}-${service.name}`;
       const containerExists = await dockerClient.containerExists(containerName);
       if (containerExists) {
         containerConfig = await dockerClient.inspectContainer(containerName);
@@ -1299,21 +1291,21 @@ async function getCurrentServiceFingerprint(
       return null; // First deployment
     }
 
-    // Extract fingerprint from container labels
+    // Extract fingerprint from container labels and direct Docker inspection
     const labels = containerConfig.Config?.Labels || {};
     const type = labels['iop.fingerprint-type'] as 'built' | 'external' || 'built';
     const configHash = labels['iop.config-hash'] || '';
     const secretsHash = labels['iop.secrets-hash'] || '';
-    const localImageHash = labels['iop.local-image-hash'];
-    const serverImageHash = labels['iop.server-image-hash'];
     const imageReference = labels['iop.image-reference'];
 
     if (type === 'built') {
+      // Get current server image hash from actual container image
+      const serverImageHash = containerConfig.Image || null;
+      
       return {
         type: 'built',
         configHash,
         secretsHash,
-        localImageHash,
         serverImageHash,
       };
     } else {

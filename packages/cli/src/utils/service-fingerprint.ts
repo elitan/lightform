@@ -2,7 +2,6 @@ import * as crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ServiceEntry, IopSecrets } from '../config/types';
-import { SSHClient } from '../ssh';
 
 const execAsync = promisify(exec);
 
@@ -98,7 +97,7 @@ export function createSecretsHash(
  */
 export async function getLocalImageHash(imageName: string): Promise<string | null> {
   try {
-    const result = await execAsync(`docker image ls --format "{{.ID}}" ${imageName}:latest`);
+    const result = await execAsync(`docker inspect --format='{{.Id}}' ${imageName}:latest`);
     const imageId = result.stdout.trim();
     return imageId || null;
   } catch (error) {
@@ -106,22 +105,6 @@ export async function getLocalImageHash(imageName: string): Promise<string | nul
   }
 }
 
-/**
- * Gets the Docker image hash for a service running on a server
- */
-export async function getServerImageHash(
-  serviceName: string, 
-  projectName: string,
-  sshClient: SSHClient
-): Promise<string | null> {
-  try {
-    const containerName = `${projectName}-${serviceName}`;
-    const result = await sshClient.exec(`docker inspect ${containerName} --format='{{.Image}}'`);
-    return result.trim() || null;
-  } catch (error) {
-    return null; // Container doesn't exist or error
-  }
-}
 
 /**
  * Determines if a service is built locally or uses external image
@@ -142,8 +125,9 @@ export async function createServiceFingerprint(
   const secretsHash = createSecretsHash(serviceEntry, secrets);
   
   if (isBuiltService(serviceEntry)) {
-    // Built service - get local image hash
-    const imageName = projectName ? `${projectName}-${serviceEntry.name}` : serviceEntry.name;
+    // Built service - get local image hash directly from Docker
+    // Use same naming convention as getServiceImageName()
+    const imageName = serviceEntry.name;
     const localImageHash = await getLocalImageHash(imageName);
     
     return {
@@ -199,19 +183,11 @@ export function shouldRedeploy(
   
   // For built services, check image hash (code changes) after config/secrets
   if (desired.type === 'built') {
-    if (current.localImageHash !== desired.localImageHash) {
+    // Compare local desired image with current server image
+    if (desired.localImageHash && current.serverImageHash !== desired.localImageHash) {
       return {
         shouldRedeploy: true,
         reason: 'image updated',
-        priority: 'normal'
-      };
-    }
-    
-    // Also check if server has different image
-    if (desired.serverImageHash && current.serverImageHash !== desired.serverImageHash) {
-      return {
-        shouldRedeploy: true,
-        reason: 'server image differs',
         priority: 'normal'
       };
     }
@@ -235,22 +211,3 @@ export function shouldRedeploy(
   };
 }
 
-/**
- * Enriches a fingerprint with server-side information
- */
-export async function enrichFingerprintWithServerInfo(
-  fingerprint: ServiceFingerprint,
-  serviceName: string,
-  projectName: string,
-  sshClient: SSHClient
-): Promise<ServiceFingerprint> {
-  if (fingerprint.type === 'built') {
-    const serverImageHash = await getServerImageHash(serviceName, projectName, sshClient);
-    return {
-      ...fingerprint,
-      serverImageHash: serverImageHash || undefined,
-    };
-  }
-  
-  return fingerprint;
-}
