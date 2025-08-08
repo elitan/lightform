@@ -126,7 +126,8 @@ export async function createServiceFingerprint(
   
   if (isBuiltService(serviceEntry)) {
     // Built service - get local image hash directly from Docker
-    const imageName = projectName ? `${projectName}-${serviceEntry.name}` : serviceEntry.name;
+    // Use same naming convention as getServiceImageName()
+    const imageName = serviceEntry.name;
     const localImageHash = await getLocalImageHash(imageName);
     
     return {
