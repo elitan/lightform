@@ -6,8 +6,7 @@ import {
   ServiceFingerprint,
   createServiceFingerprint,
   isBuiltService,
-  getLocalImageHash,
-  getServerImageHash
+  getLocalImageHash
 } from '../src/utils/service-fingerprint';
 import { ServiceEntry, IopSecrets } from '../src/config/types';
 
@@ -311,17 +310,17 @@ describe('service-fingerprint', () => {
 
     it('should require redeploy when server image differs from local', () => {
       const current = { ...builtFingerprint, serverImageHash: 'sha256:server123' };
-      const desired = { ...builtFingerprint, serverImageHash: 'sha256:server456' };
+      const desired = { ...builtFingerprint, localImageHash: 'sha256:local456' };
       
       const result = shouldRedeploy(current, desired);
       
       expect(result.shouldRedeploy).toBe(true);
-      expect(result.reason).toBe('server image differs');
+      expect(result.reason).toBe('image updated');
       expect(result.priority).toBe('normal');
     });
 
     it('should not require redeploy when fingerprints match', () => {
-      const current = { ...builtFingerprint };
+      const current = { ...builtFingerprint, serverImageHash: 'sha256:image123' };
       const desired = { ...builtFingerprint };
       
       const result = shouldRedeploy(current, desired);
