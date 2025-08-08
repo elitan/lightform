@@ -87,11 +87,8 @@ function createBlueGreenContainerOptions(
         "iop.fingerprint-type": fingerprint.type,
         "iop.config-hash": fingerprint.configHash,
         "iop.secrets-hash": fingerprint.secretsHash,
-        ...(fingerprint.type === 'built' ? {
-          ...(fingerprint.localImageHash && { "iop.local-image-hash": fingerprint.localImageHash }),
-          ...(fingerprint.serverImageHash && { "iop.server-image-hash": fingerprint.serverImageHash }),
-        } : {
-          ...(fingerprint.imageReference && { "iop.image-reference": fingerprint.imageReference }),
+        ...(fingerprint.type === 'external' && fingerprint.imageReference && { 
+          "iop.image-reference": fingerprint.imageReference 
         }),
       } : {}),
     },
